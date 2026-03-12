@@ -1,0 +1,35 @@
+# Mosquitto configuration for SPAN eBus simulator
+# Certificate paths are substituted at container startup
+
+# MQTTS listener (TLS over TCP)
+listener 8883
+cafile /app/certs/ca.crt
+certfile /app/certs/server.crt
+keyfile /app/certs/server.key
+require_certificate false
+
+# WebSocket listener (plain)
+listener 9001
+protocol websockets
+
+# WebSocket listener (TLS)
+listener 9002
+protocol websockets
+cafile /app/certs/ca.crt
+certfile /app/certs/server.crt
+keyfile /app/certs/server.key
+require_certificate false
+
+# Authentication
+allow_anonymous false
+password_file /app/mosquitto/passwd
+
+# Persistence
+persistence true
+persistence_location /mosquitto/data/
+
+# Logging
+log_dest stdout
+log_type warning
+log_type error
+log_type notice
