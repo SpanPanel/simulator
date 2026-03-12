@@ -12,6 +12,7 @@ dependencies = [
     "aiohttp>=3.9.0",
     "cryptography>=42.0.0",
     "pyyaml>=6.0",
+    "zeroconf>=0.131.0",
 ]
 
 [project.optional-dependencies]

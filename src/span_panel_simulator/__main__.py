@@ -26,15 +26,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Standalone eBus simulator for SPAN panels",
     )
     parser.add_argument(
-        "--config",
+        "--config-dir",
         type=Path,
-        default=Path(os.environ.get("SIMULATION_CONFIG", "configs/simulation_config.yaml")),
-        help="Path to YAML simulation config",
-    )
-    parser.add_argument(
-        "--serial",
-        default=os.environ.get("PANEL_SERIAL"),
-        help="Override panel serial number",
+        default=Path(os.environ.get("CONFIG_DIR", "configs")),
+        help="Directory containing YAML simulation configs (one per panel)",
     )
     parser.add_argument(
         "--tick-interval",
@@ -95,13 +90,20 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
 
-    if not args.config.exists():
-        logging.error("Config file not found: %s", args.config)
+    config_dir: Path = args.config_dir
+    if not config_dir.is_dir():
+        logging.error("Config directory not found: %s", config_dir)
         sys.exit(1)
 
+    yamls = list(config_dir.glob("*.yaml")) + list(config_dir.glob("*.yml"))
+    if not yamls:
+        logging.error("No YAML configs found in %s", config_dir)
+        sys.exit(1)
+
+    logging.info("Found %d config(s) in %s", len(yamls), config_dir)
+
     app = SimulatorApp(
-        config_path=args.config,
-        serial_override=args.serial,
+        config_dir=config_dir,
         tick_interval=args.tick_interval,
         firmware_version=args.firmware,
         broker_host=args.broker_host,

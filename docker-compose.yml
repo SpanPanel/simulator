@@ -5,11 +5,10 @@ services:
       - "8883:8883"    # MQTTS
       - "9001:9001"    # WS
       - "9002:9002"    # WSS
-      - "443:443"      # HTTPS (bootstrap)
+      - "443:443"      # HTTPS (bootstrap + admin)
     volumes:
       - ./configs:/app/configs:ro
     environment:
-      - SIMULATION_CONFIG=/app/configs/simulation_config_32_circuit.yaml
-      - PANEL_SERIAL=SPAN-SIM-001
+      - CONFIG_DIR=/app/configs
       - TICK_INTERVAL=1.0
       - LOG_LEVEL=INFO
