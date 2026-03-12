@@ -165,13 +165,18 @@ class BootstrapHttpServer:
         token = f"sim.{secrets.token_urlsafe(32)}.{secrets.token_urlsafe(16)}"
         passphrase = body.get("hopPassphrase", "sim-passphrase")
 
+        # The broker host returned to the client must be the address the
+        # client used to reach *us* — on a real panel the broker is co-located
+        # with the HTTP server, so the client connects to the same IP for both.
+        broker_host = request.host.split(":")[0] if request.host else self._broker_host
+
         return web.json_response({
             "accessToken": token,
             "tokenType": "Bearer",
             "iatMs": int(time.time() * 1000),
             "ebusBrokerUsername": self._broker_username,
             "ebusBrokerPassword": self._broker_password,
-            "ebusBrokerHost": self._broker_host,
+            "ebusBrokerHost": broker_host,
             "ebusBrokerMqttsPort": MQTTS_PORT,
             "ebusBrokerWsPort": WS_PORT,
             "ebusBrokerWssPort": WSS_PORT,
