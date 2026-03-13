@@ -16,10 +16,14 @@ from typing import TYPE_CHECKING
 
 import aiomqtt
 
+from aiohttp import web
+
 from span_panel_simulator.bootstrap import BootstrapHttpServer
 from span_panel_simulator.certs import generate_certificates
+from span_panel_simulator.dashboard import DashboardContext, create_dashboard_app
 from span_panel_simulator.discovery import PanelAdvertiser
 from span_panel_simulator.const import (
+    DASHBOARD_PORT,
     DEFAULT_BROKER_PASSWORD,
     DEFAULT_BROKER_USERNAME,
     DEFAULT_FIRMWARE_VERSION,
@@ -99,6 +103,7 @@ class SimulatorApp:
         http_port: int = HTTPS_PORT,
         cert_dir: Path | None = None,
         homie_schema_path: Path | None = None,
+        dashboard_port: int = DASHBOARD_PORT,
         advertise_address: str | None = None,
         advertise_http_port: int | None = None,
     ) -> None:
@@ -113,6 +118,7 @@ class SimulatorApp:
         self._http_port = http_port
         self._cert_dir = cert_dir or Path("/tmp/span-sim-certs")
         self._homie_schema_path = homie_schema_path
+        self._dashboard_port = dashboard_port
         self._advertise_address = advertise_address
         self._advertise_http_port = advertise_http_port
 
@@ -121,11 +127,20 @@ class SimulatorApp:
         self._config_hashes: dict[Path, str] = {}
         self._serial_to_panel: dict[str, PanelInstance] = {}
         self._http_server: BootstrapHttpServer | None = None
+        self._dashboard_runner: web.AppRunner | None = None
         self._advertiser: PanelAdvertiser | None = None
         self._certs: CertificateBundle | None = None
         self._running = False
         self._mqtt_client: aiomqtt.Client | None = None
         self._reload_event: asyncio.Event = asyncio.Event()
+
+    # ------------------------------------------------------------------
+    # Dashboard helpers
+    # ------------------------------------------------------------------
+
+    def _get_panel_configs(self) -> dict[Path, str]:
+        """Return a mapping of config path to serial number for running panels."""
+        return {path: panel.serial_number for path, panel in self._panels.items()}
 
     # ------------------------------------------------------------------
     # MQTT publish callback (shared across all panels)
@@ -325,6 +340,24 @@ class SimulatorApp:
         self._http_server = http_server
         await http_server.start()
 
+        # 3b. Start dashboard on its own port
+        dashboard_ctx = DashboardContext(
+            config_dir=self._config_dir,
+            config_filter=self._config_filter,
+            get_panel_configs=self._get_panel_configs,
+            request_reload=self.request_reload,
+        )
+        dashboard_app = create_dashboard_app(dashboard_ctx)
+        self._dashboard_runner = web.AppRunner(dashboard_app)
+        await self._dashboard_runner.setup()
+        dashboard_site = web.TCPSite(
+            self._dashboard_runner, "0.0.0.0", self._dashboard_port
+        )
+        await dashboard_site.start()
+        _LOGGER.info(
+            "Dashboard listening on http://0.0.0.0:%d", self._dashboard_port
+        )
+
         # 4. Start mDNS advertiser
         advertiser = PanelAdvertiser(
             http_port=self._advertise_http_port or self._http_port,
@@ -362,6 +395,8 @@ class SimulatorApp:
                 await self._stop_panel(path)
             if self._advertiser is not None:
                 await self._advertiser.stop()
+            if self._dashboard_runner is not None:
+                await self._dashboard_runner.cleanup()
             if self._http_server is not None:
                 await self._http_server.stop()
             _LOGGER.info("Simulator shut down")

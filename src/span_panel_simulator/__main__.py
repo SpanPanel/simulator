@@ -11,6 +11,7 @@ from pathlib import Path
 
 from span_panel_simulator.app import SimulatorApp
 from span_panel_simulator.const import (
+    DASHBOARD_PORT,
     DEFAULT_BROKER_PASSWORD,
     DEFAULT_BROKER_USERNAME,
     DEFAULT_FIRMWARE_VERSION,
@@ -80,6 +81,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Directory for generated TLS certificates",
     )
     parser.add_argument(
+        "--dashboard-port",
+        type=int,
+        default=int(os.environ.get("DASHBOARD_PORT", str(DASHBOARD_PORT))),
+        help="Port for the configuration dashboard (default: 8080)",
+    )
+    parser.add_argument(
         "--advertise-address",
         default=os.environ.get("ADVERTISE_ADDRESS"),
         help="IP address to advertise via mDNS (required when running in a VM)",
@@ -146,6 +153,7 @@ def main(argv: list[str] | None = None) -> None:
         broker_username=args.broker_username,
         broker_password=args.broker_password,
         cert_dir=args.cert_dir,
+        dashboard_port=args.dashboard_port,
         advertise_address=args.advertise_address,
         advertise_http_port=args.advertise_http_port,
     )

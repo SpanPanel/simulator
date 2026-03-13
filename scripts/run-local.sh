@@ -16,6 +16,7 @@ Prerequisites: brew install mosquitto
 
 Options:
   --stop        Stop the running simulator and Mosquitto
+  --restart     Stop then start the simulator and Mosquitto
   --status      Show running processes
   -h, --help    Show this help message
 
@@ -28,6 +29,7 @@ Environment variables:
   BROKER_USERNAME   MQTT broker username (default: span)
   BROKER_PASSWORD   MQTT broker password (default: sim-password)
   HTTP_PORT         Bootstrap HTTP port (default: 80)
+  DASHBOARD_PORT    Dashboard UI port (default: 8080)
   BROKER_PORT       MQTTS port (default: 8883)
 EOF
     exit 0
@@ -40,6 +42,7 @@ VENV_DIR="${REPO_DIR}/.venv"
 BROKER_USERNAME="${BROKER_USERNAME:-span}"
 BROKER_PASSWORD="${BROKER_PASSWORD:-sim-password}"
 HTTP_PORT="${HTTP_PORT:-80}"
+DASHBOARD_PORT="${DASHBOARD_PORT:-8080}"
 ADVERTISE_HTTP_PORT="${ADVERTISE_HTTP_PORT:-${HTTP_PORT}}"
 BROKER_PORT="${BROKER_PORT:-8883}"
 
@@ -167,9 +170,10 @@ run_simulator() {
     local config_dir="${CONFIG_DIR:-${REPO_DIR}/configs}"
 
     echo "==> Starting simulator..."
-    echo "    Config:  ${config_dir}"
-    echo "    HTTP:    ${advertise_addr}:${HTTP_PORT}"
-    echo "    MQTTS:   ${advertise_addr}:${BROKER_PORT}"
+    echo "    Config:     ${config_dir}"
+    echo "    HTTP:       ${advertise_addr}:${HTTP_PORT}"
+    echo "    Dashboard:  http://${advertise_addr:-localhost}:${DASHBOARD_PORT}"
+    echo "    MQTTS:      ${advertise_addr}:${BROKER_PORT}"
     if [[ -n "${advertise_addr}" ]]; then
         echo "    mDNS:    ${advertise_addr}"
     fi
@@ -181,6 +185,7 @@ run_simulator() {
         --broker-username "${BROKER_USERNAME}" \
         --broker-password "${BROKER_PASSWORD}" \
         --cert-dir "${CERT_DIR}" \
+        --dashboard-port "${DASHBOARD_PORT}" \
         --tick-interval "${TICK_INTERVAL:-1.0}" \
         --log-level "${LOG_LEVEL:-INFO}" \
         ${advertise_addr:+--advertise-address "${advertise_addr}"} \
@@ -206,8 +211,9 @@ ACTION="run"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --stop)   ACTION="stop"; shift ;;
-        --status) ACTION="status"; shift ;;
+        --stop)    ACTION="stop"; shift ;;
+        --restart) ACTION="restart"; shift ;;
+        --status)  ACTION="status"; shift ;;
         -h|--help) usage ;;
         *) echo "Unknown option: $1"; usage ;;
     esac
@@ -216,6 +222,17 @@ done
 case "${ACTION}" in
     stop)
         stop_all
+        ;;
+    restart)
+        stop_all
+        sleep 1
+        ADVERTISE_ADDR="${ADVERTISE_ADDRESS:-$(get_host_ip)}"
+        ensure_prerequisites
+        ensure_venv
+        generate_certs
+        setup_mosquitto
+        start_mosquitto
+        run_simulator
         ;;
     status)
         show_status

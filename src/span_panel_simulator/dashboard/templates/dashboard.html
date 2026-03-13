@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<section id="panel-config-section" hx-target="this" hx-swap="innerHTML">
+  {% include "partials/panel_config.html" %}
+</section>
+
+<section id="sim-params-section" hx-target="this" hx-swap="innerHTML">
+  {% include "partials/simulation_params.html" %}
+</section>
+
+<section id="entity-list-section" hx-target="this" hx-swap="innerHTML">
+  {% include "partials/entity_list.html" %}
+</section>
+{% endblock %}

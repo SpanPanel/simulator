@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SPAN Panel Simulator Dashboard</title>
+  <link rel="stylesheet" href="{{ static_url }}/dashboard.css">
+  <script src="{{ static_url }}/htmx.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>SPAN Panel Simulator Dashboard</h1>
+    <div class="header-actions">
+      <label class="date-selector">
+        Month:
+        <select id="sim-month" name="month">
+          {% for m in range(1, 13) %}
+          <option value="{{ m }}" {{ 'selected' if m == 3 }}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="date-selector">
+        Day:
+        <input type="number" id="sim-day" name="day" value="15" min="1" max="31" style="width:3em">
+      </label>
+      <form method="post" enctype="multipart/form-data"
+            hx-post="import" hx-target="#main-content" hx-encoding="multipart/form-data"
+            style="display:inline">
+        <label class="btn btn-secondary">
+          Import
+          <input type="file" name="file" accept=".yaml,.yml" hidden
+                 onchange="this.closest('form').dispatchEvent(new Event('submit', {bubbles:true}))">
+        </label>
+      </form>
+      <a href="export" class="btn btn-secondary">Export</a>
+      <button class="btn btn-primary"
+              hx-post="save-reload" hx-target="#flash-area" hx-swap="innerHTML">
+        Save &amp; Reload
+      </button>
+    </div>
+  </header>
+  <div id="flash-area"></div>
+  <main id="main-content">
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    // Make month/day available to HTMX requests
+    document.body.addEventListener('htmx:configRequest', function(evt) {
+      var month = document.getElementById('sim-month');
+      var day = document.getElementById('sim-day');
+      if (month && day) {
+        evt.detail.parameters['month'] = month.value;
+        evt.detail.parameters['day'] = day.value;
+      }
+    });
+  </script>
+</body>
+</html>

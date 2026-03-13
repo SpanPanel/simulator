@@ -1,0 +1,90 @@
+{% set e = editing_entity if editing_entity is defined else entity %}
+{% set profile = editing_profile if editing_profile is defined else {} %}
+<div class="entity-edit" id="entity-{{ e.id }}">
+  <form hx-put="entities/{{ e.id }}" hx-target="#entity-list-section" hx-swap="innerHTML">
+    <div class="edit-header">
+      <span class="badge badge-{{ e.entity_type }}">{{ e.entity_type|upper }}</span>
+      <h3>Editing: {{ e.name }}</h3>
+    </div>
+
+    <div class="form-grid">
+      <label>Name:
+        <input type="text" name="name" value="{{ e.name }}">
+      </label>
+      <label>Tabs (comma-separated):
+        <input type="text" name="tabs" value="{{ e.tabs|join(', ') }}">
+      </label>
+      <label>Priority:
+        <select name="priority">
+          {% for p in priorities %}
+          <option value="{{ p }}" {{ 'selected' if p == e.priority }}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Relay Behavior:
+        <select name="relay_behavior">
+          {% for r in relay_behaviors %}
+          <option value="{{ r }}" {{ 'selected' if r == e.relay_behavior }}>{{ r }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <fieldset>
+      <legend>Energy Profile</legend>
+      <div class="form-grid">
+        <label>Typical Power (W):
+          <input type="number" name="typical_power" value="{{ e.energy_profile.typical_power }}" step="0.1">
+        </label>
+        <label>Min Power (W):
+          <input type="number" name="power_range_min" value="{{ e.energy_profile.power_range[0] }}" step="0.1">
+        </label>
+        <label>Max Power (W):
+          <input type="number" name="power_range_max" value="{{ e.energy_profile.power_range[1] }}" step="0.1">
+        </label>
+      </div>
+    </fieldset>
+
+    {% if e.cycling_pattern %}
+    <fieldset>
+      <legend>Cycling Pattern</legend>
+      <div class="form-grid">
+        <label>On Duration (s): <input type="number" value="{{ e.cycling_pattern.on_duration }}" disabled></label>
+        <label>Off Duration (s): <input type="number" value="{{ e.cycling_pattern.off_duration }}" disabled></label>
+      </div>
+    </fieldset>
+    {% endif %}
+
+    {% if e.smart_behavior %}
+    <fieldset>
+      <legend>Smart Behavior</legend>
+      <div class="form-grid">
+        <label>Responds to Grid: <input type="checkbox" {{ 'checked' if e.smart_behavior.responds_to_grid }} disabled></label>
+        <label>Max Power Reduction: <input type="number" value="{{ e.smart_behavior.max_power_reduction }}" disabled step="0.1"></label>
+      </div>
+    </fieldset>
+    {% endif %}
+
+    {% if e.battery_behavior %}
+    <fieldset>
+      <legend>Battery Behavior</legend>
+      <div class="form-grid">
+        <label>Charge Power (W): <input type="number" value="{{ e.battery_behavior.charge_power }}" disabled></label>
+        <label>Discharge Power (W): <input type="number" value="{{ e.battery_behavior.discharge_power }}" disabled></label>
+      </div>
+    </fieldset>
+    {% endif %}
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Save</button>
+      <button type="button" class="btn btn-secondary"
+              hx-get="entities" hx-target="#entity-list-section" hx-swap="innerHTML">Cancel</button>
+    </div>
+  </form>
+
+  {% if preset_labels %}
+  <div id="profile-{{ e.id }}" hx-target="this" hx-swap="innerHTML">
+    {% include "partials/profile_editor.html" %}
+  </div>
+  {% endif %}
+</div>

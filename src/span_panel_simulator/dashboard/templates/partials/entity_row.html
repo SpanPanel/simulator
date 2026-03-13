@@ -1,0 +1,15 @@
+<div class="entity-row" id="entity-{{ entity.id }}">
+  <span class="badge badge-{{ entity.entity_type }}">{{ entity.entity_type|upper }}</span>
+  <span class="entity-name">{{ entity.name }}</span>
+  <span class="entity-tabs">tabs: {{ entity.tabs|join(', ') }}</span>
+  <span class="entity-power">{{ entity.energy_profile.typical_power }}W</span>
+  <button class="btn btn-sm"
+          hx-get="entities/{{ entity.id }}/edit"
+          hx-target="#entity-list-section"
+          hx-swap="innerHTML">Edit</button>
+  <button class="btn btn-sm btn-danger"
+          hx-delete="entities/{{ entity.id }}"
+          hx-target="#entity-list-section"
+          hx-swap="innerHTML"
+          hx-confirm="Delete {{ entity.name }}?">Del</button>
+</div>

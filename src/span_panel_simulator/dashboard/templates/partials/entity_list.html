@@ -1,0 +1,110 @@
+<div class="card">
+  <div class="card-header">
+    <h2>Entities ({{ entities|length }})</h2>
+    <div class="add-entity">
+      <select id="new-entity-type" name="entity_type" form="add-entity-form">
+        {% for t in entity_types %}
+        <option value="{{ t }}">{{ t|title }}</option>
+        {% endfor %}
+      </select>
+      <form id="add-entity-form" hx-post="entities" hx-target="#entity-list-section" hx-swap="innerHTML">
+        <input type="hidden" name="entity_type" id="add-entity-type-hidden">
+        <button type="submit" class="btn btn-sm btn-primary" onclick="document.getElementById('add-entity-type-hidden').value=document.getElementById('new-entity-type').value">+ Add Entity</button>
+      </form>
+    </div>
+  </div>
+  <div class="entity-table">
+    {% set ns = namespace(prev_infra=true) %}
+    {% for entity in entities %}
+      {% set is_infra = entity.entity_type in ('pv', 'battery', 'evse') %}
+      {% if ns.prev_infra and not is_infra %}
+        <hr class="entity-divider">
+        {% set ns.prev_infra = false %}
+      {% endif %}
+      {% if editing_id is defined and editing_id == entity.id %}
+        {% include "partials/entity_edit.html" with context %}
+      {% else %}
+        {% include "partials/entity_row.html" %}
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+
+{% if unmapped_tabs is defined and unmapped_tabs %}
+<div class="card unmapped-card">
+  <div class="card-header">
+    <h2>Unmapped Tabs ({{ unmapped_tabs|length }})</h2>
+  </div>
+  {% if unmapped_error is defined and unmapped_error %}
+  <div class="flash error">{{ unmapped_error }}</div>
+  {% endif %}
+  <form id="unmapped-form" hx-post="entities/from-tabs" hx-target="#entity-list-section" hx-swap="innerHTML">
+    <div class="unmapped-tabs">
+      {% for tab in unmapped_tabs %}
+      <label class="unmapped-tab">
+        <input type="checkbox" name="tabs" value="{{ tab }}"
+               onchange="unmappedTabChanged(this)">
+        <span class="tab-number">{{ tab }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="unmapped-actions">
+      <button type="submit" class="btn btn-sm btn-primary" id="unmapped-add-btn" disabled>
+        Add Circuit from Selected Tabs
+      </button>
+      <span class="unmapped-hint" id="unmapped-hint">Select 1 or 2 tabs</span>
+    </div>
+  </form>
+</div>
+<script>
+function unmappedTabChanged(el) {
+  var form = document.getElementById('unmapped-form');
+  var checks = form.querySelectorAll('input[name="tabs"]');
+  var selected = [];
+  checks.forEach(function(cb) { if (cb.checked) selected.push(cb); });
+  var selectedValues = selected.map(function(cb) { return parseInt(cb.value); });
+  var btn = document.getElementById('unmapped-add-btn');
+  var hint = document.getElementById('unmapped-hint');
+
+  if (selected.length === 0) {
+    /* Nothing selected — all enabled */
+    checks.forEach(function(cb) { cb.disabled = false; });
+    btn.disabled = true;
+    hint.textContent = 'Select 1 or 2 tabs';
+    hint.className = 'unmapped-hint';
+  } else if (selected.length === 1) {
+    /* One selected — enable only valid 240V partners + self */
+    var t = selectedValues[0];
+    var validPartners = [];
+    if (t - 2 > 0 && (t - 2) % 2 === t % 2) validPartners.push(t - 2);
+    if ((t + 2) % 2 === t % 2) validPartners.push(t + 2);
+    checks.forEach(function(cb) {
+      var v = parseInt(cb.value);
+      cb.disabled = !cb.checked && validPartners.indexOf(v) === -1;
+    });
+    btn.disabled = false;
+    hint.textContent = 'Add as 120V single-pole, or select a second tab for 240V';
+    hint.className = 'unmapped-hint';
+  } else if (selected.length === 2) {
+    /* Two selected — validate pair, disable rest */
+    var a = Math.min(selectedValues[0], selectedValues[1]);
+    var b = Math.max(selectedValues[0], selectedValues[1]);
+    var valid = (a % 2 === b % 2) && (b - a === 2);
+    checks.forEach(function(cb) { if (!cb.checked) cb.disabled = true; });
+    if (valid) {
+      btn.disabled = false;
+      hint.textContent = 'Valid 240V double-pole pair';
+      hint.className = 'unmapped-hint hint-valid';
+    } else {
+      btn.disabled = true;
+      hint.textContent = 'Invalid pair: must be same parity, exactly 2 apart';
+      hint.className = 'unmapped-hint hint-error';
+    }
+  } else {
+    /* More than 2 — shouldn't happen, but uncheck last */
+    el.checked = false;
+    unmappedTabChanged(el);
+  }
+}
+</script>
+{% endif %}
