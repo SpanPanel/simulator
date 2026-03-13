@@ -52,8 +52,19 @@ def _file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _discover_configs(config_dir: Path) -> dict[Path, str]:
-    """Scan a directory for YAML config files and return path → content hash."""
+def _discover_configs(
+    config_dir: Path, config_filter: str | None = None
+) -> dict[Path, str]:
+    """Scan a directory for YAML config files and return path -> content hash.
+
+    When *config_filter* is set, only the named file is returned.
+    """
+    if config_filter:
+        path = config_dir / config_filter
+        if path.exists():
+            return {path: _file_hash(path)}
+        return {}
+
     configs: dict[Path, str] = {}
     for pattern in ("*.yaml", "*.yml"):
         for path in sorted(config_dir.glob(pattern)):
@@ -78,6 +89,7 @@ class SimulatorApp:
         self,
         config_dir: Path,
         *,
+        config_filter: str | None = None,
         tick_interval: float = DEFAULT_TICK_INTERVAL_S,
         firmware_version: str = DEFAULT_FIRMWARE_VERSION,
         broker_username: str = DEFAULT_BROKER_USERNAME,
@@ -87,8 +99,11 @@ class SimulatorApp:
         http_port: int = HTTPS_PORT,
         cert_dir: Path | None = None,
         homie_schema_path: Path | None = None,
+        advertise_address: str | None = None,
+        advertise_http_port: int | None = None,
     ) -> None:
         self._config_dir = config_dir
+        self._config_filter = config_filter
         self._tick_interval = tick_interval
         self._firmware = firmware_version
         self._broker_username = broker_username
@@ -98,6 +113,8 @@ class SimulatorApp:
         self._http_port = http_port
         self._cert_dir = cert_dir or Path("/tmp/span-sim-certs")
         self._homie_schema_path = homie_schema_path
+        self._advertise_address = advertise_address
+        self._advertise_http_port = advertise_http_port
 
         # Tracked state
         self._panels: dict[Path, PanelInstance] = {}
@@ -167,7 +184,7 @@ class SimulatorApp:
 
             {"started": [...], "stopped": [...], "reloaded": [...]}
         """
-        current = _discover_configs(self._config_dir)
+        current = _discover_configs(self._config_dir, self._config_filter)
         prev = self._config_hashes
 
         to_start = set(current) - set(prev)
@@ -287,7 +304,9 @@ class SimulatorApp:
     async def run(self) -> None:
         """Run the full simulator lifecycle."""
         # 1. Generate TLS certificates
-        certs = generate_certificates(self._cert_dir)
+        certs = generate_certificates(
+            self._cert_dir, advertise_address=self._advertise_address
+        )
         self._certs = certs
 
         # 2. Resolve homie schema
@@ -307,7 +326,10 @@ class SimulatorApp:
         await http_server.start()
 
         # 4. Start mDNS advertiser
-        advertiser = PanelAdvertiser(http_port=self._http_port)
+        advertiser = PanelAdvertiser(
+            http_port=self._advertise_http_port or self._http_port,
+            advertise_address=self._advertise_address,
+        )
         self._advertiser = advertiser
         await advertiser.start()
 

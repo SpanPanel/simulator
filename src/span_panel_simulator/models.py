@@ -43,6 +43,8 @@ class SpanCircuitSnapshot:
 class SpanPVSnapshot:
     """PV inverter metadata."""
 
+    node_id: str = ""
+    feed_circuit_id: str = ""
     vendor_name: str | None = None
     product_name: str | None = None
     nameplate_capacity_w: float | None = None

@@ -1187,6 +1187,19 @@ class DynamicSimulationEngine:
             connected=True,
         )
 
+        # --- PV ---
+        pv_snapshot = SpanPVSnapshot()
+        for cid, circ in circuit_snapshots.items():
+            if circ.device_type == "pv":
+                pv_snapshot = SpanPVSnapshot(
+                    node_id=f"sim_pv_{cid}",
+                    feed_circuit_id=cid,
+                    vendor_name="Simulated",
+                    product_name="Virtual PV Inverter",
+                    nameplate_capacity_w=5000.0,
+                )
+                break  # One PV node
+
         # --- EVSE ---
         evse_devices: dict[str, SpanEvseSnapshot] = {}
         for cid, circ in circuit_snapshots.items():
@@ -1251,7 +1264,7 @@ class DynamicSimulationEngine:
             downstream_l2_current_a=abs(feedthrough_power / 240.0),
             circuits=circuit_snapshots,
             battery=battery_snapshot,
-            pv=SpanPVSnapshot(),
+            pv=pv_snapshot,
             evse=evse_devices,
         )
 

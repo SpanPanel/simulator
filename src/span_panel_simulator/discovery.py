@@ -20,8 +20,18 @@ SERVICE_TYPE_EBUS = "_ebus._tcp.local."
 SERVICE_TYPE_SPAN = "_span._tcp.local."
 
 
-def _get_host_addresses() -> list[str]:
-    """Return non-loopback IPv4 addresses for this host."""
+def _get_host_addresses(advertise_address: str | None = None) -> list[str]:
+    """Return IPv4 addresses to advertise via mDNS.
+
+    Args:
+        advertise_address: Explicit address to advertise.  When running
+            inside a VM (e.g. Colima) the auto-detected addresses may be
+            internal to the VM; set this to the VM's routable IP so that
+            clients on the host network can reach the simulator.
+    """
+    if advertise_address:
+        return [advertise_address]
+
     addrs: list[str] = []
     try:
         hostname = socket.gethostname()
@@ -39,8 +49,13 @@ def _get_host_addresses() -> list[str]:
 class PanelAdvertiser:
     """Manages mDNS advertisements for simulated panels."""
 
-    def __init__(self, http_port: int = 443) -> None:
+    def __init__(
+        self,
+        http_port: int = 443,
+        advertise_address: str | None = None,
+    ) -> None:
         self._http_port = http_port
+        self._advertise_address = advertise_address
         self._zeroconf: AsyncZeroconf | None = None
         self._services: dict[str, list[ServiceInfo]] = {}  # serial → [ServiceInfo]
 
@@ -71,7 +86,7 @@ class PanelAdvertiser:
         if self._zeroconf is None:
             return
 
-        addresses = _get_host_addresses()
+        addresses = _get_host_addresses(self._advertise_address)
         parsed_addrs = [socket.inet_aton(a) for a in addresses]
 
         properties = {
@@ -91,7 +106,15 @@ class PanelAdvertiser:
                 properties=properties,
                 server=f"span-sim-{serial}.local.",
             )
-            await self._zeroconf.async_register_service(info)
+            try:
+                await self._zeroconf.async_register_service(info)
+            except Exception:
+                _LOGGER.warning(
+                    "mDNS registration failed for %s (name conflict?) — "
+                    "panel will still work via direct IP",
+                    name,
+                )
+                continue
             services.append(info)
 
         self._services[serial] = services

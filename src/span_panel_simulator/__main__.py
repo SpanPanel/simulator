@@ -32,6 +32,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Directory containing YAML simulation configs (one per panel)",
     )
     parser.add_argument(
+        "--config",
+        default=os.environ.get("CONFIG_NAME"),
+        help="Name of a specific config file to load (e.g., default_config.yaml). "
+        "When omitted, loads default_config.yaml if it exists, otherwise all configs.",
+    )
+    parser.add_argument(
         "--tick-interval",
         type=float,
         default=float(os.environ.get("TICK_INTERVAL", str(DEFAULT_TICK_INTERVAL_S))),
@@ -74,6 +80,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Directory for generated TLS certificates",
     )
     parser.add_argument(
+        "--advertise-address",
+        default=os.environ.get("ADVERTISE_ADDRESS"),
+        help="IP address to advertise via mDNS (required when running in a VM)",
+    )
+    parser.add_argument(
+        "--advertise-http-port",
+        type=int,
+        default=int(os.environ.get("ADVERTISE_HTTP_PORT", "0")) or None,
+        help="Port to advertise via mDNS (when host port differs from container port)",
+    )
+    parser.add_argument(
         "--log-level",
         default=os.environ.get("LOG_LEVEL", "INFO"),
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -95,15 +112,32 @@ def main(argv: list[str] | None = None) -> None:
         logging.error("Config directory not found: %s", config_dir)
         sys.exit(1)
 
-    yamls = list(config_dir.glob("*.yaml")) + list(config_dir.glob("*.yml"))
-    if not yamls:
-        logging.error("No YAML configs found in %s", config_dir)
-        sys.exit(1)
-
-    logging.info("Found %d config(s) in %s", len(yamls), config_dir)
+    # Resolve which config(s) to load
+    config_filter: str | None = args.config
+    if config_filter:
+        # Explicit --config given: load only that file
+        config_path = config_dir / config_filter
+        if not config_path.exists():
+            logging.error("Config file not found: %s", config_path)
+            sys.exit(1)
+        logging.info("Using config: %s", config_path.name)
+    else:
+        # No --config: use default_config.yaml if it exists
+        default_path = config_dir / "default_config.yaml"
+        if default_path.exists():
+            config_filter = "default_config.yaml"
+            logging.info("Using default config: %s", default_path.name)
+        else:
+            # Fall back to all configs
+            yamls = list(config_dir.glob("*.yaml")) + list(config_dir.glob("*.yml"))
+            if not yamls:
+                logging.error("No YAML configs found in %s", config_dir)
+                sys.exit(1)
+            logging.info("Found %d config(s) in %s", len(yamls), config_dir)
 
     app = SimulatorApp(
         config_dir=config_dir,
+        config_filter=config_filter,
         tick_interval=args.tick_interval,
         firmware_version=args.firmware,
         broker_host=args.broker_host,
@@ -112,6 +146,8 @@ def main(argv: list[str] | None = None) -> None:
         broker_username=args.broker_username,
         broker_password=args.broker_password,
         cert_dir=args.cert_dir,
+        advertise_address=args.advertise_address,
+        advertise_http_port=args.advertise_http_port,
     )
 
     try:

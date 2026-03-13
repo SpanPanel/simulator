@@ -6,7 +6,7 @@ from __future__ import annotations
 MQTTS_PORT = 8883
 WS_PORT = 9001
 WSS_PORT = 9002
-HTTPS_PORT = 443
+HTTPS_PORT = 80
 
 # Default simulation parameters
 DEFAULT_TICK_INTERVAL_S = 1.0

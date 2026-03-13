@@ -165,8 +165,8 @@ class HomiePublisher:
             nodes[NODE_BESS] = {"type": TYPE_BESS}
         if snapshot.pv.vendor_name is not None or snapshot.pv.nameplate_capacity_w is not None:
             nodes[NODE_PV] = {"type": TYPE_PV}
-        if snapshot.evse:
-            nodes[NODE_EVSE] = {"type": TYPE_EVSE}
+        for idx in range(len(snapshot.evse)):
+            nodes[f"evse-{idx}"] = {"type": TYPE_EVSE}
 
         # Power flows always present
         nodes[NODE_POWER_FLOWS] = {"type": TYPE_POWER_FLOWS}
@@ -321,6 +321,11 @@ class HomiePublisher:
         if pv.vendor_name is None and pv.nameplate_capacity_w is None:
             return
         n = NODE_PV
+        # feed references the circuit node UUID so the integration can
+        # annotate the circuit with device_type="pv"
+        if pv.feed_circuit_id:
+            circuit_uuid = self._ensure_circuit_uuid(pv.feed_circuit_id)
+            p[self._prop_topic(n, "feed")] = circuit_uuid
         p[self._prop_topic(n, "vendor-name")] = pv.vendor_name or "Simulated"
         p[self._prop_topic(n, "product-name")] = pv.product_name or "Virtual PV"
         p[self._prop_topic(n, "serial-number")] = f"SIM-PV-{self._serial}"
@@ -333,19 +338,25 @@ class HomiePublisher:
     def _map_evse(self, s: SpanPanelSnapshot, p: dict[str, str]) -> None:
         if not s.evse:
             return
-        n = NODE_EVSE
-        # Take the first EVSE device for node-level properties
-        first_evse = next(iter(s.evse.values()))
-        p[self._prop_topic(n, "vendor-name")] = first_evse.vendor_name or "Simulated"
-        p[self._prop_topic(n, "product-name")] = first_evse.product_name or "Virtual EVSE"
-        if first_evse.serial_number:
-            p[self._prop_topic(n, "serial-number")] = first_evse.serial_number
-        p[self._prop_topic(n, "status")] = first_evse.status
-        p[self._prop_topic(n, "lock-state")] = first_evse.lock_state
-        if first_evse.advertised_current_a is not None:
-            p[self._prop_topic(n, "advertised-current")] = _format_float(
-                first_evse.advertised_current_a
-            )
+        for idx, evse in enumerate(s.evse.values()):
+            n = f"evse-{idx}"
+            # feed references the circuit node UUID so the integration can
+            # annotate the circuit with device_type="evse"
+            if evse.feed_circuit_id:
+                circuit_uuid = self._ensure_circuit_uuid(evse.feed_circuit_id)
+                p[self._prop_topic(n, "feed")] = circuit_uuid
+            p[self._prop_topic(n, "vendor-name")] = evse.vendor_name or "SPAN"
+            p[self._prop_topic(n, "product-name")] = evse.product_name or "SPAN Drive"
+            if evse.serial_number:
+                p[self._prop_topic(n, "serial-number")] = evse.serial_number
+            if evse.software_version:
+                p[self._prop_topic(n, "software-version")] = evse.software_version
+            p[self._prop_topic(n, "status")] = evse.status
+            p[self._prop_topic(n, "lock-state")] = evse.lock_state
+            if evse.advertised_current_a is not None:
+                p[self._prop_topic(n, "advertised-current")] = _format_float(
+                    evse.advertised_current_a
+                )
 
     def _map_power_flows(self, s: SpanPanelSnapshot, p: dict[str, str]) -> None:
         n = NODE_POWER_FLOWS

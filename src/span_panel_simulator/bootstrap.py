@@ -123,20 +123,14 @@ class BootstrapHttpServer:
         if not self._panels:
             raise web.HTTPServiceUnavailable(text="No panels running")
 
-        # Single-panel case: return exactly what a real panel returns
-        if len(self._panels) == 1:
-            serial, firmware = next(iter(self._panels.items()))
-            return web.json_response({
-                "serialNumber": serial,
-                "firmwareVersion": firmware,
-            })
-
-        # Multi-panel: return all (non-standard extension)
-        panels = [
-            {"serialNumber": serial, "firmwareVersion": fw}
-            for serial, fw in self._panels.items()
-        ]
-        return web.json_response({"panels": panels})
+        # Return the first panel — mirrors a real SPAN panel which only
+        # has one identity.  Use ?serial=XXX for a specific panel or
+        # /admin/panels for the full list.
+        serial, firmware = next(iter(self._panels.items()))
+        return web.json_response({
+            "serialNumber": serial,
+            "firmwareVersion": firmware,
+        })
 
     async def _handle_register(self, request: web.Request) -> web.Response:
         """POST /api/v2/auth/register — return MQTT credentials.
