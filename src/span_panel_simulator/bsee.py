@@ -71,16 +71,30 @@ class BatteryStorageEquipment:
     def update(self, current_time: float, battery_power_w: float) -> None:
         """Refresh BSEE state for the current tick.
 
-        Integrates power over time to track actual stored energy.
+        Resolves the scheduled battery state, enforces SOE bounds (the
+        battery transitions to idle when it hits the reserve or full
+        charge), then integrates the effective power over time.
 
         Args:
             current_time: Simulation timestamp (seconds since epoch).
             battery_power_w: Instantaneous battery circuit power (watts).
-                Positive = charging, negative = discharging (convention
-                matches the engine's bidirectional circuit output).
+                Positive = charging/discharging magnitude from the engine.
         """
-        self._battery_power_w = battery_power_w
         self._battery_state = self._resolve_battery_state(current_time)
+
+        # Enforce SOE bounds — stop discharge at reserve, stop charge at max
+        effective_min_pct = (
+            _SOE_HARD_MIN_PCT if self._forced_offline
+            else self._backup_reserve_pct
+        )
+        if self._battery_state == "discharging" and self.soe_percentage <= effective_min_pct:
+            self._battery_state = "idle"
+            battery_power_w = 0.0
+        elif self._battery_state == "charging" and self.soe_percentage >= _SOE_MAX_PCT:
+            self._battery_state = "idle"
+            battery_power_w = 0.0
+
+        self._battery_power_w = battery_power_w
         self._integrate_energy(current_time, battery_power_w)
         self._last_update_time = current_time
 

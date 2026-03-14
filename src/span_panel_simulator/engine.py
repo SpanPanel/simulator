@@ -620,9 +620,18 @@ class DynamicSimulationEngine:
             grid_power = 0.0
 
         # 6. Battery / BSEE
-        battery_power_w = self._find_battery_power()
+        battery_circuit = self._find_battery_circuit()
+        battery_power_w = battery_circuit.instant_power_w if battery_circuit else 0.0
         if self._bsee is not None:
             self._bsee.update(current_time, battery_power_w)
+
+            # Reflect effective power back — BSEE may have zeroed it
+            # (e.g. SOE hit backup reserve or full charge)
+            effective_power = self._bsee.battery_power_w
+            if battery_circuit is not None and effective_power != battery_power_w:
+                battery_circuit._instant_power_w = effective_power
+                battery_power_w = effective_power
+
             battery_snapshot = SpanBatterySnapshot(
                 soe_percentage=self._bsee.soe_percentage,
                 soe_kwh=self._bsee.soe_kwh,
@@ -856,13 +865,13 @@ class DynamicSimulationEngine:
                     is_never_backup=False,
                 )
 
-    def _find_battery_power(self) -> float:
-        """Find battery circuit power for BSEE update."""
+    def _find_battery_circuit(self) -> SimulatedCircuit | None:
+        """Find the battery circuit instance, if any."""
         for circuit in self._circuits.values():
             battery_cfg = circuit.template.get("battery_behavior", {})
             if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
-                return circuit.instant_power_w
-        return 0.0
+                return circuit
+        return None
 
     def _create_bsee(self) -> BatteryStorageEquipment | None:
         """Create a BSEE if the config contains a battery circuit."""
