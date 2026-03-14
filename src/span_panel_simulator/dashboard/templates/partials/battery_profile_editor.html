@@ -34,13 +34,15 @@
 
   <div class="battery-section">
     <h4 class="battery-section-heading">Discharge Preset</h4>
-    <div class="preset-buttons">
+    <div class="charge-mode-selector">
       {% for key, label in battery_preset_labels.items() %}
-      <button type="button" class="btn btn-sm"
-              hx-post="entities/{{ entity.id }}/battery-profile/preset"
-              hx-target="#battery-profile-{{ entity.id }}"
-              hx-swap="innerHTML"
-              hx-vals='{"preset": "{{ key }}"}'>{{ label }}</button>
+      <label class="charge-mode-option{% if battery_active_preset == key %} active{% endif %}"
+             hx-post="entities/{{ entity.id }}/battery-profile/preset"
+             hx-target="#battery-profile-{{ entity.id }}"
+             hx-swap="innerHTML"
+             hx-vals='{"preset": "{{ key }}"}'>
+        {{ label }}
+      </label>
       {% endfor %}
     </div>
   </div>

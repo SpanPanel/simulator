@@ -111,6 +111,14 @@ def get_battery_preset(name: str) -> dict[int, str]:
     return dict(preset)
 
 
+def match_battery_preset(profile: dict[int, str]) -> str | None:
+    """Return the preset key matching the current battery profile, or None."""
+    for key, preset in BATTERY_PRESET_REGISTRY.items():
+        if all(profile.get(h, "idle") == preset.get(h, "idle") for h in range(24)):
+            return key
+    return None
+
+
 PRESET_REGISTRY: dict[str, dict[int, float] | None] = {
     "evening_lighting": EVENING_LIGHTING,
     "always_on": ALWAYS_ON,

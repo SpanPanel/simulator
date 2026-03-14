@@ -17,6 +17,7 @@ from span_panel_simulator.dashboard.presets import (
     EVSE_PRESET_LABELS,
     PRESET_LABELS,
     PRESETS_BY_TYPE,
+    match_battery_preset,
 )
 from span_panel_simulator.dashboard.solar import compute_solar_curve
 from span_panel_simulator.weather import fetch_historical_weather, get_cached_weather
@@ -103,8 +104,10 @@ def _entity_list_context(
         ctx["preset_labels"] = _presets_for_type(entity.entity_type)
         if entity.entity_type == "battery":
             ctx["battery_preset_labels"] = BATTERY_PRESET_LABELS
-            ctx["battery_profile"] = store.get_battery_profile(editing_id)
+            battery_profile = store.get_battery_profile(editing_id)
+            ctx["battery_profile"] = battery_profile
             ctx["battery_charge_mode"] = store.get_battery_charge_mode(editing_id)
+            ctx["battery_active_preset"] = match_battery_preset(battery_profile)
         if entity.entity_type == "pv":
             panel = store.get_panel_config()
             lat = panel.get("latitude", 37.7)
@@ -141,11 +144,13 @@ def _battery_profile_context(request: web.Request, entity_id: str) -> dict[str, 
     """Build the battery profile editor template context."""
     store = _store(request)
     entity = store.get_entity(entity_id)
+    battery_profile = store.get_battery_profile(entity_id)
     return {
         "entity": entity,
-        "battery_profile": store.get_battery_profile(entity_id),
+        "battery_profile": battery_profile,
         "battery_preset_labels": BATTERY_PRESET_LABELS,
         "battery_charge_mode": store.get_battery_charge_mode(entity_id),
+        "battery_active_preset": match_battery_preset(battery_profile),
     }
 
 
