@@ -11,6 +11,8 @@ and energy modeling.
 
 ![PV editor — solar production curve with geographic modeling and historical weather degradation](docs/images/dashboard2.png)
 
+![PV editor — BESS Charge and Discharge Profile](docs/images/dashboard_battery.png)
+
 ## Quick Start (macOS)
 
 ```bash
@@ -31,15 +33,15 @@ The script automatically:
 
 - Creates a Python virtual environment via `uv` and installs the package
 - Generates TLS certificates (with the host LAN IP in the SAN)
-- Starts Mosquitto with MQTTS on port 8883
-- Starts the simulator with HTTP on port 80 and mDNS advertising
+- Starts Mosquitto with MQTTS on port 18883
+- Starts the simulator with HTTP on port 8081 and mDNS advertising
 - Detects your LAN IP from `en0`/`en1`
 
 No `sudo` required.
 
 ## Dashboard
 
-The simulator runs a web dashboard on port 8080 (`http://localhost:8080`).
+The simulator runs a web dashboard on port 18080 (`http://localhost:18080`).
 
 ### Features
 
@@ -94,9 +96,9 @@ docker compose up --build
 Container-based approaches on macOS do not work for this simulator.
 Both Colima and Apple's native `container` runtime use VM-based
 networking that prevents containers from obtaining real LAN IPs.
-mDNS advertisement and port 80 binding require direct LAN access,
-which only native execution (`run-local.sh`) or Linux Docker with
-`macvlan` networking can provide.
+mDNS advertisement requires direct LAN access, which only native
+execution (`run-local.sh`) or Linux Docker with `macvlan` networking
+can provide.
 
 ## Environment Variables
 
@@ -110,15 +112,15 @@ full list).
 | `TICK_INTERVAL` | `1.0` | Seconds between simulation ticks |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `FIRMWARE_VERSION` | `spanos2/sim/01` | Reported firmware version |
-| `HTTP_PORT` | `80` | Bootstrap HTTP server port |
-| `BROKER_PORT` | `8883` | MQTTS broker port |
+| `HTTP_PORT` | `8081` | Bootstrap HTTP server port |
+| `BROKER_PORT` | `18883` | MQTTS broker port |
 | `BROKER_HOST` | `localhost` | MQTT broker hostname |
 | `BROKER_USERNAME` | `span` | MQTT credentials |
 | `BROKER_PASSWORD` | `sim-password` | MQTT credentials |
 | `CERT_DIR` | `/tmp/span-sim-certs` | TLS certificate directory |
 | `ADVERTISE_ADDRESS` | auto-detected | IP to advertise via mDNS |
 | `ADVERTISE_HTTP_PORT` | same as `HTTP_PORT` | Port advertised via mDNS |
-| `DASHBOARD_PORT` | `8080` | Dashboard web UI port |
+| `DASHBOARD_PORT` | `18080` | Dashboard web UI port |
 
 ## Panel Configuration
 
@@ -311,10 +313,10 @@ The `/register` endpoint accepts any `hopPassphrase` value.
 
 ```bash
 # Reload after editing configs
-curl -X POST http://192.168.7.26/admin/reload
+curl -X POST http://192.168.7.26:8081/admin/reload
 
 # List panels
-curl http://192.168.7.26/admin/panels
+curl http://192.168.7.26:8081/admin/panels
 ```
 
 ## MQTT Topics

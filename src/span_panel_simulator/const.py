@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-# Default ports
-MQTTS_PORT = 8883
-WS_PORT = 9001
-WSS_PORT = 9002
-HTTPS_PORT = 80
-DASHBOARD_PORT = 8080
+# Default ports — offset from standard ports to avoid collisions with
+# Home Assistant (8123), the Mosquitto add-on (1883/8883), and other
+# common services when running on the same host.
+MQTTS_PORT = 18883
+WS_PORT = 19001
+WSS_PORT = 19002
+HTTPS_PORT = 8081
+DASHBOARD_PORT = 18080
 
 # Default simulation parameters
 DEFAULT_TICK_INTERVAL_S = 1.0

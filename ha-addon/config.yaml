@@ -1,0 +1,32 @@
+name: "SPAN Panel Simulator"
+description: "Simulates a SPAN electrical panel for development and testing"
+version: "0.1.0"
+slug: "span_panel_simulator"
+arch:
+  - amd64
+  - aarch64
+ports:
+  18883/tcp: 18883
+  8081/tcp: 8081
+  18080/tcp: 18080
+ports_description:
+  18883/tcp: "MQTTS broker"
+  8081/tcp: "HTTP bootstrap API"
+  18080/tcp: "Web dashboard"
+host_network: false
+map:
+  - config:rw
+options:
+  config_file: "span_simulator/default_config.yaml"
+  tick_interval: 1.0
+  log_level: "INFO"
+  advertise_address: ""
+  dashboard_enabled: true
+schema:
+  config_file: str
+  tick_interval: "float(0.5,60.0)"
+  log_level: list(DEBUG|INFO|WARNING|ERROR)
+  advertise_address: str?
+  dashboard_enabled: bool
+startup: application
+init: false

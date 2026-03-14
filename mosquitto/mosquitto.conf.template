@@ -2,18 +2,18 @@
 # Certificate paths are substituted at container startup
 
 # MQTTS listener (TLS over TCP)
-listener 8883
+listener 18883
 cafile /app/certs/ca.crt
 certfile /app/certs/server.crt
 keyfile /app/certs/server.key
 require_certificate false
 
 # WebSocket listener (plain)
-listener 9001
+listener 19001
 protocol websockets
 
 # WebSocket listener (TLS)
-listener 9002
+listener 19002
 protocol websockets
 cafile /app/certs/ca.crt
 certfile /app/certs/server.crt

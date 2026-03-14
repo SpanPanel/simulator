@@ -28,9 +28,9 @@ Environment variables:
   LOG_LEVEL         Logging level (default: INFO)
   BROKER_USERNAME   MQTT broker username (default: span)
   BROKER_PASSWORD   MQTT broker password (default: sim-password)
-  HTTP_PORT         Bootstrap HTTP port (default: 80)
-  DASHBOARD_PORT    Dashboard UI port (default: 8080)
-  BROKER_PORT       MQTTS port (default: 8883)
+  HTTP_PORT         Bootstrap HTTP port (default: 8081)
+  DASHBOARD_PORT    Dashboard UI port (default: 18080)
+  BROKER_PORT       MQTTS port (default: 18883)
 EOF
     exit 0
 }
@@ -41,10 +41,10 @@ PID_DIR="${REPO_DIR}/.local/pids"
 VENV_DIR="${REPO_DIR}/.venv"
 BROKER_USERNAME="${BROKER_USERNAME:-span}"
 BROKER_PASSWORD="${BROKER_PASSWORD:-sim-password}"
-HTTP_PORT="${HTTP_PORT:-80}"
-DASHBOARD_PORT="${DASHBOARD_PORT:-8080}"
+HTTP_PORT="${HTTP_PORT:-8081}"
+DASHBOARD_PORT="${DASHBOARD_PORT:-18080}"
 ADVERTISE_HTTP_PORT="${ADVERTISE_HTTP_PORT:-${HTTP_PORT}}"
-BROKER_PORT="${BROKER_PORT:-8883}"
+BROKER_PORT="${BROKER_PORT:-18883}"
 
 get_host_ip() {
     ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo ""

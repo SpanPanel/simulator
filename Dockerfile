@@ -18,6 +18,6 @@ COPY scripts/ scripts/
 # Create directories
 RUN mkdir -p /app/certs /app/configs /mosquitto/data
 
-EXPOSE 8883 9001 9002 443
+EXPOSE 18883 19001 19002 8081 18080
 
 ENTRYPOINT ["/app/scripts/entrypoint.sh"]

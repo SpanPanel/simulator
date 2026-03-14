@@ -80,7 +80,7 @@ class PanelAdvertiser:
         """Advertise a panel on the local network.
 
         Registers two service types per panel:
-          - ``_ebus._tcp.local.``  — v2 eBus discovery
+          - ``_ebus._tcp.local.``  — v2 eBus discovery (Homie TXT format)
           - ``_span._tcp.local.``  — generic SPAN discovery
         """
         if self._zeroconf is None:
@@ -89,22 +89,45 @@ class PanelAdvertiser:
         addresses = _get_host_addresses(self._advertise_address)
         parsed_addrs = [socket.inet_aton(a) for a in addresses]
 
-        properties = {
+        # Derive a hostname matching the real panel naming convention
+        hostname = f"span-sim-{serial}"
+
+        # eBus TXT properties match real panel format (homie_domain, etc.)
+        ebus_properties: dict[str, str] = {
+            "homie_domain": "ebus",
+            "homie_version": "5",
+            "homie_roles": "device",
+            "mqtt_broker": hostname,
+            "txtvers": "1",
+        }
+
+        # Include httpPort when serving on a non-standard port so that
+        # the HA integration discovers the correct HTTP bootstrap address
+        if self._http_port != 80:
+            ebus_properties["httpPort"] = str(self._http_port)
+
+        # _span._tcp keeps the legacy SPAN-specific properties
+        span_properties: dict[str, str] = {
             "serialNumber": serial,
             "firmwareVersion": firmware,
         }
 
         services: list[ServiceInfo] = []
-        for svc_type in (SERVICE_TYPE_EBUS, SERVICE_TYPE_SPAN):
-            # Service name format: "SPAN-{serial}.{type}"
+        for svc_type, props, srv_port in (
+            # Real panels advertise SRV port 0 on _ebus._tcp (the port
+            # isn't used for service connection — MQTT broker details come
+            # from the /api/v2/auth/register HTTP response instead)
+            (SERVICE_TYPE_EBUS, ebus_properties, 0),
+            (SERVICE_TYPE_SPAN, span_properties, self._http_port),
+        ):
             name = f"SPAN-{serial}.{svc_type}"
             info = ServiceInfo(
                 type_=svc_type,
                 name=name,
                 addresses=parsed_addrs,
-                port=self._http_port,
-                properties=properties,
-                server=f"span-sim-{serial}.local.",
+                port=srv_port,
+                properties=props,
+                server=f"{hostname}.local.",
             )
             try:
                 await self._zeroconf.async_register_service(info)
@@ -119,7 +142,7 @@ class PanelAdvertiser:
 
         self._services[serial] = services
         _LOGGER.info(
-            "Advertised panel %s on %s (port %d)",
+            "Advertised panel %s on %s (ebus SRV port 0, HTTP port %d)",
             serial,
             ", ".join(addresses),
             self._http_port,
