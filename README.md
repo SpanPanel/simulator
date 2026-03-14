@@ -53,10 +53,14 @@ The simulator runs a web dashboard on port 8080 (`http://localhost:8080`).
 - **Entity management** — add, edit, delete circuits with per-type editors:
   - **PV** — nameplate capacity, geographic sine-curve solar model, monthly
     weather degradation from Open-Meteo historical data
-  - **Battery** — charge/discharge/idle hour schedule with presets
+  - **Battery** — nameplate capacity (kWh), backup reserve %, charge mode
+    (Custom / Solar Generation / Solar Excess), discharge presets, 24-hour
+    charge/discharge/idle schedule
   - **EVSE** — charging schedule with presets (Peak Solar, Evening, Night)
     or custom start/duration, 24-hour visual timeline
-  - **Circuits** — typical power, 24-hour usage profile with presets
+  - **Circuits** — typical power, 24-hour usage profile with presets,
+    HVAC type selector for circuits with cycling patterns (seasonal
+    power modulation based on latitude and system type)
 - **Grid simulation** — toggle grid online/offline to test backup behavior:
   - With battery: BESS becomes dominant power source, load shedding activates
   - Without battery: panel goes offline (all circuits dead)
@@ -171,6 +175,7 @@ circuit_templates:          # Reusable template definitions
     cycling_pattern:
       on_duration: int      # Seconds on
       off_duration: int     # Seconds off
+    hvac_type: str          # "central_ac" | "heat_pump" | "heat_pump_aux"
 
     time_of_day_profile:
       enabled: bool
@@ -189,9 +194,16 @@ circuit_templates:          # Reusable template definitions
 
     battery_behavior:
       enabled: bool
+      charge_mode: str            # "custom" | "solar-gen" | "solar-excess"
+      nameplate_capacity_kwh: float  # Total battery capacity (default: 13.5)
+      backup_reserve_pct: float      # Normal discharge floor % (default: 20)
+      charge_efficiency: float       # 0.0-1.0 (default: 0.95)
+      discharge_efficiency: float    # 0.0-1.0 (default: 0.95)
       charge_power: float
       discharge_power: float
       idle_power: float
+      max_charge_power: float        # Used by solar-gen/solar-excess modes
+      max_discharge_power: float
       charge_hours: [int]
       discharge_hours: [int]
       idle_hours: [int]
@@ -353,11 +365,12 @@ in real time.
 3. Apply base power from `typical_power` with `power_variation` randomness
 4. Producers: geographic sine-curve solar model with weather degradation
 5. Consumers: modulate by time-of-day profile / hour factors (if configured)
-6. Apply cycling pattern on/off state (if configured)
-7. Apply battery hour-based charge/discharge schedule (if configured)
-8. Apply smart grid response (if configured)
-9. Add noise (`noise_factor`)
-10. Apply load shedding overlays (if grid offline with battery)
+6. HVAC seasonal modulation (latitude-aware temperature model scales power by season)
+7. Apply cycling pattern on/off state (if configured)
+8. Apply battery charge/discharge schedule or solar charge mode (if configured)
+9. Apply smart grid response (if configured)
+10. Add noise (`noise_factor`)
+11. Apply load shedding overlays (if grid offline with battery)
 
 ### Solar Model
 
@@ -367,6 +380,32 @@ PV circuits use a geographic sine-based model instead of hourly multipliers:
 - Solar elevation angle determines instantaneous production factor
 - Daily weather degradation from Open-Meteo historical cloud cover data
 - Falls back to deterministic seed-based weather when no API data available
+
+### HVAC Seasonal Modulation
+
+Circuits with `hvac_type` set automatically adjust power draw by season
+using a latitude-aware sinusoidal temperature model:
+
+| HVAC Type | Summer | Winter | Why |
+|---|---|---|---|
+| `central_ac` | Full compressor (~100%) | Blower fan only (~15%) | Gas furnace handles heating |
+| `heat_pump` | Full compressor (~100%) | COP reduces draw (~45%) | Heat pump efficiency in cold |
+| `heat_pump_aux` | Full compressor (~100%) | Aux strips exceed cooling (~140%) | Resistive backup below ~35F |
+
+The seasonal factor scales the base power before cycling is applied, so
+the on/off duty cycle remains unchanged while the power magnitude varies.
+
+### Battery (BSEE)
+
+The Battery Storage Energy Equipment tracks real state-of-energy by
+integrating power over time:
+
+- **Charging**: `SOE += power * dt * charge_efficiency`
+- **Discharging**: `SOE -= power * dt / discharge_efficiency`
+- **Backup reserve**: Normal discharge stops at `backup_reserve_pct`
+  (default 20%); only grid-disconnect emergencies drain to the 5% hard floor
+- **Charge modes**: Custom (hour-based schedule), Solar Generation (tracks
+  PV curve), Solar Excess (surplus after loads)
 
 ### Load Shedding
 
@@ -425,6 +464,7 @@ simulator/
     circuit.py              # Per-circuit state and snapshot
     clock.py                # Simulation clock with acceleration
     bsee.py                 # Battery storage equipment (BESS/GFE)
+    hvac.py                 # Seasonal HVAC power modulation
     solar.py                # Geographic sine-curve solar model
     weather.py              # Open-Meteo historical weather
     publisher.py            # Homie MQTT publisher (with diffing)
