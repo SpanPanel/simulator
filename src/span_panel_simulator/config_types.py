@@ -81,6 +81,7 @@ class BatteryBehavior(TypedDict, total=False):
     charge_efficiency: float
     discharge_efficiency: float
     nameplate_capacity_kwh: float  # Total battery capacity in kWh
+    backup_reserve_pct: float  # SOE % reserved for outages (default 20)
     charge_hours: list[int]
     discharge_hours: list[int]
     max_charge_power: float

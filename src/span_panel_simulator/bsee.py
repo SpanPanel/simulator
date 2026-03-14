@@ -15,9 +15,10 @@ if TYPE_CHECKING:
 
 
 # SOE bounds (percentage of nameplate)
-_SOE_MIN_PCT = 5.0    # Reserve floor — battery won't discharge below this
-_SOE_MAX_PCT = 100.0  # Fully charged ceiling
-_SOE_INITIAL_PCT = 50.0  # Starting SOE when no prior state
+_SOE_HARD_MIN_PCT = 5.0   # Absolute floor — even in grid-disconnect emergencies
+_SOE_MAX_PCT = 100.0      # Fully charged ceiling
+_SOE_INITIAL_PCT = 50.0   # Starting SOE when no prior state
+_DEFAULT_BACKUP_RESERVE_PCT = 20.0  # Normal discharge stops here; outages go deeper
 _MAX_INTEGRATION_DELTA_S = 300.0  # Cap per-tick delta to 5 minutes of sim time
 
 
@@ -48,6 +49,9 @@ class BatteryStorageEquipment:
         )
         self._discharge_efficiency: float = float(
             battery_behavior.get("discharge_efficiency", 0.95)
+        )
+        self._backup_reserve_pct: float = float(
+            battery_behavior.get("backup_reserve_pct", _DEFAULT_BACKUP_RESERVE_PCT)
         )
 
         # Mutable state refreshed by update()
@@ -151,6 +155,10 @@ class BatteryStorageEquipment:
         return self._nameplate_capacity_kwh
 
     @property
+    def backup_reserve_pct(self) -> float:
+        return self._backup_reserve_pct
+
+    @property
     def feed_circuit_id(self) -> str:
         return self._feed_circuit_id
 
@@ -229,7 +237,12 @@ class BatteryStorageEquipment:
             energy_kwh = (power_w / 1000.0) * delta_hours / self._discharge_efficiency
             self._soe_kwh -= energy_kwh
 
-        # Clamp to bounds
+        # Clamp to bounds — use backup reserve for normal discharge,
+        # hard minimum only during grid-disconnect emergencies
         max_kwh = self._nameplate_capacity_kwh * _SOE_MAX_PCT / 100.0
-        min_kwh = self._nameplate_capacity_kwh * _SOE_MIN_PCT / 100.0
+        if self._forced_offline:
+            min_pct = _SOE_HARD_MIN_PCT
+        else:
+            min_pct = self._backup_reserve_pct
+        min_kwh = self._nameplate_capacity_kwh * min_pct / 100.0
         self._soe_kwh = max(min_kwh, min(max_kwh, self._soe_kwh))

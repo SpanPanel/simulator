@@ -241,9 +241,12 @@ class ConfigStore:
                 else:
                     overrides.pop("power_range", None)
 
-        if "nameplate_capacity_kwh" in data:
+        if "nameplate_capacity_kwh" in data or "backup_reserve_pct" in data:
             bb: dict[str, Any] = template.setdefault("battery_behavior", {})
-            bb["nameplate_capacity_kwh"] = float(data["nameplate_capacity_kwh"])
+            if "nameplate_capacity_kwh" in data:
+                bb["nameplate_capacity_kwh"] = float(data["nameplate_capacity_kwh"])
+            if "backup_reserve_pct" in data:
+                bb["backup_reserve_pct"] = float(data["backup_reserve_pct"])
 
         if "hvac_type" in data:
             hvac_val = str(data["hvac_type"])

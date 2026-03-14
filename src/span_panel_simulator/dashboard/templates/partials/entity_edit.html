@@ -113,6 +113,12 @@
                  value="{{ e.battery_behavior.nameplate_capacity_kwh | default(13.5) }}"
                  min="0.1" max="500" step="0.1">
         </label>
+        <label>Backup Reserve (%):
+          <input type="number" name="backup_reserve_pct"
+                 value="{{ e.battery_behavior.backup_reserve_pct | default(20) }}"
+                 min="5" max="80" step="5"
+                 title="Normal discharge stops here; grid outages can draw deeper">
+        </label>
         <label>Charge Power (W): <input type="number" value="{{ e.battery_behavior.charge_power }}" disabled></label>
         <label>Discharge Power (W): <input type="number" value="{{ e.battery_behavior.discharge_power }}" disabled></label>
       </div>

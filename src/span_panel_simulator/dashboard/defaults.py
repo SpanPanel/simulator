@@ -95,6 +95,7 @@ ENTITY_TYPE_DEFAULTS: dict[str, dict[str, Any]] = {
                 "enabled": True,
                 "charge_mode": "custom",
                 "nameplate_capacity_kwh": 13.5,
+                "backup_reserve_pct": 20.0,
                 "charge_power": 3500.0,
                 "discharge_power": -3500.0,
                 "idle_power": 0.0,
