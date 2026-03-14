@@ -236,12 +236,16 @@ class SimulatedCircuit:
             self._consumed_energy_wh += energy_increment
 
     def _resolve_battery_direction(self, current_time: float) -> str:
-        """Determine battery direction from the template's hour-based config."""
+        """Determine battery direction from template config or engine state."""
         battery_config = self._template.get("battery_behavior", {})
         if not isinstance(battery_config, dict):
             return "unknown"
         if not battery_config.get("enabled", True):
             return "unknown"
+
+        charge_mode: str = battery_config.get("charge_mode", "custom")
+        if charge_mode != "custom":
+            return self._behavior_engine.last_battery_direction
 
         current_hour = datetime.fromtimestamp(current_time).hour
         charge_hours: list[int] = battery_config.get("charge_hours", [])

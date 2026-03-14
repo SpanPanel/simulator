@@ -104,6 +104,7 @@ def _entity_list_context(
         if entity.entity_type == "battery":
             ctx["battery_preset_labels"] = BATTERY_PRESET_LABELS
             ctx["battery_profile"] = store.get_battery_profile(editing_id)
+            ctx["battery_charge_mode"] = store.get_battery_charge_mode(editing_id)
         if entity.entity_type == "pv":
             panel = store.get_panel_config()
             lat = panel.get("latitude", 37.7)
@@ -144,6 +145,7 @@ def _battery_profile_context(request: web.Request, entity_id: str) -> dict[str, 
         "entity": entity,
         "battery_profile": store.get_battery_profile(entity_id),
         "battery_preset_labels": BATTERY_PRESET_LABELS,
+        "battery_charge_mode": store.get_battery_charge_mode(entity_id),
     }
 
 
@@ -171,6 +173,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_get("/entities/{id}/battery-profile", handle_get_battery_profile)
     app.router.add_put("/entities/{id}/battery-profile", handle_put_battery_profile)
     app.router.add_post("/entities/{id}/battery-profile/preset", handle_apply_battery_preset)
+    app.router.add_put("/entities/{id}/battery-charge-mode", handle_put_battery_charge_mode)
 
     # EVSE schedule
     app.router.add_get("/entities/{id}/evse-schedule", handle_get_evse_schedule)
@@ -376,6 +379,17 @@ async def handle_apply_battery_preset(request: web.Request) -> web.Response:
     data = await request.post()
     preset_name = str(data.get("preset", "custom"))
     _store(request).apply_battery_preset(entity_id, preset_name)
+    return _render(
+        "partials/battery_profile_editor.html", request,
+        _battery_profile_context(request, entity_id),
+    )
+
+
+async def handle_put_battery_charge_mode(request: web.Request) -> web.Response:
+    entity_id = request.match_info["id"]
+    data = await request.post()
+    mode = str(data.get("charge_mode", "custom"))
+    _store(request).update_battery_charge_mode(entity_id, mode)
     return _render(
         "partials/battery_profile_editor.html", request,
         _battery_profile_context(request, entity_id),
