@@ -7,13 +7,15 @@ the real SPAN panel's TLS provisioning flow.
 from __future__ import annotations
 
 import datetime
+import ipaddress
 import logging
 from dataclasses import dataclass
-from pathlib import Path
-
-import ipaddress
+from typing import TYPE_CHECKING
 
 from cryptography import x509
+
+if TYPE_CHECKING:
+    from pathlib import Path
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
@@ -111,10 +113,12 @@ def generate_certificates(
     # --- CA key + certificate ---
     ca_key = rsa.generate_private_key(public_exponent=65537, key_size=_KEY_SIZE)
 
-    ca_name = x509.Name([
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "SPAN Simulator"),
-        x509.NameAttribute(NameOID.COMMON_NAME, "SPAN Simulator CA"),
-    ])
+    ca_name = x509.Name(
+        [
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "SPAN Simulator"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "SPAN Simulator CA"),
+        ]
+    )
 
     now = datetime.datetime.now(datetime.UTC)
     ca_cert = (
@@ -145,10 +149,12 @@ def generate_certificates(
     # --- Server key + certificate ---
     server_key = rsa.generate_private_key(public_exponent=65537, key_size=_KEY_SIZE)
 
-    server_name = x509.Name([
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "SPAN Simulator"),
-        x509.NameAttribute(NameOID.COMMON_NAME, hostname),
-    ])
+    server_name = x509.Name(
+        [
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "SPAN Simulator"),
+            x509.NameAttribute(NameOID.COMMON_NAME, hostname),
+        ]
+    )
 
     server_cert = (
         x509.CertificateBuilder()

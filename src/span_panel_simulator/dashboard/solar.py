@@ -4,7 +4,7 @@ All solar computation now lives in ``span_panel_simulator.solar``.
 This shim preserves backward-compatible imports for dashboard code.
 """
 
-from span_panel_simulator.solar import (  # noqa: F401
+from span_panel_simulator.solar import (
     DEFAULT_LATITUDE,
     DEFAULT_LONGITUDE,
     compute_solar_curve,

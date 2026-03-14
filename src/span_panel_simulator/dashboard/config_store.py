@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 import yaml
 
@@ -137,10 +139,12 @@ class ConfigStore:
     # -- Entities --
 
     def _templates(self) -> dict[str, Any]:
-        return self._state.setdefault("circuit_templates", {})
+        result: dict[str, Any] = self._state.setdefault("circuit_templates", {})
+        return result
 
     def _circuits(self) -> list[dict[str, Any]]:
-        return self._state.setdefault("circuits", [])
+        result: list[dict[str, Any]] = self._state.setdefault("circuits", [])
+        return result
 
     def _find_circuit(self, entity_id: str) -> dict[str, Any] | None:
         for circ in self._circuits():
@@ -296,13 +300,10 @@ class ConfigStore:
             a, b = sorted(tabs)
             if a % 2 != b % 2:
                 raise ValueError(
-                    f"Double-pole tabs {tabs} must have the same parity "
-                    "(both odd or both even)"
+                    f"Double-pole tabs {tabs} must have the same parity (both odd or both even)"
                 )
             if b - a != 2:
-                raise ValueError(
-                    f"Double-pole tabs {tabs} must be exactly 2 apart"
-                )
+                raise ValueError(f"Double-pole tabs {tabs} must be exactly 2 apart")
 
         unmapped = set(self.get_unmapped_tabs())
         for t in tabs:
@@ -412,8 +413,11 @@ class ConfigStore:
         """Apply a named preset to an entity's profile and return the multipliers."""
         lat = self._state.get("panel_config", {}).get("latitude", 37.7)
         multipliers = get_preset(
-            preset_name, month=month, day=day,
-            start_hour=start_hour, end_hour=end_hour,
+            preset_name,
+            month=month,
+            day=day,
+            start_hour=start_hour,
+            end_hour=end_hour,
             latitude=lat,
         )
         self.update_entity_profile(entity_id, multipliers)
@@ -464,9 +468,7 @@ class ConfigStore:
                 profile[h] = "idle"
         return profile
 
-    def update_battery_profile(
-        self, entity_id: str, hour_modes: dict[int, str]
-    ) -> None:
+    def update_battery_profile(self, entity_id: str, hour_modes: dict[int, str]) -> None:
         """Write per-hour charge/discharge/idle schedule into battery_behavior."""
         circuit = self._find_circuit(entity_id)
         if circuit is None:
@@ -476,15 +478,9 @@ class ConfigStore:
         template = self._templates().get(template_name, {})
         bb = template.setdefault("battery_behavior", {"enabled": True})
 
-        bb["charge_hours"] = sorted(
-            h for h, m in hour_modes.items() if m == "charge"
-        )
-        bb["discharge_hours"] = sorted(
-            h for h, m in hour_modes.items() if m == "discharge"
-        )
-        bb["idle_hours"] = sorted(
-            h for h, m in hour_modes.items() if m == "idle"
-        )
+        bb["charge_hours"] = sorted(h for h, m in hour_modes.items() if m == "charge")
+        bb["discharge_hours"] = sorted(h for h, m in hour_modes.items() if m == "discharge")
+        bb["idle_hours"] = sorted(h for h, m in hour_modes.items() if m == "idle")
 
     def apply_battery_preset(self, entity_id: str, preset_name: str) -> dict[int, str]:
         """Apply a named battery preset and return the schedule."""
@@ -547,9 +543,7 @@ class ConfigStore:
             "profile": profile,
         }
 
-    def update_evse_schedule(
-        self, entity_id: str, start_hour: int, duration_hours: int
-    ) -> None:
+    def update_evse_schedule(self, entity_id: str, start_hour: int, duration_hours: int) -> None:
         """Update EVSE charging schedule from start hour and duration."""
         circuit = self._find_circuit(entity_id)
         if circuit is None:
@@ -557,9 +551,7 @@ class ConfigStore:
 
         template_name = circuit["template"]
         template = self._templates().get(template_name, {})
-        tod: dict[str, Any] = template.setdefault(
-            "time_of_day_profile", {"enabled": True}
-        )
+        tod: dict[str, Any] = template.setdefault("time_of_day_profile", {"enabled": True})
         tod["enabled"] = True
         tod["hour_factors"] = evse_schedule_factors(start_hour, duration_hours)
 
@@ -573,18 +565,14 @@ class ConfigStore:
 
         template_name = circuit["template"]
         template = self._templates().get(template_name, {})
-        tod: dict[str, Any] = template.setdefault(
-            "time_of_day_profile", {"enabled": True}
-        )
+        tod: dict[str, Any] = template.setdefault("time_of_day_profile", {"enabled": True})
         tod["enabled"] = True
         tod["hour_factors"] = factors
         return factors
 
     # -- Energy projection --
 
-    def compute_energy_projection(
-        self, period: str = "year"
-    ) -> list[dict[str, float | str]]:
+    def compute_energy_projection(self, period: str = "year") -> list[dict[str, float | str]]:
         """Compute daily energy summaries for system sizing.
 
         Args:
@@ -614,7 +602,9 @@ class ConfigStore:
             ep = entity.energy_profile
             if entity.entity_type == "pv":
                 raw_np = ep.get("nameplate_capacity_w")
-                nameplate = float(raw_np) if raw_np is not None else abs(float(ep["power_range"][0]))
+                nameplate = (
+                    float(raw_np) if raw_np is not None else abs(float(ep["power_range"][0]))
+                )
                 raw_eff = ep.get("efficiency")
                 efficiency = float(raw_eff) if raw_eff is not None else 0.85
                 pv_specs.append((nameplate, efficiency))
@@ -646,10 +636,7 @@ class ConfigStore:
         elif period == "month":
             months_days = [(6, list(range(1, 31)))]
         else:  # year
-            months_days = [
-                (m, list(range(1, days_in_month[m] + 1)))
-                for m in range(1, 13)
-            ]
+            months_days = [(m, list(range(1, days_in_month[m] + 1))) for m in range(1, 13)]
 
         results: list[dict[str, float | str]] = []
         for month, days in months_days:
@@ -677,12 +664,14 @@ class ConfigStore:
 
                 grid_wh = consumption_wh - pv_wh - battery_wh
 
-                results.append({
-                    "date": f"2025-{month:02d}-{day:02d}",
-                    "consumption_kwh": round(consumption_wh / 1000, 2),
-                    "pv_kwh": round(pv_wh / 1000, 2),
-                    "battery_kwh": round(battery_wh / 1000, 2),
-                    "grid_kwh": round(grid_wh / 1000, 2),
-                })
+                results.append(
+                    {
+                        "date": f"2025-{month:02d}-{day:02d}",
+                        "consumption_kwh": round(consumption_wh / 1000, 2),
+                        "pv_kwh": round(pv_wh / 1000, 2),
+                        "battery_kwh": round(battery_wh / 1000, 2),
+                        "grid_kwh": round(grid_wh / 1000, 2),
+                    }
+                )
 
         return results

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
+from typing import TYPE_CHECKING
 
 from span_panel_simulator.app import _discover_configs, _file_hash
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _SIMPLE_CONFIG = """\
 panel_config:

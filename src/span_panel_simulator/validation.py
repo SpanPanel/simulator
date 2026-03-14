@@ -76,9 +76,7 @@ def validate_circuits(circuits: Any, circuit_templates: dict[str, Any]) -> None:
         validate_single_circuit(i, circuit, circuit_templates)
 
 
-def validate_single_circuit(
-    index: int, circuit: Any, circuit_templates: dict[str, Any]
-) -> None:
+def validate_single_circuit(index: int, circuit: Any, circuit_templates: dict[str, Any]) -> None:
     """Validate a single circuit definition."""
     if not isinstance(circuit, dict):
         raise ValueError(f"Circuit {index} must be a dictionary")

@@ -12,26 +12,86 @@ import random
 from span_panel_simulator.dashboard.solar import compute_solar_curve
 
 EVENING_LIGHTING: dict[int, float] = {
-    0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0, 5: 0.0,
-    6: 0.05, 7: 0.1, 8: 0.05, 9: 0.0, 10: 0.0, 11: 0.0,
-    12: 0.0, 13: 0.0, 14: 0.0, 15: 0.1, 16: 0.3, 17: 0.6,
-    18: 0.9, 19: 1.0, 20: 1.0, 21: 1.0, 22: 0.7, 23: 0.3,
+    0: 0.0,
+    1: 0.0,
+    2: 0.0,
+    3: 0.0,
+    4: 0.0,
+    5: 0.0,
+    6: 0.05,
+    7: 0.1,
+    8: 0.05,
+    9: 0.0,
+    10: 0.0,
+    11: 0.0,
+    12: 0.0,
+    13: 0.0,
+    14: 0.0,
+    15: 0.1,
+    16: 0.3,
+    17: 0.6,
+    18: 0.9,
+    19: 1.0,
+    20: 1.0,
+    21: 1.0,
+    22: 0.7,
+    23: 0.3,
 }
 
 ALWAYS_ON: dict[int, float] = {h: 1.0 for h in range(24)}
 
 HVAC_CYCLING: dict[int, float] = {
-    0: 0.3, 1: 0.3, 2: 0.3, 3: 0.3, 4: 0.3, 5: 0.3,
-    6: 0.4, 7: 0.5, 8: 0.5, 9: 0.5, 10: 0.6, 11: 0.6,
-    12: 0.7, 13: 0.7, 14: 0.8, 15: 0.9, 16: 1.0, 17: 1.0,
-    18: 1.0, 19: 1.0, 20: 1.0, 21: 1.0, 22: 0.7, 23: 0.4,
+    0: 0.3,
+    1: 0.3,
+    2: 0.3,
+    3: 0.3,
+    4: 0.3,
+    5: 0.3,
+    6: 0.4,
+    7: 0.5,
+    8: 0.5,
+    9: 0.5,
+    10: 0.6,
+    11: 0.6,
+    12: 0.7,
+    13: 0.7,
+    14: 0.8,
+    15: 0.9,
+    16: 1.0,
+    17: 1.0,
+    18: 1.0,
+    19: 1.0,
+    20: 1.0,
+    21: 1.0,
+    22: 0.7,
+    23: 0.4,
 }
 
 DAYTIME_APPLIANCE: dict[int, float] = {
-    0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0, 5: 0.0,
-    6: 0.0, 7: 0.1, 8: 0.3, 9: 0.7, 10: 1.0, 11: 1.0,
-    12: 1.0, 13: 1.0, 14: 1.0, 15: 0.8, 16: 0.5, 17: 0.3,
-    18: 0.1, 19: 0.0, 20: 0.0, 21: 0.0, 22: 0.0, 23: 0.0,
+    0: 0.0,
+    1: 0.0,
+    2: 0.0,
+    3: 0.0,
+    4: 0.0,
+    5: 0.0,
+    6: 0.0,
+    7: 0.1,
+    8: 0.3,
+    9: 0.7,
+    10: 1.0,
+    11: 1.0,
+    12: 1.0,
+    13: 1.0,
+    14: 1.0,
+    15: 0.8,
+    16: 0.5,
+    17: 0.3,
+    18: 0.1,
+    19: 0.0,
+    20: 0.0,
+    21: 0.0,
+    22: 0.0,
+    23: 0.0,
 }
 
 BASELOAD: dict[int, float] = {h: 0.1 for h in range(24)}
@@ -40,30 +100,43 @@ BASELOAD: dict[int, float] = {h: 0.1 for h in range(24)}
 # Each maps hour (0-23) to a mode string: "charge", "discharge", or "idle".
 
 BATTERY_POST_SOLAR_DISCHARGE: dict[int, str] = {
-    0: "idle", 1: "idle", 2: "idle", 3: "idle", 4: "idle", 5: "idle",
-    6: "idle", 7: "idle",
-    8: "charge", 9: "charge", 10: "charge", 11: "charge",
-    12: "charge", 13: "charge", 14: "charge", 15: "charge",
-    16: "discharge", 17: "discharge", 18: "discharge", 19: "discharge",
-    20: "discharge", 21: "discharge", 22: "discharge",
+    0: "idle",
+    1: "idle",
+    2: "idle",
+    3: "idle",
+    4: "idle",
+    5: "idle",
+    6: "idle",
+    7: "idle",
+    8: "charge",
+    9: "charge",
+    10: "charge",
+    11: "charge",
+    12: "charge",
+    13: "charge",
+    14: "charge",
+    15: "charge",
+    16: "discharge",
+    17: "discharge",
+    18: "discharge",
+    19: "discharge",
+    20: "discharge",
+    21: "discharge",
+    22: "discharge",
     23: "idle",
 }
 
-BATTERY_GRID_DISCONNECT_DISCHARGE: dict[int, str] = {
-    h: "discharge" for h in range(24)
-}
+BATTERY_GRID_DISCONNECT_DISCHARGE: dict[int, str] = {h: "discharge" for h in range(24)}
 
-BATTERY_CUSTOM: dict[int, str] = {
-    h: "idle" for h in range(24)
-}
+BATTERY_CUSTOM: dict[int, str] = {h: "idle" for h in range(24)}
 
 # -- EVSE charging schedule presets -------------------------------------------
 # Each is a (start_hour, duration_hours) tuple.
 
 EVSE_PRESETS: dict[str, tuple[int, int]] = {
-    "peak_solar": (10, 6),  # 10:00–16:00
-    "evening": (18, 6),     # 18:00–00:00
-    "night": (0, 6),        # 00:00–06:00
+    "peak_solar": (10, 6),  # 10:00-16:00
+    "evening": (18, 6),  # 18:00-00:00
+    "night": (0, 6),  # 00:00-06:00
 }
 
 EVSE_PRESET_LABELS: dict[str, str] = {

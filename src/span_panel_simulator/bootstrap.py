@@ -15,10 +15,10 @@ Endpoints:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import secrets
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from aiohttp import web
@@ -26,7 +26,6 @@ from aiohttp import web
 from span_panel_simulator.const import (
     DEFAULT_BROKER_PASSWORD,
     DEFAULT_BROKER_USERNAME,
-    DEFAULT_FIRMWARE_VERSION,
     MQTTS_PORT,
     PATH_CA_CERT,
     PATH_HOMIE_SCHEMA,
@@ -38,6 +37,7 @@ from span_panel_simulator.const import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from span_panel_simulator.certs import CertificateBundle
 
@@ -115,10 +115,12 @@ class BootstrapHttpServer:
             firmware = self._panels.get(serial_filter)
             if firmware is None:
                 raise web.HTTPNotFound(text=f"Panel {serial_filter} not found")
-            return web.json_response({
-                "serialNumber": serial_filter,
-                "firmwareVersion": firmware,
-            })
+            return web.json_response(
+                {
+                    "serialNumber": serial_filter,
+                    "firmwareVersion": firmware,
+                }
+            )
 
         if not self._panels:
             raise web.HTTPServiceUnavailable(text="No panels running")
@@ -127,10 +129,12 @@ class BootstrapHttpServer:
         # has one identity.  Use ?serial=XXX for a specific panel or
         # /admin/panels for the full list.
         serial, firmware = next(iter(self._panels.items()))
-        return web.json_response({
-            "serialNumber": serial,
-            "firmwareVersion": firmware,
-        })
+        return web.json_response(
+            {
+                "serialNumber": serial,
+                "firmwareVersion": firmware,
+            }
+        )
 
     async def _handle_register(self, request: web.Request) -> web.Response:
         """POST /api/v2/auth/register — return MQTT credentials.
@@ -141,10 +145,8 @@ class BootstrapHttpServer:
         Response matches real panel's camelCase field names exactly.
         """
         body: dict[str, str] = {}
-        try:
+        with contextlib.suppress(Exception):
             body = await request.json()
-        except Exception:
-            pass
 
         # Determine which panel this is for (use first panel as default)
         serial_hint = body.get("serial", "")
@@ -155,7 +157,6 @@ class BootstrapHttpServer:
         else:
             raise web.HTTPServiceUnavailable(text="No panels running")
 
-        firmware = self._panels.get(serial, DEFAULT_FIRMWARE_VERSION)
         token = f"sim.{secrets.token_urlsafe(32)}.{secrets.token_urlsafe(16)}"
         passphrase = body.get("hopPassphrase", "sim-passphrase")
 
@@ -164,20 +165,22 @@ class BootstrapHttpServer:
         # with the HTTP server, so the client connects to the same IP for both.
         broker_host = request.host.split(":")[0] if request.host else self._broker_host
 
-        return web.json_response({
-            "accessToken": token,
-            "tokenType": "Bearer",
-            "iatMs": int(time.time() * 1000),
-            "ebusBrokerUsername": self._broker_username,
-            "ebusBrokerPassword": self._broker_password,
-            "ebusBrokerHost": broker_host,
-            "ebusBrokerMqttsPort": MQTTS_PORT,
-            "ebusBrokerWsPort": WS_PORT,
-            "ebusBrokerWssPort": WSS_PORT,
-            "hostname": f"span-sim-{serial}",
-            "serialNumber": serial,
-            "hopPassphrase": passphrase,
-        })
+        return web.json_response(
+            {
+                "accessToken": token,
+                "tokenType": "Bearer",
+                "iatMs": int(time.time() * 1000),
+                "ebusBrokerUsername": self._broker_username,
+                "ebusBrokerPassword": self._broker_password,
+                "ebusBrokerHost": broker_host,
+                "ebusBrokerMqttsPort": MQTTS_PORT,
+                "ebusBrokerWsPort": WS_PORT,
+                "ebusBrokerWssPort": WSS_PORT,
+                "hostname": f"span-sim-{serial}",
+                "serialNumber": serial,
+                "hopPassphrase": passphrase,
+            }
+        )
 
     async def _handle_ca_cert(self, _request: web.Request) -> web.Response:
         return web.Response(
@@ -202,12 +205,14 @@ class BootstrapHttpServer:
         return web.json_response({"status": "no_reload_handler"}, status=503)
 
     async def _handle_list_panels(self, _request: web.Request) -> web.Response:
-        return web.json_response({
-            "panels": [
-                {"serialNumber": serial, "firmwareVersion": fw}
-                for serial, fw in self._panels.items()
-            ]
-        })
+        return web.json_response(
+            {
+                "panels": [
+                    {"serialNumber": serial, "firmwareVersion": fw}
+                    for serial, fw in self._panels.items()
+                ]
+            }
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle

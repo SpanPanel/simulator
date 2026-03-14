@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
+from typing import TYPE_CHECKING
 
 from span_panel_simulator.certs import generate_certificates
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestCertificateGeneration:

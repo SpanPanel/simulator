@@ -12,13 +12,13 @@ from copy import deepcopy
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from span_panel_simulator.config_types import (
-    CircuitDefinitionExtended,
-    CircuitTemplateExtended,
-)
 from span_panel_simulator.models import SpanCircuitSnapshot
 
 if TYPE_CHECKING:
+    from span_panel_simulator.config_types import (
+        CircuitDefinitionExtended,
+        CircuitTemplateExtended,
+    )
     from span_panel_simulator.engine import RealisticBehaviorEngine
 
 

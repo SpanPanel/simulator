@@ -6,10 +6,12 @@ Extracted from DynamicSimulationEngine to enable dashboard time controls
 
 from __future__ import annotations
 
-from datetime import datetime
 import time
+from datetime import datetime
+from typing import TYPE_CHECKING
 
-from span_panel_simulator.config_types import SimulationParams
+if TYPE_CHECKING:
+    from span_panel_simulator.config_types import SimulationParams
 
 
 class SimulationClock:

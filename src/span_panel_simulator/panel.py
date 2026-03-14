@@ -8,8 +8,8 @@ shared MQTT broker under its own serial-based topic namespace.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from span_panel_simulator.engine import DynamicSimulationEngine
@@ -18,6 +18,7 @@ from span_panel_simulator.publisher import HomiePublisher
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
+    from pathlib import Path
     from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
@@ -85,9 +86,7 @@ class PanelInstance:
         await self._publisher.publish_init(snapshot)
 
         self._running = True
-        self._tick_task = asyncio.create_task(
-            self._tick_loop(), name=f"tick-{serial}"
-        )
+        self._tick_task = asyncio.create_task(self._tick_loop(), name=f"tick-{serial}")
 
         _LOGGER.info("Panel %s started (config=%s)", serial, self._config_path.name)
         return serial
@@ -98,10 +97,8 @@ class PanelInstance:
 
         if self._tick_task is not None:
             self._tick_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._tick_task
-            except asyncio.CancelledError:
-                pass
             self._tick_task = None
 
         # Publish $state = disconnected

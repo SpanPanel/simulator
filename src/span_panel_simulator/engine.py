@@ -11,28 +11,28 @@ Circuit-level logic lives in ``circuit.py``; time management in
 from __future__ import annotations
 
 import asyncio
+import random
+import threading
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-import random
-import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from span_panel_simulator.bsee import BatteryStorageEquipment
 from span_panel_simulator.circuit import SimulatedCircuit
 from span_panel_simulator.clock import SimulationClock
-from span_panel_simulator.config_types import (
-    BatteryBehavior,
-    CircuitTemplateExtended,
-    SimulationConfig,
-    TabSynchronization,
-)
 from span_panel_simulator.exceptions import SimulationConfigurationError
+
+if TYPE_CHECKING:
+    from span_panel_simulator.config_types import (
+        BatteryBehavior,
+        CircuitTemplateExtended,
+        SimulationConfig,
+        TabSynchronization,
+    )
 from span_panel_simulator.hvac import hvac_seasonal_factor
-from span_panel_simulator.solar import daily_weather_factor, solar_production_factor
-from span_panel_simulator.weather import get_cached_weather
 from span_panel_simulator.models import (
     SpanBatterySnapshot,
     SpanCircuitSnapshot,
@@ -40,7 +40,9 @@ from span_panel_simulator.models import (
     SpanPanelSnapshot,
     SpanPVSnapshot,
 )
+from span_panel_simulator.solar import daily_weather_factor, solar_production_factor
 from span_panel_simulator.validation import validate_yaml_config
+from span_panel_simulator.weather import get_cached_weather
 
 # Constants inlined from span-panel-api (simple string values)
 DSM_ON_GRID = "DSM_ON_GRID"
@@ -75,7 +77,11 @@ class RealisticBehaviorEngine:
         self._solar_excess_w = excess_w
 
     def get_circuit_power(
-        self, circuit_id: str, template: CircuitTemplateExtended, current_time: float, relay_state: str = "CLOSED"
+        self,
+        circuit_id: str,
+        template: CircuitTemplateExtended,
+        current_time: float,
+        relay_state: str = "CLOSED",
     ) -> float:
         """Get realistic power for a circuit based on its template and current conditions."""
         if relay_state == "OPEN":
@@ -95,7 +101,9 @@ class RealisticBehaviorEngine:
 
         # Apply cycling behavior
         if "cycling_pattern" in template:
-            base_power = self._apply_cycling_behavior(circuit_id, base_power, template, current_time)
+            base_power = self._apply_cycling_behavior(
+                circuit_id, base_power, template, current_time
+            )
 
         # Apply battery behavior
         battery_behavior = template.get("battery_behavior", {})
@@ -150,9 +158,7 @@ class RealisticBehaviorEngine:
             return base_power * 0.3
         return base_power
 
-    def _apply_solar_day_night_cycle(
-        self, base_power: float, current_time: float
-    ) -> float:
+    def _apply_solar_day_night_cycle(self, base_power: float, current_time: float) -> float:
         """Apply solar day/night cycle using geographic sine model + weather."""
         lat = self._config["panel_config"].get("latitude", 37.7)
         lon = self._config["panel_config"].get("longitude", -122.4)
@@ -182,7 +188,11 @@ class RealisticBehaviorEngine:
         return base_power * hvac_seasonal_factor(current_time, latitude, hvac_type)
 
     def _apply_cycling_behavior(
-        self, circuit_id: str, base_power: float, template: CircuitTemplateExtended, current_time: float
+        self,
+        circuit_id: str,
+        base_power: float,
+        template: CircuitTemplateExtended,
+        current_time: float,
     ) -> float:
         """Apply cycling on/off behavior (like HVAC)."""
         cycling = template.get("cycling_pattern", {})
@@ -193,12 +203,17 @@ class RealisticBehaviorEngine:
         cycle_position = (current_time - self._start_time) % cycle_length
 
         if circuit_id not in self._circuit_cycle_states:
-            self._circuit_cycle_states[circuit_id] = {"last_cycle_start": self._start_time, "is_on": True}
+            self._circuit_cycle_states[circuit_id] = {
+                "last_cycle_start": self._start_time,
+                "is_on": True,
+            }
 
         is_on_phase = cycle_position < on_duration
         return base_power if is_on_phase else 0.0
 
-    def _apply_smart_behavior(self, base_power: float, template: CircuitTemplateExtended, current_time: float) -> float:
+    def _apply_smart_behavior(
+        self, base_power: float, template: CircuitTemplateExtended, current_time: float
+    ) -> float:
         """Apply smart load behavior (like EV chargers responding to grid)."""
         smart = template.get("smart_behavior", {})
         max_reduction = smart.get("max_power_reduction", 0.5)
@@ -210,7 +225,9 @@ class RealisticBehaviorEngine:
 
         return base_power
 
-    def _apply_battery_behavior(self, base_power: float, template: CircuitTemplateExtended, current_time: float) -> float:
+    def _apply_battery_behavior(
+        self, base_power: float, template: CircuitTemplateExtended, current_time: float
+    ) -> float:
         """Apply battery behavior with charge mode support."""
         dt = datetime.fromtimestamp(current_time)
         current_hour = dt.hour
@@ -276,7 +293,9 @@ class RealisticBehaviorEngine:
 
         return random.uniform(min_idle, max_idle)  # nosec B311
 
-    def _get_solar_intensity_from_config(self, hour: int, battery_config: BatteryBehavior) -> float:
+    def _get_solar_intensity_from_config(
+        self, hour: int, battery_config: BatteryBehavior
+    ) -> float:
         """Get solar intensity from YAML configuration."""
         solar_profile: dict[int, float] = battery_config.get("solar_intensity_profile", {})
         return solar_profile.get(hour, 0.1)
@@ -286,7 +305,9 @@ class RealisticBehaviorEngine:
         demand_profile: dict[int, float] = battery_config.get("demand_factor_profile", {})
         return demand_profile.get(hour, 0.3)
 
-    def _get_solar_gen_charge_power(self, battery_config: BatteryBehavior, current_time: float) -> float:
+    def _get_solar_gen_charge_power(
+        self, battery_config: BatteryBehavior, current_time: float
+    ) -> float:
         """Charge at max_charge_power * solar_factor * weather_factor."""
         lat = self._config["panel_config"].get("latitude", 37.7)
         lon = self._config["panel_config"].get("longitude", -122.4)
@@ -392,7 +413,9 @@ class DynamicSimulationEngine:
 
             self._initialize_tab_synchronizations()
             self._clock.initialize(self._config.get("simulation_params", {}))
-            self._behavior_engine = RealisticBehaviorEngine(self._clock.real_start_time, self._config)
+            self._behavior_engine = RealisticBehaviorEngine(
+                self._clock.real_start_time, self._config
+            )
             self._build_circuits()
             self._bsee = self._create_bsee()
             self._initialized = True
@@ -404,7 +427,9 @@ class DynamicSimulationEngine:
             self._config = self._config_data
         elif self._config_path and self._config_path.exists():
             loop = asyncio.get_event_loop()
-            self._config = await loop.run_in_executor(None, self._load_yaml_config, self._config_path)
+            self._config = await loop.run_in_executor(
+                None, self._load_yaml_config, self._config_path
+            )
         else:
             raise ValueError("YAML configuration is required")
 
@@ -552,9 +577,7 @@ class DynamicSimulationEngine:
                     circuit._instant_power_w = 0.0
             else:
                 soc = self._bsee.soe_percentage
-                soc_threshold = self._config["panel_config"].get(
-                    "soc_shed_threshold", 20.0
-                )
+                soc_threshold = self._config["panel_config"].get("soc_shed_threshold", 20.0)
                 for circuit in self._circuits.values():
                     # PV: shed if not islandable
                     if circuit.energy_mode == "producer":
@@ -569,10 +592,9 @@ class DynamicSimulationEngine:
                     if "relay_state" in cid_overrides:
                         continue
                     # Consumer shedding by priority
-                    if circuit._priority == "OFF_GRID":
-                        circuit._instant_power_w = 0.0
-                        shed_ids.add(circuit.circuit_id)
-                    elif circuit._priority == "SOC_THRESHOLD" and soc < soc_threshold:
+                    if circuit._priority == "OFF_GRID" or (
+                        circuit._priority == "SOC_THRESHOLD" and soc < soc_threshold
+                    ):
                         circuit._instant_power_w = 0.0
                         shed_ids.add(circuit.circuit_id)
 
@@ -757,7 +779,9 @@ class DynamicSimulationEngine:
     # ------------------------------------------------------------------
 
     def set_dynamic_overrides(
-        self, circuit_overrides: dict[str, dict[str, Any]] | None = None, global_overrides: dict[str, Any] | None = None
+        self,
+        circuit_overrides: dict[str, dict[str, Any]] | None = None,
+        global_overrides: dict[str, Any] | None = None,
     ) -> None:
         """Set dynamic overrides for circuits and global parameters."""
         if circuit_overrides:
@@ -814,7 +838,9 @@ class DynamicSimulationEngine:
     def _get_tab_sync_config(self, tab_num: int) -> TabSynchronization | None:
         """Get synchronization configuration for a specific tab."""
         if not self._config:
-            raise SimulationConfigurationError("Simulation configuration is required for tab synchronization.")
+            raise SimulationConfigurationError(
+                "Simulation configuration is required for tab synchronization."
+            )
 
         tab_syncs = self._config.get("tab_synchronizations", [])
         for sync_config in tab_syncs:
@@ -879,7 +905,9 @@ class DynamicSimulationEngine:
             return None
         for circuit_def in self._config["circuits"]:
             template_name = circuit_def.get("template", "")
-            template = self._config["circuit_templates"].get(template_name, {})
+            template: CircuitTemplateExtended | dict[str, Any] = self._config[
+                "circuit_templates"
+            ].get(template_name, {})
             if not isinstance(template, dict):
                 continue
             battery_cfg = template.get("battery_behavior", {})

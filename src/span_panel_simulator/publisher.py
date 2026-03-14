@@ -226,12 +226,8 @@ class HomiePublisher:
         p[self._prop_topic(n, "direction")] = "UPSTREAM"
         # Consumer negates grid power; publisher must negate back
         p[self._prop_topic(n, "active-power")] = _format_float(-s.instant_grid_power_w)
-        p[self._prop_topic(n, "imported-energy")] = _format_float(
-            s.main_meter_energy_consumed_wh
-        )
-        p[self._prop_topic(n, "exported-energy")] = _format_float(
-            s.main_meter_energy_produced_wh
-        )
+        p[self._prop_topic(n, "imported-energy")] = _format_float(s.main_meter_energy_consumed_wh)
+        p[self._prop_topic(n, "exported-energy")] = _format_float(s.main_meter_energy_produced_wh)
         if s.upstream_l1_current_a is not None:
             p[self._prop_topic(n, "l1-current")] = _format_float(s.upstream_l1_current_a)
         if s.upstream_l2_current_a is not None:
@@ -241,12 +237,8 @@ class HomiePublisher:
         n = NODE_DOWNSTREAM_LUGS
         p[self._prop_topic(n, "direction")] = "DOWNSTREAM"
         p[self._prop_topic(n, "active-power")] = _format_float(s.feedthrough_power_w)
-        p[self._prop_topic(n, "imported-energy")] = _format_float(
-            s.feedthrough_energy_consumed_wh
-        )
-        p[self._prop_topic(n, "exported-energy")] = _format_float(
-            s.feedthrough_energy_produced_wh
-        )
+        p[self._prop_topic(n, "imported-energy")] = _format_float(s.feedthrough_energy_consumed_wh)
+        p[self._prop_topic(n, "exported-energy")] = _format_float(s.feedthrough_energy_produced_wh)
         if s.downstream_l1_current_a is not None:
             p[self._prop_topic(n, "l1-current")] = _format_float(s.downstream_l1_current_a)
         if s.downstream_l2_current_a is not None:
@@ -275,12 +267,8 @@ class HomiePublisher:
             # Energy: consumer swaps imported/exported perspective.
             # "exported-energy" on wire = consumed_energy_wh in snapshot
             # "imported-energy" on wire = produced_energy_wh in snapshot
-            p[self._prop_topic(node, "exported-energy")] = _format_float(
-                circ.consumed_energy_wh
-            )
-            p[self._prop_topic(node, "imported-energy")] = _format_float(
-                circ.produced_energy_wh
-            )
+            p[self._prop_topic(node, "exported-energy")] = _format_float(circ.consumed_energy_wh)
+            p[self._prop_topic(node, "imported-energy")] = _format_float(circ.produced_energy_wh)
 
             # Tab position → space (first tab)
             if circ.tabs:
@@ -437,9 +425,7 @@ class HomiePublisher:
             topics.append(self._set_topic(node_uuid, "shed-priority"))
         return topics
 
-    def resolve_set_message(
-        self, topic: str
-    ) -> tuple[str, str, str] | None:
+    def resolve_set_message(self, topic: str) -> tuple[str, str, str] | None:
         """Parse a ``/set`` topic into ``(target_type, circuit_id_or_empty, property_name)``.
 
         Returns None if the topic is not a recognised ``/set`` topic.

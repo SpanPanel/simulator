@@ -10,7 +10,6 @@ from __future__ import annotations
 import math
 from datetime import datetime
 
-
 VALID_HVAC_TYPES: tuple[str, ...] = ("central_ac", "heat_pump", "heat_pump_aux")
 
 HVAC_TYPE_LABELS: dict[str, str] = {
@@ -21,13 +20,13 @@ HVAC_TYPE_LABELS: dict[str, str] = {
 
 # Electrical draw during heating relative to peak cooling draw.
 _HEATING_RATIOS: dict[str, float] = {
-    "central_ac": 0.15,    # Gas furnace heats; circuit powers blower fan only
-    "heat_pump": 0.45,     # COP ~3 reduces electrical input per unit of thermal output
+    "central_ac": 0.15,  # Gas furnace heats; circuit powers blower fan only
+    "heat_pump": 0.45,  # COP ~3 reduces electrical input per unit of thermal output
     "heat_pump_aux": 1.4,  # Below ~35 F, resistive aux strips exceed compressor draw
 }
 
 _BALANCE_POINT_C = 18.0  # Standard HVAC thermostat balance point (65 F)
-_STANDBY_MIN = 0.05      # Minimum factor: standby / fan circulation
+_STANDBY_MIN = 0.05  # Minimum factor: standby / fan circulation
 
 
 def _estimated_temperature(month_frac: float, latitude: float) -> float:
@@ -84,10 +83,7 @@ def hvac_seasonal_factor(timestamp: float, latitude: float, hvac_type: str) -> f
     # Cooling factor: ramps 0→1 as temperature rises above balance point
     if temp > _BALANCE_POINT_C:
         denominator = peak_summer - _BALANCE_POINT_C
-        if denominator > 0:
-            cooling = min((temp - _BALANCE_POINT_C) / denominator, 1.0)
-        else:
-            cooling = 1.0
+        cooling = min((temp - _BALANCE_POINT_C) / denominator, 1.0) if denominator > 0 else 1.0
         return max(cooling, _STANDBY_MIN)
 
     # Heating factor: ramps 0→heating_ratio as temperature drops below balance point

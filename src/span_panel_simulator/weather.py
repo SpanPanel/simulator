@@ -38,10 +38,7 @@ class WeatherData:
     @property
     def display_summary(self) -> str:
         """Human-readable summary for the UI."""
-        return (
-            f"Avg cloud cover from {self.years_averaged} years of data "
-            f"({self.source})"
-        )
+        return f"Avg cloud cover from {self.years_averaged} years of data ({self.source})"
 
 
 class WeatherCache:
@@ -89,12 +86,10 @@ def cloud_cover_to_factor(cloud_pct: float) -> float:
         100% cloud → 0.3  (heavy overcast)
     """
     fraction = max(0.0, min(1.0, cloud_pct / 100.0))
-    return 1.0 - 0.7 * fraction ** 2
+    return 1.0 - 0.7 * fraction**2
 
 
-async def fetch_historical_weather(
-    lat: float, lon: float
-) -> WeatherData:
+async def fetch_historical_weather(lat: float, lon: float) -> WeatherData:
     """Fetch daily cloud cover from Open-Meteo Archive and average by month.
 
     Queries the last ``_YEARS_BACK`` calendar years of daily
@@ -118,18 +113,18 @@ async def fetch_historical_weather(
         "timezone": "UTC",
     }
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
+    async with (
+        aiohttp.ClientSession() as session,
+        session.get(
             _ARCHIVE_URL,
             params=params,
             timeout=aiohttp.ClientTimeout(total=15),
-        ) as resp:
-            if resp.status != 200:
-                body = await resp.text()
-                raise RuntimeError(
-                    f"Open-Meteo returned {resp.status}: {body[:200]}"
-                )
-            data = await resp.json()
+        ) as resp,
+    ):
+        if resp.status != 200:
+            body = await resp.text()
+            raise RuntimeError(f"Open-Meteo returned {resp.status}: {body[:200]}")
+        data = await resp.json()
 
     daily = data.get("daily", {})
     dates: list[str] = daily.get("time", [])
@@ -142,7 +137,7 @@ async def fetch_historical_weather(
     month_totals: dict[int, float] = {m: 0.0 for m in range(1, 13)}
     month_counts: dict[int, int] = {m: 0 for m in range(1, 13)}
 
-    for date_str, cloud_val in zip(dates, cloud_values):
+    for date_str, cloud_val in zip(dates, cloud_values, strict=False):
         if cloud_val is None:
             continue
         month = int(date_str[5:7])
@@ -153,10 +148,7 @@ async def fetch_historical_weather(
     monthly_factors: dict[int, float] = {}
     for m in range(1, 13):
         count = month_counts[m]
-        if count > 0:
-            avg = month_totals[m] / count
-        else:
-            avg = 50.0  # fallback if no data for a month
+        avg = month_totals[m] / count if count > 0 else 50.0
         monthly_cloud[m] = round(avg, 1)
         monthly_factors[m] = round(cloud_cover_to_factor(avg), 4)
 
@@ -174,7 +166,9 @@ async def fetch_historical_weather(
     _weather_cache.put(weather_data)
     _LOGGER.info(
         "Fetched %d days of cloud cover for (%.1f, %.1f) from Open-Meteo",
-        len(dates), lat, lon,
+        len(dates),
+        lat,
+        lon,
     )
 
     return weather_data

@@ -29,19 +29,25 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 PRIORITIES = [
-    "MUST_HAVE", "NICE_TO_HAVE", "NON_ESSENTIAL", "NEVER",
-    "SOC_THRESHOLD", "OFF_GRID",
+    "MUST_HAVE",
+    "NICE_TO_HAVE",
+    "NON_ESSENTIAL",
+    "NEVER",
+    "SOC_THRESHOLD",
+    "OFF_GRID",
 ]
 RELAY_BEHAVIORS = ["controllable", "non_controllable"]
 ENTITY_TYPES = ["circuit", "pv", "evse", "battery"]
 
 
 def _store(request: web.Request) -> ConfigStore:
-    return request.app["store"]
+    store: ConfigStore = request.app["store"]
+    return store
 
 
 def _ctx(request: web.Request) -> DashboardContext:
-    return request.app["dashboard_context"]
+    ctx: DashboardContext = request.app["dashboard_context"]
+    return ctx
 
 
 def _render(template: str, request: web.Request, context: dict[str, Any]) -> web.Response:
@@ -80,9 +86,7 @@ def _presets_for_type(entity_type: str) -> dict[str, str]:
     return PRESETS_BY_TYPE.get(entity_type, {})
 
 
-def _entity_list_context(
-    request: web.Request, editing_id: str | None = None
-) -> dict[str, Any]:
+def _entity_list_context(request: web.Request, editing_id: str | None = None) -> dict[str, Any]:
     """Build the entity-list template context.
 
     When *editing_id* is set, the template renders that entity in edit
@@ -216,15 +220,18 @@ def setup_routes(app: web.Application) -> None:
 
 # -- Full page --
 
+
 async def handle_dashboard(request: web.Request) -> web.Response:
     return _render("dashboard.html", request, _dashboard_context(request))
 
 
 # -- Panel config --
 
+
 async def handle_get_panel_config(request: web.Request) -> web.Response:
     return _render(
-        "partials/panel_config.html", request,
+        "partials/panel_config.html",
+        request,
         {"panel_config": _store(request).get_panel_config()},
     )
 
@@ -233,16 +240,19 @@ async def handle_put_panel_config(request: web.Request) -> web.Response:
     data = await request.post()
     _store(request).update_panel_config(dict(data))
     return _render(
-        "partials/panel_config.html", request,
+        "partials/panel_config.html",
+        request,
         {"panel_config": _store(request).get_panel_config()},
     )
 
 
 # -- Simulation params --
 
+
 async def handle_get_sim_params(request: web.Request) -> web.Response:
     return _render(
-        "partials/simulation_params.html", request,
+        "partials/simulation_params.html",
+        request,
         {"sim_params": _store(request).get_simulation_params()},
     )
 
@@ -251,12 +261,14 @@ async def handle_put_sim_params(request: web.Request) -> web.Response:
     data = await request.post()
     _store(request).update_simulation_params(dict(data))
     return _render(
-        "partials/simulation_params.html", request,
+        "partials/simulation_params.html",
+        request,
         {"sim_params": _store(request).get_simulation_params()},
     )
 
 
 # -- Entities --
+
 
 async def handle_get_entities(request: web.Request) -> web.Response:
     return _render("partials/entity_list.html", request, _entity_list_context(request))
@@ -282,7 +294,8 @@ async def handle_add_entity_from_tabs(request: web.Request) -> web.Response:
         ctx["unmapped_error"] = str(exc)
         return _render("partials/entity_list.html", request, ctx)
     return _render(
-        "partials/entity_list.html", request,
+        "partials/entity_list.html",
+        request,
         _entity_list_context(request, editing_id=entity.id),
     )
 
@@ -290,7 +303,8 @@ async def handle_add_entity_from_tabs(request: web.Request) -> web.Response:
 async def handle_get_entity_edit(request: web.Request) -> web.Response:
     entity_id = request.match_info["id"]
     return _render(
-        "partials/entity_list.html", request,
+        "partials/entity_list.html",
+        request,
         _entity_list_context(request, editing_id=entity_id),
     )
 
@@ -303,7 +317,8 @@ async def handle_put_entity(request: web.Request) -> web.Response:
     if "priority" in data:
         _ctx(request).set_circuit_priority(entity_id, str(data["priority"]))
     return _render(
-        "partials/entity_list.html", request,
+        "partials/entity_list.html",
+        request,
         _entity_list_context(request, editing_id=entity_id),
     )
 
@@ -315,6 +330,7 @@ async def handle_delete_entity(request: web.Request) -> web.Response:
 
 
 # -- Profile --
+
 
 async def handle_get_profile(request: web.Request) -> web.Response:
     entity_id = request.match_info["id"]
@@ -342,18 +358,24 @@ async def handle_apply_preset(request: web.Request) -> web.Response:
     start_hour = int(str(data.get("start_hour", "0")))
     end_hour = int(str(data.get("end_hour", "24")))
     _store(request).apply_preset(
-        entity_id, preset_name, month, day,
-        start_hour=start_hour, end_hour=end_hour,
+        entity_id,
+        preset_name,
+        month,
+        day,
+        start_hour=start_hour,
+        end_hour=end_hour,
     )
     return _render("partials/profile_editor.html", request, _profile_context(request, entity_id))
 
 
 # -- Battery profile --
 
+
 async def handle_get_battery_profile(request: web.Request) -> web.Response:
     entity_id = request.match_info["id"]
     return _render(
-        "partials/battery_profile_editor.html", request,
+        "partials/battery_profile_editor.html",
+        request,
         _battery_profile_context(request, entity_id),
     )
 
@@ -374,7 +396,8 @@ async def handle_put_battery_profile(request: web.Request) -> web.Response:
             hour_modes[h] = "idle"
     _store(request).update_battery_profile(entity_id, hour_modes)
     return _render(
-        "partials/battery_profile_editor.html", request,
+        "partials/battery_profile_editor.html",
+        request,
         _battery_profile_context(request, entity_id),
     )
 
@@ -385,7 +408,8 @@ async def handle_apply_battery_preset(request: web.Request) -> web.Response:
     preset_name = str(data.get("preset", "custom"))
     _store(request).apply_battery_preset(entity_id, preset_name)
     return _render(
-        "partials/battery_profile_editor.html", request,
+        "partials/battery_profile_editor.html",
+        request,
         _battery_profile_context(request, entity_id),
     )
 
@@ -396,7 +420,8 @@ async def handle_put_battery_charge_mode(request: web.Request) -> web.Response:
     mode = str(data.get("charge_mode", "custom"))
     _store(request).update_battery_charge_mode(entity_id, mode)
     return _render(
-        "partials/battery_profile_editor.html", request,
+        "partials/battery_profile_editor.html",
+        request,
         _battery_profile_context(request, entity_id),
     )
 
@@ -423,7 +448,8 @@ def _evse_schedule_context(request: web.Request, entity_id: str) -> dict[str, An
 async def handle_get_evse_schedule(request: web.Request) -> web.Response:
     entity_id = request.match_info["id"]
     return _render(
-        "partials/evse_schedule.html", request,
+        "partials/evse_schedule.html",
+        request,
         _evse_schedule_context(request, entity_id),
     )
 
@@ -435,7 +461,8 @@ async def handle_put_evse_schedule(request: web.Request) -> web.Response:
     duration = int(str(data.get("charge_duration", "6")))
     _store(request).update_evse_schedule(entity_id, start, duration)
     return _render(
-        "partials/evse_schedule.html", request,
+        "partials/evse_schedule.html",
+        request,
         _evse_schedule_context(request, entity_id),
     )
 
@@ -446,12 +473,14 @@ async def handle_apply_evse_preset(request: web.Request) -> web.Response:
     preset = str(data.get("preset", "night"))
     _store(request).apply_evse_preset(entity_id, preset)
     return _render(
-        "partials/evse_schedule.html", request,
+        "partials/evse_schedule.html",
+        request,
         _evse_schedule_context(request, entity_id),
     )
 
 
 # -- Solar curve JSON --
+
 
 async def handle_solar_curve(request: web.Request) -> web.Response:
     month = int(request.query.get("month", "6"))
@@ -483,10 +512,7 @@ async def handle_pv_curve_data(request: web.Request) -> web.Response:
 
     # Weather factor for this month
     cached = get_cached_weather(lat, lon)
-    if cached is not None:
-        weather = cached.monthly_factors.get(month, 0.85)
-    else:
-        weather = 1.0  # no degradation if no data
+    weather = cached.monthly_factors.get(month, 0.85) if cached is not None else 1.0
 
     # Compute hourly production in watts (negative = production)
     hourly_watts: dict[str, float] = {}
@@ -495,18 +521,21 @@ async def handle_pv_curve_data(request: web.Request) -> web.Response:
         watts = round(nameplate * factor * efficiency * weather, 1)
         hourly_watts[str(h)] = watts
 
-    return web.json_response({
-        "month": month,
-        "nameplate_w": nameplate,
-        "efficiency": efficiency,
-        "weather_factor": round(weather, 4),
-        "latitude": lat,
-        "longitude": lon,
-        "hourly_watts": hourly_watts,
-    })
+    return web.json_response(
+        {
+            "month": month,
+            "nameplate_w": nameplate,
+            "efficiency": efficiency,
+            "weather_factor": round(weather, 4),
+            "latitude": lat,
+            "longitude": lon,
+            "hourly_watts": hourly_watts,
+        }
+    )
 
 
 # -- Geocoding proxy --
+
 
 async def handle_geocode(request: web.Request) -> web.Response:
     """Proxy geocoding requests to Photon (OpenStreetMap-based, no API key)."""
@@ -515,15 +544,17 @@ async def handle_geocode(request: web.Request) -> web.Response:
         return web.json_response([])
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(
                 "https://photon.komoot.io/api/",
                 params={"q": query, "limit": "8"},
                 timeout=aiohttp.ClientTimeout(total=5),
-            ) as resp:
-                if resp.status != 200:
-                    return web.json_response([])
-                data = await resp.json()
+            ) as resp,
+        ):
+            if resp.status != 200:
+                return web.json_response([])
+            data = await resp.json()
     except Exception:
         _LOGGER.debug("Geocoding request failed for query: %s", query)
         return web.json_response([])
@@ -542,16 +573,19 @@ async def handle_geocode(request: web.Request) -> web.Response:
                 parts.append(val)
         display = ", ".join(parts) if parts else "Unknown"
 
-        results.append({
-            "lat": round(coords[1], 4),
-            "lon": round(coords[0], 4),
-            "display": display,
-        })
+        results.append(
+            {
+                "lat": round(coords[1], 4),
+                "lon": round(coords[0], 4),
+                "display": display,
+            }
+        )
 
     return web.json_response(results)
 
 
 # -- Weather data --
+
 
 async def handle_fetch_weather(request: web.Request) -> web.Response:
     """Fetch historical cloud cover from Open-Meteo for the panel location."""
@@ -562,35 +596,43 @@ async def handle_fetch_weather(request: web.Request) -> web.Response:
 
     cached = get_cached_weather(lat, lon)
     if cached is not None:
-        return web.json_response({
-            "monthly_cloud_cover": cached.monthly_cloud_cover,
-            "monthly_factors": cached.monthly_factors,
-            "years_averaged": cached.years_averaged,
-            "source": cached.source,
-            "summary": cached.display_summary,
-        })
+        return web.json_response(
+            {
+                "monthly_cloud_cover": cached.monthly_cloud_cover,
+                "monthly_factors": cached.monthly_factors,
+                "years_averaged": cached.years_averaged,
+                "source": cached.source,
+                "summary": cached.display_summary,
+            }
+        )
 
     try:
         data = await fetch_historical_weather(lat, lon)
     except Exception:
         _LOGGER.warning(
-            "Failed to fetch weather for (%.2f, %.2f)", lat, lon, exc_info=True,
+            "Failed to fetch weather for (%.2f, %.2f)",
+            lat,
+            lon,
+            exc_info=True,
         )
         return web.json_response(
             {"error": "Could not fetch weather data. Using deterministic model."},
             status=502,
         )
 
-    return web.json_response({
-        "monthly_cloud_cover": data.monthly_cloud_cover,
-        "monthly_factors": data.monthly_factors,
-        "years_averaged": data.years_averaged,
-        "source": data.source,
-        "summary": data.display_summary,
-    })
+    return web.json_response(
+        {
+            "monthly_cloud_cover": data.monthly_cloud_cover,
+            "monthly_factors": data.monthly_factors,
+            "years_averaged": data.years_averaged,
+            "source": data.source,
+            "summary": data.display_summary,
+        }
+    )
 
 
 # -- Live simulation data --
+
 
 async def handle_power_summary(request: web.Request) -> web.Response:
     """Return current power flows from the running simulation."""
@@ -653,6 +695,7 @@ async def handle_set_relay(request: web.Request) -> web.Response:
 
 # -- Energy projection --
 
+
 async def handle_energy_projection(request: web.Request) -> web.Response:
     """Return daily energy summaries for system sizing."""
     period = request.query.get("period", "year")
@@ -664,6 +707,7 @@ async def handle_energy_projection(request: web.Request) -> web.Response:
 
 
 # -- File operations --
+
 
 async def handle_export(request: web.Request) -> web.Response:
     content = _store(request).export_yaml()

@@ -120,7 +120,9 @@ class PanelAdvertiser:
         self._services[serial] = services
         _LOGGER.info(
             "Advertised panel %s on %s (port %d)",
-            serial, ", ".join(addresses), self._http_port,
+            serial,
+            ", ".join(addresses),
+            self._http_port,
         )
 
     async def unregister_panel(self, serial: str) -> None:

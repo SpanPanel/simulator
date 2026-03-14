@@ -34,6 +34,7 @@ class TimeOfDayProfile(TypedDict, total=False):
     enabled: bool
     peak_hours: list[int]  # Hours of day for peak activity
     hour_factors: dict[int, float]  # Hour-specific production factors
+    hourly_multipliers: dict[int, float]  # Per-hour multipliers (profile editor)
     production_hours: list[int]  # Hours when solar should produce
     night_hours: list[int]  # Hours when solar should not produce
     peak_factor: float  # Peak production factor

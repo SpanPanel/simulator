@@ -46,10 +46,9 @@ def compute_solar_curve(
     raw: dict[int, float] = {}
     for hour in range(24):
         hour_angle = math.radians(15.0 * (hour - 12))
-        sin_elevation = (
-            math.sin(lat_rad) * math.sin(declination)
-            + math.cos(lat_rad) * math.cos(declination) * math.cos(hour_angle)
-        )
+        sin_elevation = math.sin(lat_rad) * math.sin(declination) + math.cos(lat_rad) * math.cos(
+            declination
+        ) * math.cos(hour_angle)
         if sin_elevation <= 0:
             raw[hour] = 0.0
         else:
@@ -100,25 +99,23 @@ def solar_production_factor(
 
     # Hour angle: 0 at solar noon (hour 12)
     hour_angle = math.radians(15.0 * (solar_hour - 12.0))
-    sin_elevation = (
-        math.sin(lat_rad) * math.sin(declination)
-        + math.cos(lat_rad) * math.cos(declination) * math.cos(hour_angle)
-    )
+    sin_elevation = math.sin(lat_rad) * math.sin(declination) + math.cos(lat_rad) * math.cos(
+        declination
+    ) * math.cos(hour_angle)
 
     if sin_elevation <= 0:
         return 0.0
 
     # Compute the day's peak for normalisation.
     # Peak occurs at solar noon (hour_angle=0).
-    sin_peak = (
-        math.sin(lat_rad) * math.sin(declination)
-        + math.cos(lat_rad) * math.cos(declination)
+    sin_peak = math.sin(lat_rad) * math.sin(declination) + math.cos(lat_rad) * math.cos(
+        declination
     )
     if sin_peak <= 0:
         return 0.0
 
-    factor = (sin_elevation**1.2) / (sin_peak**1.2)
-    return min(1.0, max(0.0, factor))
+    raw: float = float(sin_elevation**1.2) / float(sin_peak**1.2)
+    return float(min(1.0, max(0.0, raw)))
 
 
 def daily_weather_factor(
@@ -157,7 +154,7 @@ def daily_weather_factor(
     val_b = _anchor_value(anchor_index + 1, seed)
 
     t = (1.0 - math.cos(frac * math.pi)) / 2.0
-    noise = val_a * (1.0 - t) + val_b * t  # 0.0–1.0
+    noise = val_a * (1.0 - t) + val_b * t  # 0.0-1.0
 
     if monthly_factors:
         # Derive month from day-of-year
@@ -168,9 +165,7 @@ def daily_weather_factor(
         result = base_factor + noise_offset
     else:
         # Deterministic seasonal model (original behaviour)
-        seasonal = 0.5 + 0.5 * math.cos(
-            math.radians((doy - 172) * (360.0 / 365.0))
-        )
+        seasonal = 0.5 + 0.5 * math.cos(math.radians((doy - 172) * (360.0 / 365.0)))
         combined = noise * 0.8 + seasonal * 0.2
         result = 0.3 + combined * 0.7
 

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock
 
 import pytest
+
+if TYPE_CHECKING:
+    from unittest.mock import AsyncMock
 
 from span_panel_simulator.publisher import (
     HomiePublisher,
@@ -49,7 +51,6 @@ class TestPublishInit:
         await publisher.publish_init(sample_snapshot)
 
         calls = publish_mock.call_args_list
-        topics = [c.args[0] for c in calls]
 
         # First call: $state = init
         assert calls[0].args == ("ebus/5/SPAN-TEST-001/$state", "init", True)
@@ -281,9 +282,7 @@ class TestSetTopicResolution:
         await publisher.publish_init(sample_snapshot)
 
         uuid = _stable_circuit_uuid("living_room_lights")
-        result = publisher.resolve_set_message(
-            f"ebus/5/SPAN-TEST-001/{uuid}/relay/set"
-        )
+        result = publisher.resolve_set_message(f"ebus/5/SPAN-TEST-001/{uuid}/relay/set")
         assert result is not None
         assert result[0] == "circuit"
         assert result[1] == "living_room_lights"

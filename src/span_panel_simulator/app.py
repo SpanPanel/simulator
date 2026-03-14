@@ -15,13 +15,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import aiomqtt
-
 from aiohttp import web
 
 from span_panel_simulator.bootstrap import BootstrapHttpServer
 from span_panel_simulator.certs import generate_certificates
-from span_panel_simulator.dashboard import DashboardContext, create_dashboard_app
-from span_panel_simulator.discovery import PanelAdvertiser
 from span_panel_simulator.const import (
     DASHBOARD_PORT,
     DEFAULT_BROKER_PASSWORD,
@@ -31,6 +28,8 @@ from span_panel_simulator.const import (
     HTTPS_PORT,
     MQTTS_PORT,
 )
+from span_panel_simulator.dashboard import DashboardContext, create_dashboard_app
+from span_panel_simulator.discovery import PanelAdvertiser
 from span_panel_simulator.panel import PanelInstance
 
 if TYPE_CHECKING:
@@ -57,9 +56,7 @@ def _file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _discover_configs(
-    config_dir: Path, config_filter: str | None = None
-) -> dict[Path, str]:
+def _discover_configs(config_dir: Path, config_filter: str | None = None) -> dict[Path, str]:
     """Scan a directory for YAML config files and return path -> content hash.
 
     When *config_filter* is set, only the named file is returned.
@@ -189,9 +186,11 @@ class SimulatorApp:
             for circuit in engine._circuits.values():
                 if circuit.energy_mode in ("producer", "bidirectional"):
                     continue
-                if circuit._priority == "OFF_GRID":
-                    shed_ids.append(circuit.circuit_id)
-                elif circuit._priority == "SOC_THRESHOLD" and soc_pct is not None and soc_pct < soc_threshold:
+                if circuit._priority == "OFF_GRID" or (
+                    circuit._priority == "SOC_THRESHOLD"
+                    and soc_pct is not None
+                    and soc_pct < soc_threshold
+                ):
                     shed_ids.append(circuit.circuit_id)
 
         # Circuits manually opened by user (via relay override)
@@ -247,9 +246,7 @@ class SimulatorApp:
         """Push a circuit priority change to the running engine immediately."""
         engine = self._get_first_engine()
         if engine is not None:
-            engine.set_dynamic_overrides(
-                circuit_overrides={circuit_id: {"priority": priority}}
-            )
+            engine.set_dynamic_overrides(circuit_overrides={circuit_id: {"priority": priority}})
 
     def _set_circuit_relay(self, circuit_id: str, relay_state: str) -> None:
         """Push a circuit relay change to the running engine immediately."""
@@ -381,7 +378,7 @@ class SimulatorApp:
             topic_str = str(message.topic)
             payload_str = (
                 message.payload.decode("utf-8")
-                if isinstance(message.payload, (bytes, bytearray))
+                if isinstance(message.payload, bytes | bytearray)
                 else str(message.payload)
             )
 
@@ -396,7 +393,10 @@ class SimulatorApp:
                 target_type, circuit_id, prop = parsed
                 _LOGGER.info(
                     "Set command [%s]: %s/%s = %s",
-                    panel.serial_number, target_type, prop, payload_str,
+                    panel.serial_number,
+                    target_type,
+                    prop,
+                    payload_str,
                 )
 
                 if target_type == "circuit" and prop == "relay":
@@ -436,9 +436,7 @@ class SimulatorApp:
     async def run(self) -> None:
         """Run the full simulator lifecycle."""
         # 1. Generate TLS certificates
-        certs = generate_certificates(
-            self._cert_dir, advertise_address=self._advertise_address
-        )
+        certs = generate_certificates(self._cert_dir, advertise_address=self._advertise_address)
         self._certs = certs
 
         # 2. Resolve homie schema
@@ -474,13 +472,9 @@ class SimulatorApp:
         dashboard_app = create_dashboard_app(dashboard_ctx)
         self._dashboard_runner = web.AppRunner(dashboard_app)
         await self._dashboard_runner.setup()
-        dashboard_site = web.TCPSite(
-            self._dashboard_runner, "0.0.0.0", self._dashboard_port
-        )
+        dashboard_site = web.TCPSite(self._dashboard_runner, "0.0.0.0", self._dashboard_port)
         await dashboard_site.start()
-        _LOGGER.info(
-            "Dashboard listening on http://0.0.0.0:%d", self._dashboard_port
-        )
+        _LOGGER.info("Dashboard listening on http://0.0.0.0:%d", self._dashboard_port)
 
         # 4. Start mDNS advertiser
         advertiser = PanelAdvertiser(
