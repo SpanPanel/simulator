@@ -30,6 +30,7 @@ from span_panel_simulator.config_types import (
     TabSynchronization,
 )
 from span_panel_simulator.exceptions import SimulationConfigurationError
+from span_panel_simulator.hvac import hvac_seasonal_factor
 from span_panel_simulator.solar import daily_weather_factor, solar_production_factor
 from span_panel_simulator.weather import get_cached_weather
 from span_panel_simulator.models import (
@@ -61,6 +62,17 @@ class RealisticBehaviorEngine:
         self._start_time = simulation_start_time
         self._config = config
         self._circuit_cycle_states: dict[str, dict[str, Any]] = {}
+        self._last_battery_direction: str = "idle"
+        self._solar_excess_w: float = 0.0
+
+    @property
+    def last_battery_direction(self) -> str:
+        """Most recent battery direction set by charge mode logic."""
+        return self._last_battery_direction
+
+    def set_solar_excess(self, excess_w: float) -> None:
+        """Set the solar excess watts for solar-excess charge mode."""
+        self._solar_excess_w = excess_w
 
     def get_circuit_power(
         self, circuit_id: str, template: CircuitTemplateExtended, current_time: float, relay_state: str = "CLOSED"
@@ -77,6 +89,9 @@ class RealisticBehaviorEngine:
             base_power = self._apply_solar_day_night_cycle(base_power, current_time)
         elif template.get("time_of_day_profile", {}).get("enabled", False):
             base_power = self._apply_time_of_day_modulation(base_power, template, current_time)
+
+        # Apply HVAC seasonal modulation
+        base_power = self._apply_hvac_seasonal_modulation(base_power, template, current_time)
 
         # Apply cycling behavior
         if "cycling_pattern" in template:
@@ -156,6 +171,16 @@ class RealisticBehaviorEngine:
         )
         return abs(base_power) * factor * weather
 
+    def _apply_hvac_seasonal_modulation(
+        self, base_power: float, template: CircuitTemplateExtended, current_time: float
+    ) -> float:
+        """Scale power by seasonal HVAC factor when hvac_type is configured."""
+        hvac_type = template.get("hvac_type")
+        if not hvac_type:
+            return base_power
+        latitude = self._config["panel_config"].get("latitude", 37.7)
+        return base_power * hvac_seasonal_factor(current_time, latitude, hvac_type)
+
     def _apply_cycling_behavior(
         self, circuit_id: str, base_power: float, template: CircuitTemplateExtended, current_time: float
     ) -> float:
@@ -186,7 +211,7 @@ class RealisticBehaviorEngine:
         return base_power
 
     def _apply_battery_behavior(self, base_power: float, template: CircuitTemplateExtended, current_time: float) -> float:
-        """Apply time-based battery behavior from YAML configuration."""
+        """Apply battery behavior with charge mode support."""
         dt = datetime.fromtimestamp(current_time)
         current_hour = dt.hour
 
@@ -197,19 +222,33 @@ class RealisticBehaviorEngine:
         if not battery_config.get("enabled", True):
             return base_power
 
-        charge_hours: list[int] = battery_config.get("charge_hours", [])
         discharge_hours: list[int] = battery_config.get("discharge_hours", [])
         idle_hours: list[int] = battery_config.get("idle_hours", [])
 
-        if current_hour in charge_hours:
-            return self._get_charge_power(battery_config, current_hour)
-
+        # Discharge hours always take precedence regardless of charge mode
         if current_hour in discharge_hours:
+            self._last_battery_direction = "discharging"
             return self._get_discharge_power(battery_config, current_hour)
 
         if current_hour in idle_hours:
+            self._last_battery_direction = "idle"
             return self._get_idle_power(battery_config)
 
+        charge_mode: str = battery_config.get("charge_mode", "custom")
+
+        if charge_mode == "solar-gen":
+            return self._get_solar_gen_charge_power(battery_config, current_time)
+
+        if charge_mode == "solar-excess":
+            return self._get_solar_excess_charge_power(battery_config)
+
+        # "custom" — original schedule-based logic
+        custom_charge_hours: list[int] = battery_config.get("charge_hours", [])
+        if current_hour in custom_charge_hours:
+            self._last_battery_direction = "charging"
+            return self._get_charge_power(battery_config, current_hour)
+
+        self._last_battery_direction = "idle"
         return base_power * 0.1
 
     def _get_charge_power(self, battery_config: BatteryBehavior, current_hour: int) -> float:
@@ -247,6 +286,40 @@ class RealisticBehaviorEngine:
         demand_profile: dict[int, float] = battery_config.get("demand_factor_profile", {})
         return demand_profile.get(hour, 0.3)
 
+    def _get_solar_gen_charge_power(self, battery_config: BatteryBehavior, current_time: float) -> float:
+        """Charge at max_charge_power * solar_factor * weather_factor."""
+        lat = self._config["panel_config"].get("latitude", 37.7)
+        lon = self._config["panel_config"].get("longitude", -122.4)
+        factor = solar_production_factor(current_time, lat, lon)
+
+        if factor <= 0.0:
+            self._last_battery_direction = "idle"
+            return self._get_idle_power(battery_config)
+
+        monthly_factors: dict[int, float] | None = None
+        cached = get_cached_weather(lat, lon)
+        if cached is not None:
+            monthly_factors = cached.monthly_factors
+
+        weather = daily_weather_factor(
+            current_time,
+            seed=hash(self._config["panel_config"]["serial_number"]),
+            monthly_factors=monthly_factors,
+        )
+
+        max_charge: float = battery_config.get("max_charge_power", 3000.0)
+        self._last_battery_direction = "charging"
+        return abs(max_charge) * factor * weather
+
+    def _get_solar_excess_charge_power(self, battery_config: BatteryBehavior) -> float:
+        """Charge from surplus solar after loads are met."""
+        if self._solar_excess_w <= 0.0:
+            self._last_battery_direction = "idle"
+            return self._get_idle_power(battery_config)
+
+        max_charge: float = battery_config.get("max_charge_power", 3000.0)
+        self._last_battery_direction = "charging"
+        return min(self._solar_excess_w, abs(max_charge))
 
 
 # ---------------------------------------------------------------------------
@@ -432,10 +505,40 @@ class DynamicSimulationEngine:
 
         current_time = self._clock.current_time
 
-        # 1. Tick all circuits
-        for circuit in self._circuits.values():
+        # 1. Identify solar-excess battery circuits for two-pass tick
+        solar_excess_ids: set[str] = set()
+        for cid, circuit in self._circuits.items():
+            battery_cfg = circuit.template.get("battery_behavior", {})
+            if (
+                isinstance(battery_cfg, dict)
+                and battery_cfg.get("enabled", False)
+                and battery_cfg.get("charge_mode") == "solar-excess"
+            ):
+                solar_excess_ids.add(cid)
+
+        # Pass 1: tick all circuits except solar-excess batteries
+        for cid, circuit in self._circuits.items():
+            if cid in solar_excess_ids:
+                continue
             sync_override = self._get_sync_power_override(circuit)
             circuit.tick(current_time, power_override=sync_override)
+
+        # Pass 2: compute excess and tick solar-excess batteries
+        if solar_excess_ids and self._behavior_engine is not None:
+            pv_total = 0.0
+            load_total = 0.0
+            for circuit in self._circuits.values():
+                if circuit.circuit_id in solar_excess_ids:
+                    continue
+                if circuit.energy_mode == "producer":
+                    pv_total += circuit.instant_power_w
+                elif circuit.energy_mode != "bidirectional":
+                    load_total += circuit.instant_power_w
+            self._behavior_engine.set_solar_excess(max(0.0, pv_total - load_total))
+            for cid in solar_excess_ids:
+                circuit = self._circuits[cid]
+                sync_override = self._get_sync_power_override(circuit)
+                circuit.tick(current_time, power_override=sync_override)
 
         # 2. Apply global overrides
         self._apply_global_overrides()
@@ -773,9 +876,12 @@ class DynamicSimulationEngine:
             battery_cfg = template.get("battery_behavior", {})
             if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
                 battery_dict: dict[str, Any] = dict(battery_cfg)
+                nameplate: float = float(battery_cfg.get("nameplate_capacity_kwh", 13.5))
                 return BatteryStorageEquipment(
                     battery_behavior=battery_dict,
                     panel_serial=self._config["panel_config"]["serial_number"],
                     feed_circuit_id=circuit_def["id"],
+                    nameplate_capacity_kwh=nameplate,
+                    behavior_engine=self._behavior_engine,
                 )
         return None

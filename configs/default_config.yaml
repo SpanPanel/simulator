@@ -104,6 +104,7 @@ circuit_templates:
     cycling_pattern:
       on_duration: 1200
       off_duration: 2400
+    hvac_type: central_ac
   heat_pump:
     energy_profile:
       mode: consumer
@@ -117,6 +118,7 @@ circuit_templates:
     cycling_pattern:
       on_duration: 900
       off_duration: 1800
+    hvac_type: heat_pump
   span_drive:
     energy_profile:
       mode: consumer
@@ -184,6 +186,7 @@ circuit_templates:
     priority: NEVER
     battery_behavior:
       enabled: true
+      nameplate_capacity_kwh: 13.5
       charge_power: 3500.0
       discharge_power: -3500.0
       idle_power: 0.0

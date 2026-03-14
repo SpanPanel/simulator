@@ -45,6 +45,7 @@ circuit_templates:
     cycling_pattern:
       on_duration: 1200   # 20 minutes
       off_duration: 2400  # 40 minutes
+    hvac_type: "central_ac"
 
   # Large appliances (dishwasher, laundry, etc.)
   large_appliance:
@@ -158,6 +159,7 @@ circuit_templates:
     priority: "NEVER"
     battery_behavior:
       enabled: true
+      nameplate_capacity_kwh: 13.5
       charge_power: 3000.0
       discharge_power: -3000.0
       idle_power: 0.0
@@ -205,6 +207,7 @@ circuit_templates:
     cycling_pattern:
       on_duration: 900    # 15 minutes on
       off_duration: 1800  # 30 minutes off
+    hvac_type: "heat_pump"
 
   # Major appliances (dishwasher, laundry, etc.)
   major_appliance:

@@ -1037,3 +1037,70 @@ legend {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* Battery charge mode selector */
+.charge-mode-selector {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.charge-mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.charge-mode-option:hover {
+  border-color: var(--badge-battery);
+  color: var(--text);
+}
+
+.charge-mode-option.active {
+  background: color-mix(in srgb, var(--badge-battery) 15%, var(--card-bg));
+  border-color: var(--badge-battery);
+  color: var(--badge-battery);
+  font-weight: 600;
+}
+
+.charge-mode-option input[type="radio"] {
+  display: none;
+}
+
+.charge-mode-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+  font-style: italic;
+}
+
+.battery-section {
+  margin-bottom: 1rem;
+}
+
+.battery-section-heading {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 0.4rem 0;
+}
+
+.charge-hours-dimmed .mode-charge {
+  opacity: 0.35;
+}
+
+.charge-hours-dimmed .bar-charge {
+  opacity: 0.35;
+}

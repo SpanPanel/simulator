@@ -7,7 +7,7 @@ tab synchronization, and global simulation parameters.
 
 from __future__ import annotations
 
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 
 class PanelConfig(TypedDict):
@@ -74,11 +74,13 @@ class BatteryBehavior(TypedDict, total=False):
     """Battery behavior configuration."""
 
     enabled: bool
+    charge_mode: Literal["solar-gen", "solar-excess", "custom"]
     charge_power: float
     discharge_power: float
     idle_power: float
     charge_efficiency: float
     discharge_efficiency: float
+    nameplate_capacity_kwh: float  # Total battery capacity in kWh
     charge_hours: list[int]
     discharge_hours: list[int]
     max_charge_power: float
@@ -97,6 +99,7 @@ class CircuitTemplateExtended(CircuitTemplate, total=False):
     smart_behavior: SmartBehavior
     battery_behavior: BatteryBehavior
     device_type: str  # Explicit override: "circuit", "evse", "pv"
+    hvac_type: str  # "central_ac", "heat_pump", "heat_pump_aux"
 
 
 class CircuitDefinition(TypedDict):

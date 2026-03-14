@@ -70,6 +70,16 @@
         <label>Max Power (W):
           <input type="number" name="power_range_max" value="{{ e.energy_profile.power_range[1] }}" step="0.1">
         </label>
+        {% if e.cycling_pattern %}
+        <label>HVAC Type:
+          <select name="hvac_type">
+            <option value="none" {{ 'selected' if not e.hvac_type }}>None</option>
+            <option value="central_ac" {{ 'selected' if e.hvac_type == 'central_ac' }}>Central AC / Gas Furnace</option>
+            <option value="heat_pump" {{ 'selected' if e.hvac_type == 'heat_pump' }}>Heat Pump</option>
+            <option value="heat_pump_aux" {{ 'selected' if e.hvac_type == 'heat_pump_aux' }}>Heat Pump + Aux Strips</option>
+          </select>
+        </label>
+        {% endif %}
       </div>
     </fieldset>
     {% endif %}
@@ -98,6 +108,11 @@
     <fieldset>
       <legend>Battery Behavior</legend>
       <div class="form-grid">
+        <label>Nameplate Capacity (kWh):
+          <input type="number" name="nameplate_capacity_kwh"
+                 value="{{ e.battery_behavior.nameplate_capacity_kwh | default(13.5) }}"
+                 min="0.1" max="500" step="0.1">
+        </label>
         <label>Charge Power (W): <input type="number" value="{{ e.battery_behavior.charge_power }}" disabled></label>
         <label>Discharge Power (W): <input type="number" value="{{ e.battery_behavior.discharge_power }}" disabled></label>
       </div>

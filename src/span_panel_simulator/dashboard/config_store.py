@@ -42,6 +42,7 @@ class EntityView:
     time_of_day_profile: dict[str, Any] | None = None
     smart_behavior: dict[str, Any] | None = None
     battery_behavior: dict[str, Any] | None = None
+    hvac_type: str | None = None
     overrides: dict[str, Any] = field(default_factory=dict)
 
 
@@ -173,6 +174,7 @@ class ConfigStore:
             time_of_day_profile=template.get("time_of_day_profile"),
             smart_behavior=template.get("smart_behavior"),
             battery_behavior=template.get("battery_behavior"),
+            hvac_type=template.get("hvac_type"),
             overrides=dict(overrides),
         )
 
@@ -238,6 +240,17 @@ class ConfigStore:
                     overrides["power_range"] = pr
                 else:
                     overrides.pop("power_range", None)
+
+        if "nameplate_capacity_kwh" in data:
+            bb: dict[str, Any] = template.setdefault("battery_behavior", {})
+            bb["nameplate_capacity_kwh"] = float(data["nameplate_capacity_kwh"])
+
+        if "hvac_type" in data:
+            hvac_val = str(data["hvac_type"])
+            if hvac_val and hvac_val != "none":
+                template["hvac_type"] = hvac_val
+            else:
+                template.pop("hvac_type", None)
 
         if overrides:
             circuit["overrides"] = overrides
@@ -402,6 +415,29 @@ class ConfigStore:
         )
         self.update_entity_profile(entity_id, multipliers)
         return multipliers
+
+    # -- Battery charge mode --
+
+    def get_battery_charge_mode(self, entity_id: str) -> str:
+        """Return the charge mode for a battery entity (default ``"custom"``)."""
+        entity = self.get_entity(entity_id)
+        bb = entity.battery_behavior or {}
+        return str(bb.get("charge_mode", "custom"))
+
+    def update_battery_charge_mode(self, entity_id: str, mode: str) -> None:
+        """Set the charge mode on a battery entity's template."""
+        valid_modes = ("custom", "solar-gen", "solar-excess")
+        if mode not in valid_modes:
+            raise ValueError(f"Invalid charge mode: {mode!r}")
+
+        circuit = self._find_circuit(entity_id)
+        if circuit is None:
+            raise KeyError(f"Entity not found: {entity_id}")
+
+        template_name = circuit["template"]
+        template = self._templates().get(template_name, {})
+        bb: dict[str, Any] = template.setdefault("battery_behavior", {"enabled": True})
+        bb["charge_mode"] = mode
 
     # -- Battery profile --
 

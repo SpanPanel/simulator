@@ -8,36 +8,17 @@ the panel reports OFF_GRID / BATTERY; otherwise ON_GRID / GRID.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from span_panel_simulator.engine import RealisticBehaviorEngine
 
 
-# Time-of-day SOE profile: hour → base percentage
-_SOE_PROFILE: dict[int, float] = {
-    0: 45.0,
-    1: 40.0,
-    2: 38.0,
-    3: 35.0,
-    4: 33.0,
-    5: 30.0,
-    6: 32.0,
-    7: 35.0,
-    8: 40.0,
-    9: 45.0,
-    10: 55.0,
-    11: 65.0,
-    12: 75.0,
-    13: 80.0,
-    14: 85.0,
-    15: 88.0,
-    16: 90.0,
-    17: 85.0,
-    18: 80.0,
-    19: 70.0,
-    20: 60.0,
-    21: 50.0,
-    22: 48.0,
-    23: 46.0,
-}
+# SOE bounds (percentage of nameplate)
+_SOE_MIN_PCT = 5.0    # Reserve floor — battery won't discharge below this
+_SOE_MAX_PCT = 100.0  # Fully charged ceiling
+_SOE_INITIAL_PCT = 50.0  # Starting SOE when no prior state
+_MAX_INTEGRATION_DELTA_S = 300.0  # Cap per-tick delta to 5 minutes of sim time
 
 
 class BatteryStorageEquipment:
@@ -54,16 +35,26 @@ class BatteryStorageEquipment:
         feed_circuit_id: str,
         *,
         nameplate_capacity_kwh: float = 13.5,
+        behavior_engine: RealisticBehaviorEngine | None = None,
     ) -> None:
         self._battery_behavior = battery_behavior
         self._panel_serial = panel_serial
         self._feed_circuit_id = feed_circuit_id
         self._nameplate_capacity_kwh = nameplate_capacity_kwh
+        self._behavior_engine = behavior_engine
+
+        self._charge_efficiency: float = float(
+            battery_behavior.get("charge_efficiency", 0.95)
+        )
+        self._discharge_efficiency: float = float(
+            battery_behavior.get("discharge_efficiency", 0.95)
+        )
 
         # Mutable state refreshed by update()
         self._battery_state: str = "idle"
-        self._soe_percentage: float = 75.0
+        self._soe_kwh: float = nameplate_capacity_kwh * _SOE_INITIAL_PCT / 100.0
         self._battery_power_w: float = 0.0
+        self._last_update_time: float | None = None
 
         # Grid control overrides (set by dashboard)
         self._forced_offline: bool = False
@@ -76,13 +67,18 @@ class BatteryStorageEquipment:
     def update(self, current_time: float, battery_power_w: float) -> None:
         """Refresh BSEE state for the current tick.
 
+        Integrates power over time to track actual stored energy.
+
         Args:
             current_time: Simulation timestamp (seconds since epoch).
             battery_power_w: Instantaneous battery circuit power (watts).
+                Positive = charging, negative = discharging (convention
+                matches the engine's bidirectional circuit output).
         """
         self._battery_power_w = battery_power_w
         self._battery_state = self._resolve_battery_state(current_time)
-        self._soe_percentage = self._calculate_soe(current_time)
+        self._integrate_energy(current_time, battery_power_w)
+        self._last_update_time = current_time
 
     # ------------------------------------------------------------------
     # Grid control overrides
@@ -134,11 +130,13 @@ class BatteryStorageEquipment:
 
     @property
     def soe_percentage(self) -> float:
-        return self._soe_percentage
+        if self._nameplate_capacity_kwh <= 0:
+            return 0.0
+        return self._soe_kwh / self._nameplate_capacity_kwh * 100.0
 
     @property
     def soe_kwh(self) -> float:
-        return self._nameplate_capacity_kwh * self._soe_percentage / 100.0
+        return self._soe_kwh
 
     @property
     def battery_power_w(self) -> float:
@@ -174,7 +172,8 @@ class BatteryStorageEquipment:
 
     @property
     def model(self) -> str:
-        return "SIM-BESS-13.5"
+        cap = self._nameplate_capacity_kwh
+        return f"SIM-BESS-{cap:.1f}"
 
     @property
     def software_version(self) -> str:
@@ -185,7 +184,11 @@ class BatteryStorageEquipment:
     # ------------------------------------------------------------------
 
     def _resolve_battery_state(self, current_time: float) -> str:
-        """Determine battery state from ``charge_hours`` / ``discharge_hours`` / ``idle_hours``."""
+        """Determine battery state from charge mode or hour-based config."""
+        charge_mode: str = self._battery_behavior.get("charge_mode", "custom")
+        if charge_mode != "custom" and self._behavior_engine is not None:
+            return self._behavior_engine.last_battery_direction
+
         current_hour = datetime.fromtimestamp(current_time).hour
 
         charge_hours: list[int] = self._battery_behavior.get("charge_hours", [])
@@ -200,21 +203,33 @@ class BatteryStorageEquipment:
             return "idle"
         return "idle"
 
-    def _calculate_soe(self, current_time: float) -> float:
-        """Calculate SOE percentage based on time-of-day profile and battery activity."""
-        current_hour = datetime.fromtimestamp(current_time).hour
-        base_soe = _SOE_PROFILE.get(current_hour, 50.0)
+    def _integrate_energy(self, current_time: float, power_w: float) -> None:
+        """Integrate power over elapsed time to update stored energy.
 
-        power = self._battery_power_w
-        if self._battery_state == "charging":
-            if power > 1000:
-                return min(95.0, base_soe + 15.0)
-            if power > 500:
-                return min(90.0, base_soe + 8.0)
-        elif self._battery_state == "discharging":
-            if power > 1000:
-                return max(15.0, base_soe - 20.0)
-            if power > 500:
-                return max(20.0, base_soe - 10.0)
+        Applies charge/discharge efficiency and clamps to capacity bounds.
+        """
+        if self._last_update_time is None:
+            # First tick — no delta to integrate
+            return
 
-        return base_soe
+        delta_s = current_time - self._last_update_time
+        if delta_s <= 0:
+            return
+
+        # Cap delta to prevent runaway integration on time jumps
+        delta_s = min(delta_s, _MAX_INTEGRATION_DELTA_S)
+        delta_hours = delta_s / 3600.0
+
+        if self._battery_state == "charging" and power_w > 0:
+            energy_kwh = (power_w / 1000.0) * delta_hours * self._charge_efficiency
+            self._soe_kwh += energy_kwh
+        elif self._battery_state == "discharging" and power_w > 0:
+            # Discharge: power delivered = stored energy * discharge_efficiency
+            # So stored energy consumed = power / efficiency
+            energy_kwh = (power_w / 1000.0) * delta_hours / self._discharge_efficiency
+            self._soe_kwh -= energy_kwh
+
+        # Clamp to bounds
+        max_kwh = self._nameplate_capacity_kwh * _SOE_MAX_PCT / 100.0
+        min_kwh = self._nameplate_capacity_kwh * _SOE_MIN_PCT / 100.0
+        self._soe_kwh = max(min_kwh, min(max_kwh, self._soe_kwh))

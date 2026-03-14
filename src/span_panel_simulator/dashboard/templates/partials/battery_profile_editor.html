@@ -1,17 +1,52 @@
 <fieldset class="profile-editor">
   <legend>Battery Schedule</legend>
-  <div class="preset-buttons">
-    {% for key, label in battery_preset_labels.items() %}
-    <button type="button" class="btn btn-sm"
-            hx-post="entities/{{ entity.id }}/battery-profile/preset"
-            hx-target="#battery-profile-{{ entity.id }}"
-            hx-swap="innerHTML"
-            hx-vals='{"preset": "{{ key }}"}'>{{ label }}</button>
-    {% endfor %}
+
+  <div class="battery-section">
+    <h4 class="battery-section-heading">Charge Mode</h4>
+    <div class="charge-mode-selector"
+         id="charge-mode-{{ entity.id }}">
+      {% for mode, label, hint in [
+        ("custom", "Custom", "Manual charge/discharge/idle schedule per hour"),
+        ("solar-gen", "Solar Generation", "Charge whenever PV is producing, tracking the solar curve"),
+        ("solar-excess", "Solar Excess", "Charge only from surplus solar after loads are met"),
+      ] %}
+      <label class="charge-mode-option{% if battery_charge_mode == mode %} active{% endif %}"
+             hx-put="entities/{{ entity.id }}/battery-charge-mode"
+             hx-target="#battery-profile-{{ entity.id }}"
+             hx-swap="innerHTML"
+             hx-vals='{"charge_mode": "{{ mode }}"}'>
+        <input type="radio" name="charge_mode" value="{{ mode }}"
+               {{ 'checked' if battery_charge_mode == mode }}>
+        {{ label }}
+      </label>
+      {% endfor %}
+    </div>
+    <p class="charge-mode-hint">
+      {% if battery_charge_mode == 'solar-gen' %}
+        Charging tracks the geographic solar curve &times; weather factor.
+      {% elif battery_charge_mode == 'solar-excess' %}
+        Charges from surplus PV after all loads are met.
+      {% else %}
+        Charge hours are set manually in the schedule below.
+      {% endif %}
+    </p>
+  </div>
+
+  <div class="battery-section">
+    <h4 class="battery-section-heading">Discharge Preset</h4>
+    <div class="preset-buttons">
+      {% for key, label in battery_preset_labels.items() %}
+      <button type="button" class="btn btn-sm"
+              hx-post="entities/{{ entity.id }}/battery-profile/preset"
+              hx-target="#battery-profile-{{ entity.id }}"
+              hx-swap="innerHTML"
+              hx-vals='{"preset": "{{ key }}"}'>{{ label }}</button>
+      {% endfor %}
+    </div>
   </div>
   <form hx-put="entities/{{ entity.id }}/battery-profile"
         hx-target="#battery-profile-{{ entity.id }}" hx-swap="innerHTML">
-    <div class="profile-grid">
+    <div class="profile-grid{% if battery_charge_mode != 'custom' %} charge-hours-dimmed{% endif %}">
       {% for h in range(24) %}
       <div class="profile-hour">
         <label>{{ '%02d' % h }}:00</label>
