@@ -5,6 +5,8 @@ panel_config:
   serial_number: "SPAN-TEST-001"
   total_tabs: 8
   main_size: 100
+  latitude: 37.7
+  longitude: -122.4
 
 circuit_templates:
   lighting:

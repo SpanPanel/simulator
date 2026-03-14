@@ -16,6 +16,69 @@
   --badge-evse: #8b5cf6;
   --badge-battery: #10b981;
   --radius: 6px;
+  --row-hover: #e8e8e8;
+  --slider-track: #e5e7eb;
+  --unmapped-bg: #fafafa;
+  --unmapped-border: #aaa;
+  --dropdown-divider: #f0f0f0;
+  --handle-border: #fff;
+  --bar-idle: #d1d5db;
+}
+
+/* Dark theme — applied when explicitly set or via system preference */
+html[data-theme="dark"],
+html[data-theme="system"] {
+  /* system: only apply dark when OS prefers it */
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-theme="system"] {
+    --bg: #1a1a1a;
+    --card-bg: #242424;
+    --border: #3a3a3a;
+    --text: #e0e0e0;
+    --text-muted: #999;
+    --primary: #4b8df8;
+    --primary-hover: #3a7de8;
+    --danger: #ef4444;
+    --danger-hover: #dc2626;
+    --success: #22c55e;
+    --badge-circuit: #8b95a5;
+    --badge-pv: #f59e0b;
+    --badge-evse: #a78bfa;
+    --badge-battery: #34d399;
+    --row-hover: #2e2e2e;
+    --slider-track: #3a3a3a;
+    --unmapped-bg: #1e1e1e;
+    --unmapped-border: #555;
+    --dropdown-divider: #333;
+    --handle-border: #242424;
+    --bar-idle: #4a4a4a;
+  }
+}
+
+html[data-theme="dark"] {
+  --bg: #1a1a1a;
+  --card-bg: #242424;
+  --border: #3a3a3a;
+  --text: #e0e0e0;
+  --text-muted: #999;
+  --primary: #4b8df8;
+  --primary-hover: #3a7de8;
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --success: #22c55e;
+  --badge-circuit: #8b95a5;
+  --badge-pv: #f59e0b;
+  --badge-evse: #a78bfa;
+  --badge-battery: #34d399;
+  --row-hover: #2e2e2e;
+  --slider-track: #3a3a3a;
+  --unmapped-bg: #1e1e1e;
+  --unmapped-border: #555;
+  --dropdown-divider: #333;
+  --handle-border: #242424;
+  --bar-idle: #4a4a4a;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -24,9 +87,16 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
   color: var(--text);
+  color-scheme: light dark;
   max-width: 960px;
   margin: 0 auto;
   padding: 1rem;
+}
+
+/* Ensure inputs inherit theme colors */
+input, select, textarea {
+  background: var(--card-bg);
+  color: var(--text);
 }
 
 header {
@@ -205,12 +275,37 @@ legend {
   background: var(--bg);
 }
 
-.entity-row:hover { background: #e8e8e8; }
+.entity-row:hover { background: var(--row-hover); }
 
 .entity-divider {
   border: none;
   border-top: 1px solid var(--border);
   margin: 0.5rem 0;
+}
+
+.circuit-status {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--success);
+  flex-shrink: 0;
+}
+
+.circuit-status-toggle {
+  cursor: pointer;
+}
+
+.circuit-status-toggle:hover {
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.1);
+}
+
+.circuit-status.status-shed,
+.circuit-status.status-open {
+  background: var(--danger);
+}
+
+.circuit-status.status-off {
+  background: var(--text-muted);
 }
 
 .entity-name { flex: 1; font-weight: 500; }
@@ -289,22 +384,22 @@ legend {
 }
 
 .flash.success {
-  background: #dcfce7;
+  background: color-mix(in srgb, var(--success) 12%, var(--card-bg));
   color: var(--success);
-  border: 1px solid #bbf7d0;
+  border: 1px solid color-mix(in srgb, var(--success) 30%, var(--card-bg));
 }
 
 .flash.error {
-  background: #fef2f2;
+  background: color-mix(in srgb, var(--danger) 12%, var(--card-bg));
   color: var(--danger);
-  border: 1px solid #fecaca;
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--card-bg));
 }
 
 /* Unmapped tabs */
 .unmapped-card {
   border-style: dashed;
-  border-color: #aaa;
-  background: #fafafa;
+  border-color: var(--unmapped-border);
+  background: var(--unmapped-bg);
 }
 
 .unmapped-tabs {
@@ -329,7 +424,7 @@ legend {
 
 .unmapped-tab:has(input:checked) {
   border-color: var(--primary);
-  background: #eff6ff;
+  background: color-mix(in srgb, var(--primary) 10%, var(--card-bg));
 }
 
 .unmapped-tab:has(input:disabled:not(:checked)) {
@@ -360,6 +455,75 @@ legend {
 .hint-valid { color: var(--success); }
 .hint-error { color: var(--danger); }
 
+/* Location search */
+.location-search-group {
+  position: relative;
+}
+
+.location-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  width: 22rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  margin-top: 2px;
+}
+
+.location-item {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--dropdown-divider);
+}
+
+.location-item:last-child { border-bottom: none; }
+.location-item:hover { background: color-mix(in srgb, var(--primary) 10%, var(--card-bg)); }
+
+.location-empty {
+  color: var(--text-muted);
+  cursor: default;
+  font-style: italic;
+}
+
+.location-name {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  max-width: 18rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weather-status {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  padding-left: 0.2rem;
+}
+
+/* Theme selector */
+.theme-select {
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  background: var(--card-bg);
+  color: var(--text);
+}
+
+/* Config file selector */
+.config-select {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+}
+
 /* Random preset controls */
 .random-preset-group {
   display: inline-flex;
@@ -382,4 +546,494 @@ legend {
   border-radius: 3px;
   font-size: 0.8rem;
   text-align: center;
+}
+
+/* Battery profile editor */
+.battery-mode-select {
+  width: 3.5em;
+  font-size: 0.7rem;
+  text-align: center;
+  padding: 0.15rem 0.1rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.battery-mode-select.mode-charge {
+  background: color-mix(in srgb, var(--success) 15%, var(--card-bg));
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.battery-mode-select.mode-discharge {
+  background: color-mix(in srgb, var(--badge-pv) 15%, var(--card-bg));
+  border-color: var(--badge-pv);
+  color: var(--badge-pv);
+}
+
+.battery-mode-select.mode-idle {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+.bar-charge {
+  background: var(--success);
+}
+
+.bar-discharge {
+  background: #f59e0b;
+}
+
+.bar-idle {
+  background: var(--bar-idle);
+}
+
+/* PV profile */
+.pv-profile { border-color: #f59e0b33; }
+
+.pv-monthly-degradation {
+  margin-bottom: 1rem;
+}
+
+.pv-monthly-degradation h4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+.weather-source-note {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-left: 0.5rem;
+}
+
+.monthly-factors-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.month-factor {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.month-label {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.month-bar-bg {
+  display: block;
+  width: 100%;
+  height: 6px;
+  background: var(--slider-track);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.month-bar-fill {
+  display: block;
+  height: 100%;
+  background: #f59e0b;
+  border-radius: 3px;
+}
+
+.month-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-month-slider-row {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.2rem;
+}
+
+.pv-month-label {
+  font-weight: 600;
+  font-size: 1rem;
+  min-width: 6em;
+}
+
+.pv-month-slider-wrap {
+  padding: 0.5rem 0.5rem 2.2rem;
+}
+
+/* noUiSlider theme overrides for month slider */
+.pv-month-slider-wrap .noUi-target {
+  height: 6px;
+  border: none;
+  background: var(--slider-track);
+  box-shadow: none;
+}
+
+.pv-month-slider-wrap .noUi-connect {
+  background: #f59e0b;
+}
+
+.pv-month-slider-wrap .noUi-handle {
+  width: 18px;
+  height: 18px;
+  top: -7px;
+  right: -9px;
+  border-radius: 50%;
+  background: #f59e0b;
+  border: 2px solid var(--handle-border);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  cursor: grab;
+}
+
+.pv-month-slider-wrap .noUi-handle:before,
+.pv-month-slider-wrap .noUi-handle:after {
+  display: none;
+}
+
+.pv-month-slider-wrap .noUi-handle:active {
+  cursor: grabbing;
+}
+
+.pv-month-slider-wrap .noUi-pips {
+  padding: 0;
+  height: auto;
+  top: 100%;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.pv-month-slider-wrap .noUi-marker {
+  background: var(--border);
+}
+
+.pv-month-slider-wrap .noUi-value {
+  padding-top: 4px;
+}
+
+.pv-chart-wrap {
+  position: relative;
+  height: 220px;
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+/* Simulation sliders */
+.sim-slider-section {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 0.8rem;
+}
+
+.sim-slider-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.sim-slider-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.2rem;
+}
+
+.sim-slider-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sim-slider-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+}
+
+.sim-slider-wrap {
+  padding: 0.4rem 0.3rem 2rem;
+}
+
+/* noUiSlider base theme for sim sliders */
+.sim-slider-wrap .noUi-target {
+  height: 6px;
+  border: none;
+  background: var(--slider-track);
+  box-shadow: none;
+}
+
+.sim-slider-wrap .noUi-connect {
+  background: var(--primary);
+}
+
+.sim-slider-wrap .noUi-handle {
+  width: 18px;
+  height: 18px;
+  top: -7px;
+  right: -9px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid var(--handle-border);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  cursor: grab;
+}
+
+.sim-slider-wrap .noUi-handle:before,
+.sim-slider-wrap .noUi-handle:after {
+  display: none;
+}
+
+.sim-slider-wrap .noUi-handle:active {
+  cursor: grabbing;
+}
+
+.sim-slider-wrap .noUi-pips {
+  padding: 0;
+  height: auto;
+  top: 100%;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.sim-slider-wrap .noUi-marker {
+  background: var(--border);
+}
+
+.sim-slider-wrap .noUi-value {
+  padding-top: 3px;
+}
+
+/* Acceleration slider: green tint */
+.sim-accel-slider-wrap .noUi-connect {
+  background: var(--success);
+}
+
+.sim-accel-slider-wrap .noUi-handle {
+  background: var(--success);
+}
+
+/* Power flow chart */
+.power-chart-section {
+  margin-top: 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.8rem;
+}
+
+.power-chart-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+}
+
+.power-chart-header h3 {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.power-chart-wrap {
+  position: relative;
+  height: 200px;
+}
+
+.power-chart-legend {
+  display: flex;
+  gap: 1.2rem;
+  justify-content: center;
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* View toggle */
+.view-toggle {
+  display: flex;
+  gap: 0;
+  margin-top: 0.8rem;
+  margin-bottom: 0;
+}
+
+.view-btn {
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 0.3rem 1rem;
+}
+
+.view-btn:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.view-btn:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+
+.view-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+/* Period buttons */
+.period-buttons {
+  display: flex;
+  gap: 0;
+}
+
+.period-btn {
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+}
+
+.period-btn:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.period-btn:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+
+.period-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+/* Modeling summary */
+.modeling-summary {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-muted);
+}
+
+.summary-stat {
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-stat b {
+  color: var(--text);
+}
+
+/* Grid controls */
+.grid-controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+
+.grid-btn {
+  font-weight: 600;
+  min-width: 7em;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.grid-btn.grid-online {
+  background: var(--success);
+  color: #fff;
+  border-color: var(--success);
+}
+
+.grid-btn.grid-offline {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
+.grid-btn.islandable-on {
+  background: var(--badge-pv);
+  color: #fff;
+  border-color: var(--badge-pv);
+}
+
+.grid-btn.islandable-off {
+  background: var(--badge-circuit);
+  color: #fff;
+  border-color: var(--badge-circuit);
+}
+
+.grid-status-text {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.grid-status-text.shed-active {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* EVSE charging schedule */
+.evse-schedule {
+  margin-top: 0.75rem;
+}
+
+.evse-schedule h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.evse-presets {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.evse-preset-btn.active {
+  background: var(--badge-evse);
+  color: #fff;
+  border-color: var(--badge-evse);
+}
+
+.evse-timeline {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 2px;
+  margin-top: 0.5rem;
+}
+
+.evse-hour-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.evse-hour-bar {
+  width: 100%;
+  height: 24px;
+  background: var(--slider-track);
+  border-radius: 2px;
+}
+
+.evse-hour-cell.charging .evse-hour-bar {
+  background: var(--badge-evse);
+}
+
+.evse-hour-num {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }

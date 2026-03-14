@@ -1,16 +1,24 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="system">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SPAN Panel Simulator Dashboard</title>
   <link rel="stylesheet" href="{{ static_url }}/dashboard.css">
   <script src="{{ static_url }}/htmx.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nouislider@15.8.1/dist/nouislider.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/nouislider@15.8.1/dist/nouislider.min.js"></script>
 </head>
 <body>
   <header>
     <h1>SPAN Panel Simulator Dashboard</h1>
     <div class="header-actions">
+      <select id="theme-select" class="theme-select" title="Theme">
+        <option value="system">System</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
       <label class="date-selector">
         Month:
         <select id="sim-month" name="month">
@@ -23,6 +31,18 @@
         Day:
         <input type="number" id="sim-day" name="day" value="15" min="1" max="31" style="width:3em">
       </label>
+      {% if config_files is defined and config_files %}
+      <form hx-post="load-config" hx-target="#main-content" hx-swap="innerHTML"
+            style="display:inline-flex; align-items:center; gap:0.3rem">
+        <select name="config_file" class="config-select">
+          <option value="">Load config...</option>
+          {% for f in config_files %}
+          <option value="{{ f }}">{{ f }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm">Load</button>
+      </form>
+      {% endif %}
       <form method="post" enctype="multipart/form-data"
             hx-post="import" hx-target="#main-content" hx-encoding="multipart/form-data"
             style="display:inline">
@@ -33,6 +53,10 @@
         </label>
       </form>
       <a href="export" class="btn btn-secondary">Export</a>
+      <button class="btn btn-secondary"
+              onclick="var n=prompt('Save clone as:','clone_config.yaml');if(n){htmx.ajax('POST','clone',{target:'#flash-area',swap:'innerHTML',values:{filename:n}});}">
+        Clone
+      </button>
       <button class="btn btn-primary"
               hx-post="save-reload" hx-target="#flash-area" hx-swap="innerHTML">
         Save &amp; Reload
@@ -53,6 +77,20 @@
         evt.detail.parameters['day'] = day.value;
       }
     });
+
+    // Theme switcher
+    (function() {
+      var sel = document.getElementById('theme-select');
+      var saved = localStorage.getItem('theme') || 'system';
+      sel.value = saved;
+      document.documentElement.setAttribute('data-theme', saved);
+
+      sel.addEventListener('change', function() {
+        var t = sel.value;
+        document.documentElement.setAttribute('data-theme', t);
+        localStorage.setItem('theme', t);
+      });
+    })();
   </script>
 </body>
 </html>

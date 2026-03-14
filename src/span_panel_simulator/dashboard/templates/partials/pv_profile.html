@@ -1,0 +1,179 @@
+<fieldset class="pv-profile">
+  <legend>Solar Production Profile</legend>
+
+  {% if monthly_weather is defined and monthly_weather %}
+  <div class="pv-monthly-degradation">
+    <h4>Monthly Weather Degradation
+      <span class="weather-source-note">{{ weather_source | default('Open-Meteo') }}</span>
+    </h4>
+    <div class="monthly-factors-grid">
+      {% set month_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
+      {% for m in range(1, 13) %}
+      <div class="month-factor">
+        <span class="month-label">{{ month_names[m - 1] }}</span>
+        <span class="month-bar-bg">
+          <span class="month-bar-fill" style="width:{{ (monthly_weather[m] * 100)|int }}%"></span>
+        </span>
+        <span class="month-value">{{ (monthly_weather[m] * 100)|round(0)|int }}%</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <p class="text-muted" style="font-size:0.82rem; margin-bottom:0.5rem">
+    No historical weather data available. Set a location and weather data will be fetched automatically.
+  </p>
+  {% endif %}
+
+  <div class="pv-month-slider-row">
+    <span id="pv-month-label" class="pv-month-label"></span>
+    <span id="pv-chart-info" class="text-muted" style="font-size:0.8rem"></span>
+  </div>
+  <div class="pv-month-slider-wrap">
+    <div id="pv-month-slider"></div>
+  </div>
+
+  <div class="pv-chart-wrap">
+    <canvas id="pv-chart-canvas" height="220"></canvas>
+  </div>
+</fieldset>
+
+<script>
+(function() {
+  var MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun',
+                      'Jul','Aug','Sep','Oct','Nov','Dec'];
+  var MONTH_NAMES = ['January','February','March','April','May','June',
+                     'July','August','September','October','November','December'];
+  var currentMonth = parseInt(document.getElementById('sim-month').value) || 6;
+  var nameplateInput = document.getElementById('pv-nameplate-{{ e.id }}');
+  var nameplate = parseFloat(nameplateInput.value) || 5000;
+  var chartInstance = null;
+
+  var monthLabel = document.getElementById('pv-month-label');
+  var chartInfo = document.getElementById('pv-chart-info');
+
+  // -- Month slider (noUiSlider) --
+  var sliderEl = document.getElementById('pv-month-slider');
+  noUiSlider.create(sliderEl, {
+    start: [currentMonth],
+    step: 1,
+    snap: true,
+    range: {
+      'min': 1,
+      '9.09%': 2, '18.18%': 3, '27.27%': 4, '36.36%': 5,
+      '45.45%': 6, '54.55%': 7, '63.64%': 8, '72.73%': 9,
+      '81.82%': 10, '90.91%': 11,
+      'max': 12
+    },
+    pips: {
+      mode: 'range',
+      density: 100,
+      format: { to: function(v) { return MONTH_LABELS[Math.round(v) - 1]; } }
+    },
+    tooltips: false
+  });
+
+  sliderEl.noUiSlider.on('update', function(values) {
+    var m = Math.round(Number(values[0]));
+    if (m !== currentMonth) {
+      currentMonth = m;
+      fetchAndRender();
+    }
+  });
+
+  function fetchAndRender() {
+    monthLabel.textContent = MONTH_NAMES[currentMonth - 1];
+    var url = 'pv-curve-data?month=' + currentMonth + '&nameplate=' + nameplate;
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var labels = [];
+        var values = [];
+        for (var h = 0; h < 24; h++) {
+          labels.push(h + ':00');
+          values.push(data.hourly_watts[String(h)] || 0);
+        }
+        var peakW = Math.max.apply(null, values);
+        var wf = data.weather_factor;
+        chartInfo.textContent = 'Peak: ' + peakW.toFixed(0) + 'W | Weather: ' +
+          (wf * 100).toFixed(0) + '% | Lat: ' + data.latitude.toFixed(1) +
+          ', Lon: ' + data.longitude.toFixed(1);
+
+        renderChart(labels, values, data.nameplate_w);
+      })
+      .catch(function() {
+        chartInfo.textContent = 'Error loading curve data';
+      });
+  }
+
+  function renderChart(labels, values, nameplateW) {
+    var ctx = document.getElementById('pv-chart-canvas');
+    if (!ctx) return;
+
+    if (chartInstance) {
+      chartInstance.data.labels = labels;
+      chartInstance.data.datasets[0].data = values;
+      chartInstance.options.scales.y.max = Math.ceil(nameplateW / 1000) * 1000;
+      chartInstance.update('none');
+      return;
+    }
+
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Production (W)',
+          data: values,
+          fill: true,
+          backgroundColor: 'rgba(245, 158, 11, 0.15)',
+          borderColor: '#f59e0b',
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHitRadius: 12,
+          pointHoverRadius: 5,
+          pointHoverBackgroundColor: '#f59e0b',
+          tension: 0.4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                return context.parsed.y.toFixed(0) + ' W';
+              }
+            }
+          },
+          legend: { display: false }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { font: { size: 11 }, maxTicksLimit: 12 }
+          },
+          y: {
+            min: 0,
+            max: Math.ceil(nameplateW / 1000) * 1000,
+            title: { display: true, text: 'Watts' },
+            ticks: { font: { size: 11 } }
+          }
+        }
+      }
+    });
+  }
+
+  nameplateInput.addEventListener('change', function() {
+    nameplate = parseFloat(nameplateInput.value) || 5000;
+    fetchAndRender();
+  });
+
+  fetchAndRender();
+})();
+</script>

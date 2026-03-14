@@ -14,8 +14,16 @@ from typing import Any
 import yaml
 
 from span_panel_simulator.dashboard.defaults import make_defaults
-from span_panel_simulator.dashboard.presets import get_preset
+from span_panel_simulator.dashboard.presets import (
+    EVSE_PRESETS,
+    evse_schedule_factors,
+    get_battery_preset,
+    get_evse_preset,
+    get_preset,
+)
+from span_panel_simulator.solar import compute_solar_curve
 from span_panel_simulator.validation import validate_yaml_config
+from span_panel_simulator.weather import get_cached_weather
 
 
 @dataclass
@@ -58,6 +66,8 @@ class ConfigStore:
                 "serial_number": "SPAN-SIM-001",
                 "total_tabs": 32,
                 "main_size": 200,
+                "latitude": 37.7,
+                "longitude": -122.4,
             },
             "circuit_templates": {},
             "circuits": [],
@@ -102,7 +112,12 @@ class ConfigStore:
                 value = data[key]
                 if key in ("total_tabs", "main_size"):
                     value = int(value)
+                if key == "total_tabs" and value % 2 != 0:
+                    raise ValueError("Total tabs must be an even number")
                 cfg[key] = value
+        for key in ("latitude", "longitude", "soc_shed_threshold"):
+            if key in data:
+                cfg[key] = float(data[key])
 
     # -- Simulation params --
 
@@ -201,19 +216,28 @@ class ConfigStore:
         overrides: dict[str, Any] = circuit.get("overrides", {})
         ep = template.get("energy_profile", {})
 
-        if "typical_power" in data:
-            val = float(data["typical_power"])
-            if val != ep.get("typical_power"):
-                overrides["typical_power"] = val
-            else:
-                overrides.pop("typical_power", None)
+        # PV nameplate: update the template directly and derive power_range
+        if "nameplate_capacity_w" in data:
+            nameplate = abs(float(data["nameplate_capacity_w"]))
+            ep["nameplate_capacity_w"] = nameplate
+            ep["power_range"] = [-nameplate, 0.0]
+            ep["typical_power"] = -nameplate * 0.6
+            overrides.pop("typical_power", None)
+            overrides.pop("power_range", None)
+        else:
+            if "typical_power" in data:
+                val = float(data["typical_power"])
+                if val != ep.get("typical_power"):
+                    overrides["typical_power"] = val
+                else:
+                    overrides.pop("typical_power", None)
 
-        if "power_range_min" in data and "power_range_max" in data:
-            pr = [float(data["power_range_min"]), float(data["power_range_max"])]
-            if pr != ep.get("power_range"):
-                overrides["power_range"] = pr
-            else:
-                overrides.pop("power_range", None)
+            if "power_range_min" in data and "power_range_max" in data:
+                pr = [float(data["power_range_min"]), float(data["power_range_max"])]
+                if pr != ep.get("power_range"):
+                    overrides["power_range"] = pr
+                else:
+                    overrides.pop("power_range", None)
 
         if overrides:
             circuit["overrides"] = overrides
@@ -306,12 +330,28 @@ class ConfigStore:
     # -- Profile --
 
     def get_entity_profile(self, entity_id: str) -> dict[int, float]:
-        """Return resolved 24-hour multipliers for an entity."""
+        """Return resolved 24-hour multipliers for an entity.
+
+        For PV entities the profile is computed from the geographic solar
+        curve using the panel's latitude.  For EVSE entities the profile
+        comes from ``hour_factors`` in the charging schedule.
+        """
         entity = self.get_entity(entity_id)
+
+        if entity.entity_type == "pv":
+            lat = self._state.get("panel_config", {}).get("latitude", 37.7)
+            return compute_solar_curve(6, 21, latitude=lat)
+
         tod = entity.time_of_day_profile
         if not tod or not tod.get("enabled"):
             return {h: 1.0 for h in range(24)}
 
+        # Explicit hour factors (EVSE schedules, custom profiles)
+        hf = tod.get("hour_factors", {})
+        if hf:
+            return {h: float(hf.get(h, hf.get(str(h), 0.0))) for h in range(24)}
+
+        # Legacy hourly_multipliers key
         multipliers = {h: 0.0 for h in range(24)}
         hourly = tod.get("hourly_multipliers", {})
         peak_hours = tod.get("peak_hours", [])
@@ -354,9 +394,256 @@ class ConfigStore:
         end_hour: int = 24,
     ) -> dict[int, float]:
         """Apply a named preset to an entity's profile and return the multipliers."""
+        lat = self._state.get("panel_config", {}).get("latitude", 37.7)
         multipliers = get_preset(
             preset_name, month=month, day=day,
             start_hour=start_hour, end_hour=end_hour,
+            latitude=lat,
         )
         self.update_entity_profile(entity_id, multipliers)
         return multipliers
+
+    # -- Battery profile --
+
+    def get_battery_profile(self, entity_id: str) -> dict[int, str]:
+        """Return the 24-hour battery schedule as hour → mode mapping.
+
+        Mode is one of ``"charge"``, ``"discharge"``, or ``"idle"``.
+        """
+        entity = self.get_entity(entity_id)
+        bb = entity.battery_behavior or {}
+        charge_hours = set(bb.get("charge_hours", []))
+        discharge_hours = set(bb.get("discharge_hours", []))
+
+        profile: dict[int, str] = {}
+        for h in range(24):
+            if h in charge_hours:
+                profile[h] = "charge"
+            elif h in discharge_hours:
+                profile[h] = "discharge"
+            else:
+                profile[h] = "idle"
+        return profile
+
+    def update_battery_profile(
+        self, entity_id: str, hour_modes: dict[int, str]
+    ) -> None:
+        """Write per-hour charge/discharge/idle schedule into battery_behavior."""
+        circuit = self._find_circuit(entity_id)
+        if circuit is None:
+            raise KeyError(f"Entity not found: {entity_id}")
+
+        template_name = circuit["template"]
+        template = self._templates().get(template_name, {})
+        bb = template.setdefault("battery_behavior", {"enabled": True})
+
+        bb["charge_hours"] = sorted(
+            h for h, m in hour_modes.items() if m == "charge"
+        )
+        bb["discharge_hours"] = sorted(
+            h for h, m in hour_modes.items() if m == "discharge"
+        )
+        bb["idle_hours"] = sorted(
+            h for h, m in hour_modes.items() if m == "idle"
+        )
+
+    def apply_battery_preset(self, entity_id: str, preset_name: str) -> dict[int, str]:
+        """Apply a named battery preset and return the schedule."""
+        hour_modes = get_battery_preset(preset_name)
+        self.update_battery_profile(entity_id, hour_modes)
+        return hour_modes
+
+    # -- EVSE schedule --
+
+    def get_evse_schedule(self, entity_id: str) -> dict[str, Any]:
+        """Return EVSE charging schedule info.
+
+        Returns a dict with keys: start, duration, preset, profile.
+        """
+        entity = self.get_entity(entity_id)
+        tod = entity.time_of_day_profile or {}
+
+        if not tod.get("enabled", False):
+            profile = {h: 1.0 for h in range(24)}
+            return {"start": 0, "duration": 24, "preset": None, "profile": profile}
+
+        hf = tod.get("hour_factors", {})
+        if not hf:
+            profile = {h: 1.0 for h in range(24)}
+            return {"start": 0, "duration": 24, "preset": None, "profile": profile}
+
+        profile = {h: float(hf.get(h, hf.get(str(h), 0.0))) for h in range(24)}
+
+        # Derive start and duration, handling midnight wrap-around
+        charging = sorted(h for h in range(24) if profile.get(h, 0.0) > 0)
+        if not charging:
+            start, duration = 0, 0
+        elif len(charging) == 24:
+            start, duration = 0, 24
+        else:
+            # Find the largest gap — start is the hour after that gap
+            max_gap = 0
+            start = charging[0]
+            for i in range(len(charging)):
+                cur = charging[i]
+                nxt = charging[(i + 1) % len(charging)]
+                gap = (nxt - cur) % 24
+                if gap > max_gap:
+                    max_gap = gap
+                    start = nxt
+            duration = len(charging)
+
+        # Try to match a known preset
+        active_preset: str | None = None
+        for name, (ps, pd) in EVSE_PRESETS.items():
+            expected = evse_schedule_factors(ps, pd)
+            if all(profile.get(h, 0.0) == expected.get(h, 0.0) for h in range(24)):
+                active_preset = name
+                break
+
+        return {
+            "start": start,
+            "duration": duration,
+            "preset": active_preset,
+            "profile": profile,
+        }
+
+    def update_evse_schedule(
+        self, entity_id: str, start_hour: int, duration_hours: int
+    ) -> None:
+        """Update EVSE charging schedule from start hour and duration."""
+        circuit = self._find_circuit(entity_id)
+        if circuit is None:
+            raise KeyError(f"Entity not found: {entity_id}")
+
+        template_name = circuit["template"]
+        template = self._templates().get(template_name, {})
+        tod: dict[str, Any] = template.setdefault(
+            "time_of_day_profile", {"enabled": True}
+        )
+        tod["enabled"] = True
+        tod["hour_factors"] = evse_schedule_factors(start_hour, duration_hours)
+
+    def apply_evse_preset(self, entity_id: str, preset_name: str) -> dict[int, float]:
+        """Apply an EVSE charging preset and return the schedule factors."""
+        factors = get_evse_preset(preset_name)
+
+        circuit = self._find_circuit(entity_id)
+        if circuit is None:
+            raise KeyError(f"Entity not found: {entity_id}")
+
+        template_name = circuit["template"]
+        template = self._templates().get(template_name, {})
+        tod: dict[str, Any] = template.setdefault(
+            "time_of_day_profile", {"enabled": True}
+        )
+        tod["enabled"] = True
+        tod["hour_factors"] = factors
+        return factors
+
+    # -- Energy projection --
+
+    def compute_energy_projection(
+        self, period: str = "year"
+    ) -> list[dict[str, float | str]]:
+        """Compute daily energy summaries for system sizing.
+
+        Args:
+            period: "week", "month", or "year".
+
+        Returns:
+            List of daily dicts with keys: date, consumption_kwh,
+            pv_kwh, battery_kwh, grid_kwh.
+        """
+        panel = self.get_panel_config()
+        lat = panel.get("latitude", 37.7)
+        lon = panel.get("longitude", -122.4)
+
+        cached = get_cached_weather(lat, lon)
+        monthly_factors: dict[int, float] = {}
+        if cached is not None:
+            monthly_factors = cached.monthly_factors
+
+        entities = self.list_entities()
+
+        # Pre-compute per-entity hourly profiles (for consumer circuits)
+        consumer_profiles: list[tuple[float, dict[int, float]]] = []
+        pv_specs: list[tuple[float, float]] = []  # (nameplate, efficiency)
+        battery_specs: list[tuple[float, float, list[int], list[int]]] = []
+
+        for entity in entities:
+            ep = entity.energy_profile
+            if entity.entity_type == "pv":
+                raw_np = ep.get("nameplate_capacity_w")
+                nameplate = float(raw_np) if raw_np is not None else abs(float(ep["power_range"][0]))
+                raw_eff = ep.get("efficiency")
+                efficiency = float(raw_eff) if raw_eff is not None else 0.85
+                pv_specs.append((nameplate, efficiency))
+            elif entity.entity_type == "battery":
+                bb: dict[str, Any] = entity.battery_behavior or {}
+                charge_p = abs(float(bb.get("charge_power") or 3500))
+                discharge_p = abs(float(bb.get("discharge_power") or 3500))
+                charge_hrs: list[int] = bb.get("charge_hours") or []
+                discharge_hrs: list[int] = bb.get("discharge_hours") or []
+                battery_specs.append((charge_p, discharge_p, charge_hrs, discharge_hrs))
+            else:
+                profile = self.get_entity_profile(entity.id)
+                typical = float(ep["typical_power"])
+
+                # Apply cycling duty cycle if explicitly configured
+                cycling = entity.cycling_pattern
+                duty = 1.0
+                if cycling:
+                    on_dur = cycling.get("on_duration", 900)
+                    off_dur = cycling.get("off_duration", 1800)
+                    duty = on_dur / (on_dur + off_dur) if (on_dur + off_dur) > 0 else 1.0
+
+                consumer_profiles.append((typical * duty, profile))
+
+        # Determine date range
+        days_in_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        if period == "week":
+            months_days = [(6, list(range(15, 22)))]
+        elif period == "month":
+            months_days = [(6, list(range(1, 31)))]
+        else:  # year
+            months_days = [
+                (m, list(range(1, days_in_month[m] + 1)))
+                for m in range(1, 13)
+            ]
+
+        results: list[dict[str, float | str]] = []
+        for month, days in months_days:
+            solar_curve = compute_solar_curve(month, 15, latitude=lat)
+            weather = monthly_factors.get(month, 0.85)
+
+            for day in days:
+                # Consumer consumption
+                consumption_wh = 0.0
+                for typical, profile in consumer_profiles:
+                    for h in range(24):
+                        consumption_wh += abs(typical) * profile.get(h, 0.0)
+
+                # PV production
+                pv_wh = 0.0
+                for nameplate, eff in pv_specs:
+                    for h in range(24):
+                        pv_wh += nameplate * solar_curve.get(h, 0.0) * eff * weather
+
+                # Battery net
+                battery_wh = 0.0
+                for charge_p, discharge_p, charge_hrs, discharge_hrs in battery_specs:
+                    battery_wh -= charge_p * len(charge_hrs)
+                    battery_wh += discharge_p * len(discharge_hrs)
+
+                grid_wh = consumption_wh - pv_wh - battery_wh
+
+                results.append({
+                    "date": f"2025-{month:02d}-{day:02d}",
+                    "consumption_kwh": round(consumption_wh / 1000, 2),
+                    "pv_kwh": round(pv_wh / 1000, 2),
+                    "battery_kwh": round(battery_wh / 1000, 2),
+                    "grid_kwh": round(grid_wh / 1000, 2),
+                })
+
+        return results

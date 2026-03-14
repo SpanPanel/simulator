@@ -36,6 +36,80 @@ DAYTIME_APPLIANCE: dict[int, float] = {
 
 BASELOAD: dict[int, float] = {h: 0.1 for h in range(24)}
 
+# -- Battery schedule presets ------------------------------------------------
+# Each maps hour (0-23) to a mode string: "charge", "discharge", or "idle".
+
+BATTERY_POST_SOLAR_DISCHARGE: dict[int, str] = {
+    0: "idle", 1: "idle", 2: "idle", 3: "idle", 4: "idle", 5: "idle",
+    6: "idle", 7: "idle",
+    8: "charge", 9: "charge", 10: "charge", 11: "charge",
+    12: "charge", 13: "charge", 14: "charge", 15: "charge",
+    16: "discharge", 17: "discharge", 18: "discharge", 19: "discharge",
+    20: "discharge", 21: "discharge", 22: "discharge",
+    23: "idle",
+}
+
+BATTERY_GRID_DISCONNECT_DISCHARGE: dict[int, str] = {
+    h: "discharge" for h in range(24)
+}
+
+BATTERY_CUSTOM: dict[int, str] = {
+    h: "idle" for h in range(24)
+}
+
+# -- EVSE charging schedule presets -------------------------------------------
+# Each is a (start_hour, duration_hours) tuple.
+
+EVSE_PRESETS: dict[str, tuple[int, int]] = {
+    "peak_solar": (10, 6),  # 10:00–16:00
+    "evening": (18, 6),     # 18:00–00:00
+    "night": (0, 6),        # 00:00–06:00
+}
+
+EVSE_PRESET_LABELS: dict[str, str] = {
+    "peak_solar": "Peak Solar",
+    "evening": "Evening",
+    "night": "Night",
+}
+
+
+def evse_schedule_factors(start_hour: int, duration_hours: int) -> dict[int, float]:
+    """Return hour_factors for an EVSE charging window."""
+    factors: dict[int, float] = {}
+    for h in range(24):
+        offset = (h - start_hour) % 24
+        factors[h] = 1.0 if offset < duration_hours else 0.0
+    return factors
+
+
+def get_evse_preset(name: str) -> dict[int, float]:
+    """Return hour_factors for a named EVSE charging preset."""
+    preset = EVSE_PRESETS.get(name)
+    if preset is None:
+        raise ValueError(f"Unknown EVSE preset: {name}")
+    return evse_schedule_factors(preset[0], preset[1])
+
+
+BATTERY_PRESET_REGISTRY: dict[str, dict[int, str]] = {
+    "post_solar_discharge": BATTERY_POST_SOLAR_DISCHARGE,
+    "grid_disconnect_discharge": BATTERY_GRID_DISCONNECT_DISCHARGE,
+    "custom": BATTERY_CUSTOM,
+}
+
+BATTERY_PRESET_LABELS: dict[str, str] = {
+    "post_solar_discharge": "Post-Solar Discharge",
+    "grid_disconnect_discharge": "Grid-Disconnect Discharge",
+    "custom": "Custom",
+}
+
+
+def get_battery_preset(name: str) -> dict[int, str]:
+    """Return the hour-mode mapping for a named battery preset."""
+    preset = BATTERY_PRESET_REGISTRY.get(name)
+    if preset is None:
+        raise ValueError(f"Unknown battery preset: {name}")
+    return dict(preset)
+
 
 PRESET_REGISTRY: dict[str, dict[int, float] | None] = {
     "evening_lighting": EVENING_LIGHTING,
@@ -58,8 +132,6 @@ PRESET_LABELS: dict[str, str] = {
 }
 
 # Presets appropriate for each entity type.
-# Battery and EVSE have no time-of-day profile — they use battery_behavior
-# and smart_behavior respectively.
 PRESETS_BY_TYPE: dict[str, dict[str, str]] = {
     "circuit": {
         "evening_lighting": "Evening Lighting",
@@ -73,6 +145,8 @@ PRESETS_BY_TYPE: dict[str, dict[str, str]] = {
         "solar_curve": "Solar Curve",
         "always_on": "Always On",
     },
+    "battery": BATTERY_PRESET_LABELS,
+    "evse": EVSE_PRESET_LABELS,
 }
 
 
@@ -99,14 +173,16 @@ def get_preset(
     day: int = 21,
     start_hour: int = 0,
     end_hour: int = 24,
+    latitude: float = 37.7,
 ) -> dict[int, float]:
     """Return the multiplier dict for the named preset.
 
-    For ``solar_curve``, the curve is computed from *month* and *day*.
-    For ``random``, values are randomised between *start_hour* and *end_hour*.
+    For ``solar_curve``, the curve is computed from *month*, *day*, and
+    *latitude*.  For ``random``, values are randomised between
+    *start_hour* and *end_hour*.
     """
     if name == "solar_curve":
-        return compute_solar_curve(month, day)
+        return compute_solar_curve(month, day, latitude=latitude)
 
     if name == "random":
         return _compute_random_profile(start_hour, end_hour)

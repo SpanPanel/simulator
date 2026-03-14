@@ -303,10 +303,17 @@ class HomiePublisher:
         p[self._prop_topic(n, "product-name")] = bat.product_name or "Virtual Battery"
         if bat.serial_number:
             p[self._prop_topic(n, "serial-number")] = bat.serial_number
+        if bat.model:
+            p[self._prop_topic(n, "model")] = bat.model
+        if bat.software_version:
+            p[self._prop_topic(n, "software-version")] = bat.software_version
         if bat.nameplate_capacity_kwh is not None:
             p[self._prop_topic(n, "nameplate-capacity")] = _format_float(
                 bat.nameplate_capacity_kwh
             )
+        if bat.feed_circuit_id:
+            circuit_uuid = self._ensure_circuit_uuid(bat.feed_circuit_id)
+            p[self._prop_topic(n, "feed")] = circuit_uuid
         p[self._prop_topic(n, "soc")] = _format_float(bat.soe_percentage)
         if bat.soe_kwh is not None:
             p[self._prop_topic(n, "soe")] = _format_float(bat.soe_kwh)

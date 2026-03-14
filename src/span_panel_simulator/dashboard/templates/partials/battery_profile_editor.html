@@ -1,0 +1,36 @@
+<fieldset class="profile-editor">
+  <legend>Battery Schedule</legend>
+  <div class="preset-buttons">
+    {% for key, label in battery_preset_labels.items() %}
+    <button type="button" class="btn btn-sm"
+            hx-post="entities/{{ entity.id }}/battery-profile/preset"
+            hx-target="#battery-profile-{{ entity.id }}"
+            hx-swap="innerHTML"
+            hx-vals='{"preset": "{{ key }}"}'>{{ label }}</button>
+    {% endfor %}
+  </div>
+  <form hx-put="entities/{{ entity.id }}/battery-profile"
+        hx-target="#battery-profile-{{ entity.id }}" hx-swap="innerHTML">
+    <div class="profile-grid">
+      {% for h in range(24) %}
+      <div class="profile-hour">
+        <label>{{ '%02d' % h }}:00</label>
+        <select name="hour_{{ h }}" class="battery-mode-select
+          {%- if battery_profile.get(h, 'idle') == 'charge' %} mode-charge
+          {%- elif battery_profile.get(h, 'idle') == 'discharge' %} mode-discharge
+          {%- else %} mode-idle{% endif %}">
+          <option value="idle" {{ 'selected' if battery_profile.get(h, 'idle') == 'idle' }}>Idle</option>
+          <option value="charge" {{ 'selected' if battery_profile.get(h, 'idle') == 'charge' }}>Chg</option>
+          <option value="discharge" {{ 'selected' if battery_profile.get(h, 'idle') == 'discharge' }}>Dis</option>
+        </select>
+        <div class="bar
+          {%- if battery_profile.get(h, 'idle') == 'charge' %} bar-charge
+          {%- elif battery_profile.get(h, 'idle') == 'discharge' %} bar-discharge
+          {%- else %} bar-idle{% endif %}"
+             style="height: {{ 30 if battery_profile.get(h, 'idle') != 'idle' else 4 }}px"></div>
+      </div>
+      {% endfor %}
+    </div>
+    <button type="submit" class="btn btn-sm">Save Schedule</button>
+  </form>
+</fieldset>

@@ -30,6 +30,34 @@
       </label>
     </div>
 
+    {% if e.entity_type == 'pv' %}
+    <fieldset>
+      <legend>PV System</legend>
+      <div class="form-grid">
+        <label>Nameplate Rating (W):
+          <input type="number" name="nameplate_capacity_w" id="pv-nameplate-{{ e.id }}"
+                 value="{{ e.energy_profile.nameplate_capacity_w | default(e.energy_profile.power_range[0]|abs) }}"
+                 min="100" max="50000" step="100">
+        </label>
+        <label>Efficiency:
+          <input type="number" value="{{ e.energy_profile.efficiency | default(0.85) }}"
+                 disabled step="0.01" style="width:5em">
+        </label>
+      </div>
+    </fieldset>
+    {% elif e.entity_type == 'evse' %}
+    <fieldset>
+      <legend>EVSE Charger</legend>
+      <div class="form-grid">
+        <label>Charge Power (W):
+          <input type="number" name="typical_power" value="{{ e.energy_profile.typical_power }}" min="0" max="19200" step="100">
+        </label>
+        <label>Max Power (W):
+          <input type="number" value="{{ e.energy_profile.power_range[1] }}" disabled>
+        </label>
+      </div>
+    </fieldset>
+    {% else %}
     <fieldset>
       <legend>Energy Profile</legend>
       <div class="form-grid">
@@ -44,6 +72,7 @@
         </label>
       </div>
     </fieldset>
+    {% endif %}
 
     {% if e.cycling_pattern %}
     <fieldset>
@@ -82,7 +111,15 @@
     </div>
   </form>
 
-  {% if preset_labels %}
+  {% if e.entity_type == 'pv' %}
+  {% include "partials/pv_profile.html" %}
+  {% elif e.entity_type == 'evse' and evse_preset_labels is defined %}
+  {% include "partials/evse_schedule.html" %}
+  {% elif battery_preset_labels is defined and battery_preset_labels %}
+  <div id="battery-profile-{{ e.id }}" hx-target="this" hx-swap="innerHTML">
+    {% include "partials/battery_profile_editor.html" %}
+  </div>
+  {% elif preset_labels %}
   <div id="profile-{{ e.id }}" hx-target="this" hx-swap="innerHTML">
     {% include "partials/profile_editor.html" %}
   </div>

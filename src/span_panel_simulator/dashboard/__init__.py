@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import aiohttp_jinja2
 import jinja2
@@ -27,6 +28,13 @@ class DashboardContext:
     config_filter: str | None
     get_panel_configs: Callable[[], dict[Path, str]]  # path -> serial
     request_reload: Callable[[], None]
+    get_power_summary: Callable[[], dict[str, Any] | None] = lambda: None
+    set_simulation_time: Callable[[str], None] = lambda _: None
+    set_time_acceleration: Callable[[float], None] = lambda _: None
+    set_grid_online: Callable[[bool], None] = lambda _: None
+    set_grid_islandable: Callable[[bool], None] = lambda _: None
+    set_circuit_priority: Callable[[str, str], None] = lambda _id, _pri: None
+    set_circuit_relay: Callable[[str, str], None] = lambda _id, _state: None
 
 
 def create_dashboard_app(context: DashboardContext) -> web.Application:

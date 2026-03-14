@@ -81,6 +81,7 @@ class SpanBatterySnapshot:
     software_version: str | None = None
     nameplate_capacity_kwh: float | None = None
     connected: bool | None = None
+    feed_circuit_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

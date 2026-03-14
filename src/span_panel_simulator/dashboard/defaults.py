@@ -41,17 +41,11 @@ ENTITY_TYPE_DEFAULTS: dict[str, dict[str, Any]] = {
                 "typical_power": -3000.0,
                 "power_variation": 0.25,
                 "efficiency": 0.85,
+                "nameplate_capacity_w": 5000.0,
             },
             "relay_behavior": "non_controllable",
             "priority": "NEVER",
             "device_type": "pv",
-            "time_of_day_profile": {
-                "enabled": True,
-                "peak_hours": [11, 12, 13, 14, 15],
-                "peak_multiplier": 1.0,
-                "off_peak_multiplier": 0.0,
-                "hourly_multipliers": {},
-            },
         },
         "circuit": {
             "tabs": [],
@@ -71,6 +65,15 @@ ENTITY_TYPE_DEFAULTS: dict[str, dict[str, Any]] = {
             "smart_behavior": {
                 "responds_to_grid": True,
                 "max_power_reduction": 0.6,
+            },
+            "time_of_day_profile": {
+                "enabled": True,
+                "hour_factors": {
+                    0: 1.0, 1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0, 5: 1.0,
+                    6: 0.0, 7: 0.0, 8: 0.0, 9: 0.0, 10: 0.0, 11: 0.0,
+                    12: 0.0, 13: 0.0, 14: 0.0, 15: 0.0, 16: 0.0, 17: 0.0,
+                    18: 0.0, 19: 0.0, 20: 0.0, 21: 0.0, 22: 0.0, 23: 0.0,
+                },
             },
         },
         "circuit": {

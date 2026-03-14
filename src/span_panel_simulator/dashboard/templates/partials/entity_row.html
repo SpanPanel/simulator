@@ -1,4 +1,5 @@
 <div class="entity-row" id="entity-{{ entity.id }}">
+  <span class="circuit-status circuit-status-toggle" data-cid="{{ entity.id }}" title="Toggle relay"></span>
   <span class="badge badge-{{ entity.entity_type }}">{{ entity.entity_type|upper }}</span>
   <span class="entity-name">{{ entity.name }}</span>
   <span class="entity-tabs">tabs: {{ entity.tabs|join(', ') }}</span>

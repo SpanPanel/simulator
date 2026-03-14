@@ -35,6 +35,7 @@ from span_panel_simulator.panel import PanelInstance
 
 if TYPE_CHECKING:
     from span_panel_simulator.certs import CertificateBundle
+    from span_panel_simulator.engine import DynamicSimulationEngine
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -141,6 +142,122 @@ class SimulatorApp:
     def _get_panel_configs(self) -> dict[Path, str]:
         """Return a mapping of config path to serial number for running panels."""
         return {path: panel.serial_number for path, panel in self._panels.items()}
+
+    def _get_first_engine(self) -> DynamicSimulationEngine | None:
+        """Return the engine of the first running panel, if any."""
+        for panel in self._panels.values():
+            if panel.engine is not None:
+                return panel.engine
+        return None
+
+    def _get_power_summary(self) -> dict[str, object] | None:
+        """Return current power flows from the first running panel."""
+        engine = self._get_first_engine()
+        if engine is None:
+            return None
+        sim_time = engine.get_current_simulation_time()
+        # Access last snapshot data from circuits
+        grid = 0.0
+        pv = 0.0
+        battery = 0.0
+        total_consumption = 0.0
+        for circuit in engine._circuits.values():
+            power = circuit.instant_power_w
+            if circuit.energy_mode == "producer":
+                pv += power
+            elif circuit.energy_mode == "bidirectional":
+                battery += power
+            else:
+                total_consumption += power
+        if engine.grid_online:
+            grid = total_consumption - pv
+        else:
+            grid = 0.0
+            # Off-grid: battery covers the load deficit (consumption minus PV)
+            if engine.has_battery:
+                battery = total_consumption - pv
+
+        # Shedding info
+        shed_ids: list[str] = []
+        soc_pct: float | None = None
+        soc_threshold = 20.0
+        if engine._bsee is not None:
+            soc_pct = engine._bsee.soe_percentage
+        if engine._config is not None:
+            soc_threshold = engine._config["panel_config"].get("soc_shed_threshold", 20.0)
+        if not engine.grid_online and engine.has_battery:
+            for circuit in engine._circuits.values():
+                if circuit.energy_mode in ("producer", "bidirectional"):
+                    continue
+                if circuit._priority == "OFF_GRID":
+                    shed_ids.append(circuit.circuit_id)
+                elif circuit._priority == "SOC_THRESHOLD" and soc_pct is not None and soc_pct < soc_threshold:
+                    shed_ids.append(circuit.circuit_id)
+
+        # Circuits manually opened by user (via relay override)
+        user_open_ids: list[str] = []
+        for cid, overrides in engine._dynamic_overrides.items():
+            if overrides.get("relay_state") == "OPEN" and cid not in shed_ids:
+                user_open_ids.append(cid)
+
+        # All circuits off when offline without battery
+        all_off = not engine.grid_online and not engine.has_battery
+
+        return {
+            "grid_w": round(grid, 1),
+            "pv_w": round(pv, 1),
+            "battery_w": round(battery, 1),
+            "consumption_w": round(total_consumption, 1),
+            "simulation_time": sim_time,
+            "grid_online": engine.grid_online,
+            "has_battery": engine.has_battery,
+            "is_islandable": engine.is_grid_islandable,
+            "soc_pct": round(soc_pct, 1) if soc_pct is not None else None,
+            "soc_threshold": soc_threshold,
+            "shed_ids": shed_ids,
+            "user_open_ids": user_open_ids,
+            "all_off": all_off,
+        }
+
+    def _set_simulation_time(self, iso_str: str) -> None:
+        """Set the simulation time on the first running panel."""
+        engine = self._get_first_engine()
+        if engine is not None:
+            engine.override_simulation_start_time(iso_str)
+
+    def _set_time_acceleration(self, accel: float) -> None:
+        """Set the time acceleration on the first running panel."""
+        engine = self._get_first_engine()
+        if engine is not None:
+            engine._clock.time_acceleration = accel
+
+    def _set_grid_online(self, online: bool) -> None:
+        """Set the grid online/offline state on the first running panel."""
+        engine = self._get_first_engine()
+        if engine is not None:
+            engine.set_grid_online(online)
+
+    def _set_grid_islandable(self, islandable: bool) -> None:
+        """Set the grid islandable flag on the first running panel."""
+        engine = self._get_first_engine()
+        if engine is not None:
+            engine.set_grid_islandable(islandable)
+
+    def _set_circuit_priority(self, circuit_id: str, priority: str) -> None:
+        """Push a circuit priority change to the running engine immediately."""
+        engine = self._get_first_engine()
+        if engine is not None:
+            engine.set_dynamic_overrides(
+                circuit_overrides={circuit_id: {"priority": priority}}
+            )
+
+    def _set_circuit_relay(self, circuit_id: str, relay_state: str) -> None:
+        """Push a circuit relay change to the running engine immediately."""
+        engine = self._get_first_engine()
+        if engine is not None:
+            engine.set_dynamic_overrides(
+                circuit_overrides={circuit_id: {"relay_state": relay_state}}
+            )
 
     # ------------------------------------------------------------------
     # MQTT publish callback (shared across all panels)
@@ -346,6 +463,13 @@ class SimulatorApp:
             config_filter=self._config_filter,
             get_panel_configs=self._get_panel_configs,
             request_reload=self.request_reload,
+            get_power_summary=self._get_power_summary,
+            set_simulation_time=self._set_simulation_time,
+            set_time_acceleration=self._set_time_acceleration,
+            set_grid_online=self._set_grid_online,
+            set_grid_islandable=self._set_grid_islandable,
+            set_circuit_priority=self._set_circuit_priority,
+            set_circuit_relay=self._set_circuit_relay,
         )
         dashboard_app = create_dashboard_app(dashboard_ctx)
         self._dashboard_runner = web.AppRunner(dashboard_app)

@@ -5,18 +5,515 @@
       <label>Interval (s):
         <input type="number" name="update_interval" value="{{ sim_params.update_interval }}" min="1" max="60" style="width:4em">
       </label>
-      <label>Acceleration:
-        <input type="number" name="time_acceleration" value="{{ sim_params.time_acceleration }}" min="0.1" max="100" step="0.1" style="width:4em">
-      </label>
       <label>Noise:
-        <input type="number" name="noise_factor" value="{{ sim_params.noise_factor }}" min="0" max="1" step="0.01" style="width:4em">
-      </label>
-      <label>
-        <input type="checkbox" name="enable_realistic_behaviors" value="true"
-               {{ 'checked' if sim_params.enable_realistic_behaviors }}>
-        Realistic behaviors
+        <input type="number" name="noise_factor" value="{{ sim_params.noise_factor }}" min="0" max="1" step="0.01" style="width:5em">
       </label>
       <button type="submit" class="btn btn-sm">Update</button>
     </div>
   </form>
+
+  <div class="sim-slider-section">
+    <div class="sim-slider-group">
+      <div class="sim-slider-header">
+        <span class="sim-slider-label">Time of Day</span>
+        <span id="sim-time-display" class="sim-slider-value"></span>
+      </div>
+      <div class="sim-slider-wrap">
+        <div id="sim-time-slider"></div>
+      </div>
+    </div>
+
+    <div class="sim-slider-group">
+      <div class="sim-slider-header">
+        <span class="sim-slider-label">Speed</span>
+        <span id="sim-accel-display" class="sim-slider-value"></span>
+      </div>
+      <div class="sim-slider-wrap sim-accel-slider-wrap">
+        <div id="sim-accel-slider"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-controls" id="grid-controls">
+    <button type="button" class="btn btn-sm grid-btn grid-online" id="btn-grid-toggle">Grid Online</button>
+    <button type="button" class="btn btn-sm grid-btn islandable-on" id="btn-islandable" style="display:none">Islandable</button>
+    <span id="grid-status" class="grid-status-text"></span>
+  </div>
+
+  <div class="view-toggle">
+    <button type="button" class="btn btn-sm view-btn active" id="btn-runtime">Runtime</button>
+    <button type="button" class="btn btn-sm view-btn" id="btn-modeling">Modeling</button>
+  </div>
+
+  <!-- Runtime view -->
+  <div id="runtime-view">
+    <div class="power-chart-section">
+      <div class="power-chart-header">
+        <h3>Live Power Flows</h3>
+        <span id="power-chart-time" class="text-muted" style="font-size:0.8rem"></span>
+      </div>
+      <div class="power-chart-wrap">
+        <canvas id="power-chart-canvas" height="200"></canvas>
+      </div>
+      <div class="power-chart-legend">
+        <span class="legend-item"><span class="legend-dot" style="background:#dc2626"></span> Grid</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Solar</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#10b981"></span> Battery</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modeling view -->
+  <div id="modeling-view" style="display:none">
+    <div class="power-chart-section">
+      <div class="power-chart-header">
+        <h3>Energy Projection</h3>
+        <div class="period-buttons">
+          <button type="button" class="btn btn-sm period-btn" data-period="week">Week</button>
+          <button type="button" class="btn btn-sm period-btn active" data-period="month">Month</button>
+          <button type="button" class="btn btn-sm period-btn" data-period="year">Year</button>
+        </div>
+      </div>
+      <div class="modeling-summary" id="modeling-summary"></div>
+      <div class="power-chart-wrap" style="height:240px">
+        <canvas id="modeling-chart-canvas" height="240"></canvas>
+      </div>
+      <div class="power-chart-legend">
+        <span class="legend-item"><span class="legend-dot" style="background:#dc2626"></span> Grid</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Solar</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#10b981"></span> Battery</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#6b7280"></span> Consumption</span>
+      </div>
+    </div>
+  </div>
 </div>
+
+<script>
+(function() {
+  // -- View toggle --
+  var runtimeView = document.getElementById('runtime-view');
+  var modelingView = document.getElementById('modeling-view');
+  var btnRuntime = document.getElementById('btn-runtime');
+  var btnModeling = document.getElementById('btn-modeling');
+
+  btnRuntime.addEventListener('click', function() {
+    runtimeView.style.display = '';
+    modelingView.style.display = 'none';
+    btnRuntime.classList.add('active');
+    btnModeling.classList.remove('active');
+  });
+  btnModeling.addEventListener('click', function() {
+    runtimeView.style.display = 'none';
+    modelingView.style.display = '';
+    btnModeling.classList.add('active');
+    btnRuntime.classList.remove('active');
+    if (!modelingChart) loadProjection('month');
+  });
+
+  // -- Time-of-day slider --
+  var timeSlider = document.getElementById('sim-time-slider');
+  var timeDisplay = document.getElementById('sim-time-display');
+
+  function minutesToHHMM(mins) {
+    var h = Math.floor(mins / 60);
+    var m = Math.round(mins % 60);
+    return ('0' + h).slice(-2) + ':' + ('0' + m).slice(-2);
+  }
+
+  noUiSlider.create(timeSlider, {
+    start: [720],
+    step: 15,
+    range: { min: 0, max: 1425 },
+    pips: {
+      mode: 'positions',
+      values: [0, 12.5, 25, 37.5, 50, 62.5, 75, 87.5, 100],
+      density: 4,
+      format: {
+        to: function(v) {
+          var h = Math.floor(v / 60);
+          return h + ':00';
+        }
+      }
+    },
+    tooltips: false
+  });
+
+  var timeUserDragging = false;
+
+  timeSlider.noUiSlider.on('start', function() { timeUserDragging = true; });
+  timeSlider.noUiSlider.on('end', function(values) {
+    timeUserDragging = false;
+    var mins = Math.round(Number(values[0]));
+    var hh = ('0' + Math.floor(mins / 60)).slice(-2);
+    var mm = ('0' + (mins % 60)).slice(-2);
+    var monthEl = document.getElementById('sim-month');
+    var dayEl = document.getElementById('sim-day');
+    var month = monthEl ? monthEl.value : '6';
+    var day = dayEl ? dayEl.value : '15';
+    var iso = '2025-' + ('0' + month).slice(-2) + '-' + ('0' + day).slice(-2) + 'T' + hh + ':' + mm + ':00';
+    fetch('set-sim-time', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({time: iso})
+    });
+  });
+
+  timeSlider.noUiSlider.on('update', function(values) {
+    timeDisplay.textContent = minutesToHHMM(Number(values[0]));
+  });
+
+  // -- Acceleration slider --
+  var accelSlider = document.getElementById('sim-accel-slider');
+  var accelDisplay = document.getElementById('sim-accel-display');
+  var ACCEL_STOPS = [1, 2, 5, 10, 30, 60, 120, 360];
+
+  noUiSlider.create(accelSlider, {
+    start: [0],
+    step: 1,
+    range: { min: 0, max: ACCEL_STOPS.length - 1 },
+    pips: {
+      mode: 'steps',
+      format: { to: function(v) { return ACCEL_STOPS[Math.round(v)] + 'x'; } }
+    },
+    tooltips: false
+  });
+
+  accelSlider.noUiSlider.on('end', function(values) {
+    var idx = Math.round(Number(values[0]));
+    var accel = ACCEL_STOPS[idx];
+    fetch('set-acceleration', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({acceleration: accel})
+    });
+  });
+
+  accelSlider.noUiSlider.on('update', function(values) {
+    var idx = Math.round(Number(values[0]));
+    accelDisplay.textContent = ACCEL_STOPS[idx] + 'x';
+  });
+
+  // -- Grid controls --
+  var gridBtn = document.getElementById('btn-grid-toggle');
+  var islandableBtn = document.getElementById('btn-islandable');
+  var gridStatus = document.getElementById('grid-status');
+
+  gridBtn.addEventListener('click', function() {
+    var isOnline = gridBtn.classList.contains('grid-online');
+    fetch('set-grid-state', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({online: !isOnline})
+    });
+    // Immediate visual feedback
+    if (isOnline) {
+      gridBtn.className = 'btn btn-sm grid-btn grid-offline';
+      gridBtn.textContent = 'Grid Offline';
+    } else {
+      gridBtn.className = 'btn btn-sm grid-btn grid-online';
+      gridBtn.textContent = 'Grid Online';
+    }
+  });
+
+  islandableBtn.addEventListener('click', function() {
+    var isIslandable = islandableBtn.classList.contains('islandable-on');
+    fetch('set-grid-islandable', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({islandable: !isIslandable})
+    });
+    // Immediate visual feedback
+    if (isIslandable) {
+      islandableBtn.className = 'btn btn-sm grid-btn islandable-off';
+      islandableBtn.textContent = 'Not Islandable';
+    } else {
+      islandableBtn.className = 'btn btn-sm grid-btn islandable-on';
+      islandableBtn.textContent = 'Islandable';
+    }
+  });
+
+  // -- Relay toggle (click status dot) --
+  document.addEventListener('click', function(e) {
+    var dot = e.target.closest('.circuit-status-toggle');
+    if (!dot) return;
+    var cid = dot.dataset.cid;
+    var isOff = dot.classList.contains('status-shed') ||
+                dot.classList.contains('status-open') ||
+                dot.classList.contains('status-off');
+    var newState = isOff ? 'CLOSED' : 'OPEN';
+    fetch('entities/' + encodeURIComponent(cid) + '/relay', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({relay_state: newState})
+    });
+    // Immediate visual feedback
+    dot.className = 'circuit-status circuit-status-toggle' +
+      (newState === 'OPEN' ? ' status-open' : '');
+  });
+
+  // -- Runtime: Live power chart --
+  var chartCtx = document.getElementById('power-chart-canvas');
+  var chartTimeEl = document.getElementById('power-chart-time');
+  var MAX_POINTS = 288;
+  var chartData = { labels: [], grid: [], pv: [], battery: [] };
+
+  // Resolve theme-aware colors for charts
+  function chartTextColor() {
+    return getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim() || '#888';
+  }
+  function chartGridColor() {
+    return getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#ddd';
+  }
+
+  var powerChart = new Chart(chartCtx, {
+    type: 'line',
+    data: {
+      labels: chartData.labels,
+      datasets: [
+        { label: 'Grid', data: chartData.grid, borderColor: '#dc2626', backgroundColor: 'rgba(220,38,38,0.08)', fill: true, borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
+        { label: 'Solar', data: chartData.pv, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)', fill: true, borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
+        { label: 'Battery', data: chartData.battery, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.08)', fill: true, borderWidth: 1.5, pointRadius: 0, tension: 0.3 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          title: function(items) { return items[0].label; },
+          label: function(c) { return c.dataset.label + ': ' + c.parsed.y.toFixed(0) + 'W'; }
+        } }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: {
+            color: chartTextColor(),
+            font: { size: 10 },
+            maxTicksLimit: 12,
+            callback: function(val, idx) {
+              var lbl = this.getLabelForValue(val);
+              // Show only HH:MM, skip if same as previous displayed
+              var short = lbl.substring(0, 5);
+              if (idx === 0) return short;
+              var prev = (chartData.labels[idx - 1] || '').substring(0, 5);
+              return short !== prev ? short : '';
+            }
+          }
+        },
+        y: { grid: { color: chartGridColor() }, title: { display: true, text: 'Watts', color: chartTextColor(), font: { size: 11 } }, ticks: { color: chartTextColor(), font: { size: 10 } } }
+      }
+    }
+  });
+
+  var lastSimDay = null;
+
+  function pollPower() {
+    fetch('power-summary')
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(data) {
+        if (!data || data.error) return;
+        var t = data.simulation_time;
+        var d = new Date(t * 1000);
+        var hh = ('0' + d.getHours()).slice(-2);
+        var mm = ('0' + d.getMinutes()).slice(-2);
+        var ss = ('0' + d.getSeconds()).slice(-2);
+        var timeLabel = hh + ':' + mm + ':' + ss;
+        var dayStr = d.toLocaleDateString();
+
+        chartTimeEl.textContent = dayStr + ' ' + timeLabel;
+
+        if (lastSimDay !== null && lastSimDay !== dayStr) {
+          chartData.labels.length = 0;
+          chartData.grid.length = 0;
+          chartData.pv.length = 0;
+          chartData.battery.length = 0;
+        }
+        lastSimDay = dayStr;
+
+        chartData.labels.push(timeLabel);
+        chartData.grid.push(Math.round(data.grid_w));
+        chartData.pv.push(Math.round(data.pv_w));
+        chartData.battery.push(Math.round(data.battery_w));
+
+        if (chartData.labels.length > MAX_POINTS) {
+          chartData.labels.shift();
+          chartData.grid.shift();
+          chartData.pv.shift();
+          chartData.battery.shift();
+        }
+
+        if (!timeUserDragging) {
+          var currentMins = d.getHours() * 60 + d.getMinutes();
+          timeSlider.noUiSlider.set([currentMins]);
+        }
+
+        // Sync grid control buttons
+        if (data.grid_online !== undefined) {
+          if (data.grid_online) {
+            gridBtn.className = 'btn btn-sm grid-btn grid-online';
+            gridBtn.textContent = 'Grid Online';
+          } else {
+            gridBtn.className = 'btn btn-sm grid-btn grid-offline';
+            gridBtn.textContent = 'Grid Offline';
+          }
+        }
+        if (data.has_battery) {
+          islandableBtn.style.display = '';
+          if (data.is_islandable) {
+            islandableBtn.className = 'btn btn-sm grid-btn islandable-on';
+            islandableBtn.textContent = 'Islandable';
+          } else {
+            islandableBtn.className = 'btn btn-sm grid-btn islandable-off';
+            islandableBtn.textContent = 'Not Islandable';
+          }
+        } else {
+          islandableBtn.style.display = 'none';
+        }
+
+        // Grid status text (SOC + shedding)
+        var shedIds = data.shed_ids || [];
+        var parts = [];
+        if (data.soc_pct !== null && data.soc_pct !== undefined) {
+          parts.push('SOC ' + data.soc_pct.toFixed(0) + '%');
+        }
+        if (!data.grid_online && shedIds.length > 0) {
+          parts.push(shedIds.length + ' circuit' + (shedIds.length > 1 ? 's' : '') + ' shed');
+        }
+        gridStatus.textContent = parts.join(' · ');
+        gridStatus.className = 'grid-status-text' + (!data.grid_online && shedIds.length > 0 ? ' shed-active' : '');
+
+        // Update circuit status dots
+        var userOpenIds = data.user_open_ids || [];
+        var dots = document.querySelectorAll('.circuit-status');
+        dots.forEach(function(dot) {
+          var cid = dot.dataset.cid;
+          var cls = 'circuit-status circuit-status-toggle';
+          if (data.all_off) {
+            cls += ' status-off';
+          } else if (shedIds.indexOf(cid) >= 0) {
+            cls += ' status-shed';
+          } else if (userOpenIds.indexOf(cid) >= 0) {
+            cls += ' status-open';
+          }
+          dot.className = cls;
+        });
+
+        powerChart.update('none');
+      })
+      .catch(function() {});
+  }
+
+  setInterval(pollPower, 3000);
+  pollPower();
+
+  // -- Modeling: Energy projection chart --
+  var modelingChart = null;
+  var summaryEl = document.getElementById('modeling-summary');
+
+  document.querySelectorAll('.period-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.period-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      loadProjection(btn.dataset.period);
+    });
+  });
+
+  function loadProjection(period) {
+    fetch('energy-projection?period=' + period)
+      .then(function(r) { return r.json(); })
+      .then(function(resp) {
+        var days = resp.days;
+        var labels = [];
+        var grid = [], pv = [], battery = [], consumption = [];
+        var totGrid = 0, totPv = 0, totBat = 0, totCons = 0;
+
+        for (var i = 0; i < days.length; i++) {
+          var d = days[i];
+          // Format label based on period
+          if (period === 'year') {
+            // Show month labels
+            var parts = d.date.split('-');
+            var mo = parseInt(parts[1]);
+            var dy = parseInt(parts[2]);
+            labels.push(dy === 1 || dy === 15 ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][mo-1] + (dy === 15 ? '' : '') : '');
+          } else {
+            labels.push(d.date.substring(5)); // MM-DD
+          }
+          grid.push(d.grid_kwh);
+          pv.push(d.pv_kwh);
+          battery.push(d.battery_kwh);
+          consumption.push(d.consumption_kwh);
+          totGrid += d.grid_kwh;
+          totPv += d.pv_kwh;
+          totBat += d.battery_kwh;
+          totCons += d.consumption_kwh;
+        }
+
+        var selfConsumption = totCons > 0 ? Math.round((1 - totGrid / totCons) * 100) : 0;
+        var periodLabel = period === 'year' ? 'Annual' : period === 'month' ? 'Monthly' : 'Weekly';
+        summaryEl.innerHTML =
+          '<span>' + periodLabel + ': </span>' +
+          '<span class="summary-stat">Consumption <b>' + totCons.toFixed(0) + '</b> kWh</span>' +
+          '<span class="summary-stat" style="color:#f59e0b">Solar <b>' + totPv.toFixed(0) + '</b> kWh</span>' +
+          '<span class="summary-stat" style="color:#dc2626">Grid <b>' + totGrid.toFixed(0) + '</b> kWh</span>' +
+          '<span class="summary-stat" style="color:var(--primary)">Self-use <b>' + selfConsumption + '</b>%</span>';
+
+        renderModelingChart(labels, grid, pv, battery, consumption, period);
+      });
+  }
+
+  function renderModelingChart(labels, grid, pv, battery, consumption, period) {
+    var ctx = document.getElementById('modeling-chart-canvas');
+    var yLabel = 'kWh / day';
+
+    if (modelingChart) {
+      modelingChart.destroy();
+      modelingChart = null;
+    }
+
+    modelingChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: 'Grid', data: grid, backgroundColor: 'rgba(220,38,38,0.6)', borderRadius: 2, order: 2 },
+          { label: 'Solar', data: pv, backgroundColor: 'rgba(245,158,11,0.6)', borderRadius: 2, order: 3 },
+          { label: 'Battery', data: battery, backgroundColor: 'rgba(16,185,129,0.6)', borderRadius: 2, order: 4 },
+          { label: 'Consumption', data: consumption, type: 'line', borderColor: '#6b7280', borderWidth: 1.5, borderDash: [4, 3], pointRadius: 0, fill: false, tension: 0.3, order: 1 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(c) { return c.dataset.label + ': ' + c.parsed.y.toFixed(1) + ' kWh'; },
+              title: function(items) {
+                var idx = items[0].dataIndex;
+                return items[0].chart.data.labels[idx] || ('Day ' + (idx + 1));
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            stacked: true,
+            grid: { display: false },
+            ticks: { color: chartTextColor(), font: { size: 10 }, maxTicksLimit: period === 'year' ? 12 : 15, maxRotation: 0 }
+          },
+          y: {
+            stacked: true,
+            grid: { color: chartGridColor() },
+            title: { display: true, text: yLabel, color: chartTextColor(), font: { size: 11 } },
+            ticks: { color: chartTextColor(), font: { size: 10 } }
+          }
+        }
+      }
+    });
+  }
+})();
+</script>

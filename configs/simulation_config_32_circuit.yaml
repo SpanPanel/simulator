@@ -5,6 +5,8 @@ panel_config:
   serial_number: "SPAN-32-SIM-001"
   total_tabs: 32
   main_size: 200  # Main breaker size in Amps
+  latitude: 37.7
+  longitude: -122.4
 
 # Circuit templates define reusable behavior patterns
 circuit_templates:
@@ -80,6 +82,33 @@ circuit_templates:
     smart_behavior:
       responds_to_grid: true
       max_power_reduction: 0.6  # Can reduce to 40% during grid stress
+    time_of_day_profile:
+      enabled: true
+      hour_factors:
+        0: 1.0
+        1: 1.0
+        2: 1.0
+        3: 1.0
+        4: 1.0
+        5: 1.0
+        6: 0.0
+        7: 0.0
+        8: 0.0
+        9: 0.0
+        10: 0.0
+        11: 0.0
+        12: 0.0
+        13: 0.0
+        14: 0.0
+        15: 0.0
+        16: 0.0
+        17: 0.0
+        18: 0.0
+        19: 0.0
+        20: 0.0
+        21: 0.0
+        22: 0.0
+        23: 0.0
 
   # Pool equipment
   pool_equipment:
@@ -102,29 +131,9 @@ circuit_templates:
       typical_power: -2500.0  # Average production
       power_variation: 0.3
       efficiency: 0.85  # 85% efficiency
+      nameplate_capacity_w: 4000.0
     relay_behavior: "non_controllable"
     priority: "NEVER"
-    time_of_day_profile:
-      enabled: true
-      peak_hours: [11, 12, 13, 14, 15]  # Peak production 11 AM - 3 PM
-      peak_multiplier: 1.0
-      off_peak_multiplier: 0.0  # No production at night
-      hourly_multipliers:
-        6: 0.1   # Dawn - 10% production
-        7: 0.2   # Early morning
-        8: 0.4   # Morning
-        9: 0.6   # Mid morning
-        10: 0.8  # Late morning
-        11: 1.0  # Peak hours
-        12: 1.0
-        13: 1.0
-        14: 1.0
-        15: 1.0  # End peak
-        16: 0.8  # Afternoon
-        17: 0.6  # Late afternoon
-        18: 0.4  # Evening
-        19: 0.2  # Dusk
-        20: 0.0  # Night starts
 
   # Backup generator - another producer type
   backup_generator:
@@ -372,27 +381,6 @@ unmapped_tab_templates:
       efficiency: 0.85
     relay_behavior: "non_controllable"
     priority: "NEVER"
-    time_of_day_profile:
-      enabled: true
-      peak_hours: [11, 12, 13, 14, 15]  # Peak production 11 AM - 3 PM
-      peak_multiplier: 1.0
-      off_peak_multiplier: 0.0  # No production at night
-      hourly_multipliers:
-        6: 0.1   # Dawn - 10% production
-        7: 0.2   # Early morning
-        8: 0.4   # Morning
-        9: 0.6   # Mid morning
-        10: 0.8  # Late morning
-        11: 1.0  # Peak hours
-        12: 1.0
-        13: 1.0
-        14: 1.0
-        15: 1.0  # End peak
-        16: 0.8  # Afternoon
-        17: 0.6  # Late afternoon
-        18: 0.4  # Evening
-        19: 0.2  # Dusk
-        20: 0.0  # Night starts
 
   "32":
     energy_profile:
@@ -403,27 +391,6 @@ unmapped_tab_templates:
       efficiency: 0.85
     relay_behavior: "non_controllable"
     priority: "NEVER"
-    time_of_day_profile:
-      enabled: true
-      peak_hours: [11, 12, 13, 14, 15]  # Peak production 11 AM - 3 PM
-      peak_multiplier: 1.0
-      off_peak_multiplier: 0.0  # No production at night
-      hourly_multipliers:
-        6: 0.1   # Dawn - 10% production
-        7: 0.2   # Early morning
-        8: 0.4   # Morning
-        9: 0.6   # Mid morning
-        10: 0.8  # Late morning
-        11: 1.0  # Peak hours
-        12: 1.0
-        13: 1.0
-        14: 1.0
-        15: 1.0  # End peak
-        16: 0.8  # Afternoon
-        17: 0.6  # Late afternoon
-        18: 0.4  # Evening
-        19: 0.2  # Dusk
-        20: 0.0  # Night starts
 
 # Tab synchronization for coordinated behavior (e.g., 240V loads, multi-phase production)
 tab_synchronizations:

@@ -1,0 +1,44 @@
+<div class="evse-schedule" id="evse-schedule-{{ e.id }}">
+  <h4>Charging Schedule</h4>
+
+  <div class="evse-presets">
+    {% for key, label in evse_preset_labels.items() %}
+    <form style="display:inline"
+          hx-post="entities/{{ e.id }}/evse-schedule/preset"
+          hx-target="#evse-schedule-{{ e.id }}" hx-swap="outerHTML">
+      <input type="hidden" name="preset" value="{{ key }}">
+      <button type="submit" class="btn btn-sm evse-preset-btn {{ 'active' if evse_active_preset == key }}">{{ label }}</button>
+    </form>
+    {% endfor %}
+  </div>
+
+  <form hx-put="entities/{{ e.id }}/evse-schedule"
+        hx-target="#evse-schedule-{{ e.id }}" hx-swap="outerHTML">
+    <div class="form-row" style="margin:0.5rem 0">
+      <label>Start:
+        <select name="charge_start" style="width:5.5em">
+          {% for h in range(24) %}
+          <option value="{{ h }}" {{ 'selected' if h == evse_start }}>{{ '%02d' | format(h) }}:00</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Duration:
+        <select name="charge_duration" style="width:4.5em">
+          {% for d in range(1, 25) %}
+          <option value="{{ d }}" {{ 'selected' if d == evse_duration }}>{{ d }}h</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="btn btn-sm">Apply</button>
+    </div>
+  </form>
+
+  <div class="evse-timeline">
+    {% for h in range(24) %}
+    <div class="evse-hour-cell {{ 'charging' if evse_profile[h] > 0 }}">
+      <div class="evse-hour-bar"></div>
+      <span class="evse-hour-num">{{ h }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>

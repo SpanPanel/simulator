@@ -2,8 +2,14 @@
 
 A standalone eBus simulator that mimics real SPAN panel behavior: mDNS
 discovery, bootstrap HTTP API, TLS certificate provisioning, and Homie v5
-MQTT publishing. Designed for integration testing with Home Assistant and
-the `span-panel` custom component.
+MQTT publishing.
+
+Includes a web dashboard for real-time configuration, grid simulation,
+and energy modeling.
+
+![Dashboard overview — grid offline with load shedding, live power chart, entity list with relay status](docs/images/dashboard1.png)
+
+![PV editor — solar production curve with geographic modeling and historical weather degradation](docs/images/dashboard2.png)
 
 ## Quick Start (macOS)
 
@@ -30,6 +36,50 @@ The script automatically:
 - Detects your LAN IP from `en0`/`en1`
 
 No `sudo` required.
+
+## Dashboard
+
+The simulator runs a web dashboard on port 8080 (`http://localhost:8080`).
+
+### Features
+
+- **Panel config** — serial number, tab count, main breaker size, geographic
+  location with geocoding search, SOC shed threshold
+- **Simulation controls** — time-of-day slider, speed acceleration (1x-360x),
+  grid online/offline toggle, islandable toggle
+- **Live power chart** — real-time grid, solar, and battery power flows
+- **Energy projection** — modeling view with weekly/monthly/annual energy
+  estimates based on configured circuits, PV, and battery
+- **Entity management** — add, edit, delete circuits with per-type editors:
+  - **PV** — nameplate capacity, geographic sine-curve solar model, monthly
+    weather degradation from Open-Meteo historical data
+  - **Battery** — charge/discharge/idle hour schedule with presets
+  - **EVSE** — charging schedule with presets (Peak Solar, Evening, Night)
+    or custom start/duration, 24-hour visual timeline
+  - **Circuits** — typical power, 24-hour usage profile with presets
+- **Grid simulation** — toggle grid online/offline to test backup behavior:
+  - With battery: BESS becomes dominant power source, load shedding activates
+  - Without battery: panel goes offline (all circuits dead)
+  - Islandable toggle controls whether PV operates during grid outage
+- **Load shedding** — per-circuit shed priority matching the Homie v2 schema:
+  - `OFF_GRID` circuits shed immediately when grid disconnects
+  - `SOC_THRESHOLD` circuits shed when battery SOC drops below threshold
+  - `NEVER` circuits stay on as long as battery has power
+  - User relay overrides take precedence over shedding
+- **Relay control** — click status dots to toggle circuit relays; changes
+  from the dashboard or the HA integration (via MQTT) are reflected in both
+- **Dark mode** — system, light, or dark theme with localStorage persistence
+- **File operations** — import/export YAML, load configs, clone, save & reload
+
+### Theme
+
+A theme selector in the header supports three modes:
+
+| Mode | Behavior |
+|---|---|
+| **System** | Follows OS light/dark preference |
+| **Light** | Forces light theme |
+| **Dark** | Forces dark theme |
 
 ## Running with Docker (Linux only)
 
@@ -64,6 +114,7 @@ full list).
 | `CERT_DIR` | `/tmp/span-sim-certs` | TLS certificate directory |
 | `ADVERTISE_ADDRESS` | auto-detected | IP to advertise via mDNS |
 | `ADVERTISE_HTTP_PORT` | same as `HTTP_PORT` | Port advertised via mDNS |
+| `DASHBOARD_PORT` | `8080` | Dashboard web UI port |
 
 ## Panel Configuration
 
@@ -99,6 +150,9 @@ panel_config:
   serial_number: str        # Unique panel serial (e.g., "SPAN-SIM-001")
   total_tabs: int           # Breaker tab count (8, 32, 64)
   main_size: int            # Main breaker amps (100, 150, 200)
+  latitude: float           # Degrees north (default: 37.7)
+  longitude: float          # Degrees east (default: -122.4)
+  soc_shed_threshold: float # SOC % for SOC_THRESHOLD shedding (default: 20)
 
 circuit_templates:          # Reusable template definitions
   template_name:
@@ -107,7 +161,8 @@ circuit_templates:          # Reusable template definitions
       power_range: [min, max]   # Watts (negative = production)
       typical_power: float      # Base power in watts
       power_variation: float    # Fraction (0.1 = +/-10%)
-      efficiency: float         # 0.0-1.0 (optional)
+      efficiency: float         # 0.0-1.0 (optional, PV/battery)
+      nameplate_capacity_w: float  # PV nameplate rating in watts
     relay_behavior: str     # "controllable" | "non_controllable"
     priority: str           # "NEVER" | "SOC_THRESHOLD" | "OFF_GRID"
     device_type: str        # "circuit" | "evse" | "pv" (default: "circuit")
@@ -120,12 +175,13 @@ circuit_templates:          # Reusable template definitions
     time_of_day_profile:
       enabled: bool
       peak_hours: [int]           # Hours 0-23
-      peak_multiplier: float
-      off_peak_multiplier: float
-      hourly_multipliers:         # Per-hour override
+      hour_factors:               # Per-hour multiplier (0.0-1.0)
+        0: 1.0
+        6: 0.0
+        18: 1.0
+      hourly_multipliers:         # Legacy per-hour override
         6: 0.1
         12: 1.0
-        18: 0.8
 
     smart_behavior:
       responds_to_grid: bool
@@ -138,6 +194,7 @@ circuit_templates:          # Reusable template definitions
       idle_power: float
       charge_hours: [int]
       discharge_hours: [int]
+      idle_hours: [int]
 
 circuits:
   - id: str                 # Unique identifier
@@ -155,6 +212,23 @@ simulation_params:
   noise_factor: float           # Random noise fraction (0.02 = +/-2%)
   enable_realistic_behaviors: bool
 ```
+
+### Shed Priority
+
+Circuit shed priority controls backup behavior when the grid disconnects,
+matching the Homie v2 schema (`shed-priority` property):
+
+| Priority | Behavior |
+|---|---|
+| `NEVER` | Never shed — stays on as long as battery has power |
+| `OFF_GRID` | Shed immediately when dominant power source leaves GRID |
+| `SOC_THRESHOLD` | Shed when battery SOC drops below `soc_shed_threshold` |
+
+The `soc_shed_threshold` in `panel_config` (default 20%) sets the SOC
+percentage that triggers shedding for `SOC_THRESHOLD` circuits.
+
+User relay overrides (from dashboard or MQTT) take precedence over
+shedding — if a user closes a shed relay, shedding will not reopen it.
 
 ### Config Selection
 
@@ -176,7 +250,7 @@ YAML files in the config directory are loaded (one panel per file).
 
 | File | Serial | Tabs | Circuits | Description |
 |---|---|---|---|---|
-| `default_config.yaml` | `SPAN-SIM-40T-001` | 40 | 26 | Default: 2 SPAN Drives, battery, solar, full residential |
+| `default_config.yaml` | `SPAN-SIM-40T-001` | 40 | 31 | Default: 2 SPAN Drives, battery, solar, full residential |
 | `simple_test_config.yaml` | `SPAN-TEST-001` | 8 | 4 | Minimal test: lights, outlets, HVAC, solar |
 | `simulation_config_32_circuit.yaml` | `SPAN-32-SIM-001` | 32 | 29 | Full residential with cycling, time-of-day, solar curves |
 
@@ -243,14 +317,14 @@ ebus/5/{serial}/{node}/{property}
 
 | Node | Description |
 |---|---|
-| `core` | Panel state: door, relay, voltages, grid status |
+| `core` | Panel state: door, relay, voltages, grid status, dominant power source |
 | `upstream-lugs` | Grid-facing: power, currents, energy |
 | `downstream-lugs` | Load-facing: feedthrough power, currents |
-| `{circuit-uuid}` | Per-circuit: relay, power, energy, priority |
-| `bess-0` | Battery (if configured) |
-| `pv-0` | Solar inverter (if configured) |
-| `evse-0` | EV charger (if configured) |
-| `power-flows` | Aggregated power flow sensors |
+| `{circuit-uuid}` | Per-circuit: relay, power, energy, shed-priority |
+| `bess-0` | Battery: SOC, grid-state, capacity |
+| `pv-0` | Solar inverter: nameplate capacity |
+| `evse-0` | EV charger: status, lock state, advertised current |
+| `power-flows` | Aggregated: PV, battery, grid, site power |
 
 ### Settable Properties
 
@@ -262,18 +336,49 @@ mosquitto_pub -t "ebus/5/SPAN-TEST-001/{uuid}/relay/set" -m "OPEN"
 
 # Change shed priority
 mosquitto_pub -t "ebus/5/SPAN-TEST-001/{uuid}/shed-priority/set" -m "OFF_GRID"
+
+# Change dominant power source (triggers load shedding)
+mosquitto_pub -t "ebus/5/SPAN-TEST-001/core/dominant-power-source/set" -m "BATTERY"
 ```
+
+Relay and priority changes made via MQTT are reflected in the dashboard
+in real time.
 
 ## Simulation Engine
 
 ### Power Calculation (per tick)
 
-1. Check relay state (open = 0W)
-2. Apply base power from `typical_power` with `power_variation` randomness
-3. Modulate by time-of-day profile (if configured)
-4. Apply cycling pattern on/off state (if configured)
-5. Apply smart grid response (if configured)
-6. Add noise (`noise_factor`)
+1. Apply relay and priority overrides (immediate effect)
+2. Check relay state (open = 0W)
+3. Apply base power from `typical_power` with `power_variation` randomness
+4. Producers: geographic sine-curve solar model with weather degradation
+5. Consumers: modulate by time-of-day profile / hour factors (if configured)
+6. Apply cycling pattern on/off state (if configured)
+7. Apply battery hour-based charge/discharge schedule (if configured)
+8. Apply smart grid response (if configured)
+9. Add noise (`noise_factor`)
+10. Apply load shedding overlays (if grid offline with battery)
+
+### Solar Model
+
+PV circuits use a geographic sine-based model instead of hourly multipliers:
+
+- Sunrise/sunset computed from latitude, longitude, and date
+- Solar elevation angle determines instantaneous production factor
+- Daily weather degradation from Open-Meteo historical cloud cover data
+- Falls back to deterministic seed-based weather when no API data available
+
+### Load Shedding
+
+When the grid goes offline (dominant power source changes from GRID):
+
+1. `OFF_GRID` priority circuits: relay opened immediately
+2. `SOC_THRESHOLD` priority circuits: relay opened when SOC < threshold
+3. `NEVER` priority circuits: remain on
+4. Battery covers the load deficit (consumption minus PV production)
+5. PV continues operating if panel is islandable, otherwise zeroed
+
+User relay overrides take precedence — closing a shed relay keeps it on.
 
 ### Energy Accumulation
 
@@ -308,6 +413,7 @@ next startup. Delete `.local/certs/` to force regeneration.
 ```
 simulator/
   configs/                  # Panel YAML configurations
+  docs/images/              # Screenshots
   scripts/
     run-local.sh            # macOS native (recommended)
     entrypoint.sh           # Docker entrypoint (Linux)
@@ -316,11 +422,25 @@ simulator/
     app.py                  # Multi-panel orchestrator
     panel.py                # Single panel lifecycle
     engine.py               # Power/energy simulation
+    circuit.py              # Per-circuit state and snapshot
+    clock.py                # Simulation clock with acceleration
+    bsee.py                 # Battery storage equipment (BESS/GFE)
+    solar.py                # Geographic sine-curve solar model
+    weather.py              # Open-Meteo historical weather
     publisher.py            # Homie MQTT publisher (with diffing)
     bootstrap.py            # HTTP API server
     discovery.py            # mDNS advertisement
     certs.py                # TLS certificate generation
-    models.py               # Snapshot and circuit dataclasses
+    models.py               # Snapshot dataclasses
+    config_types.py         # YAML schema TypedDicts
+    dashboard/              # Web dashboard (port 8080)
+      routes.py             # HTMX route handlers
+      config_store.py       # In-memory config state
+      presets.py             # Profile and schedule presets
+      defaults.py           # Entity type defaults
+      solar.py              # Solar curve computation
+      templates/            # Jinja2 templates
+      static/               # CSS, JS (htmx, Chart.js, noUiSlider)
   .local/                   # Runtime state (gitignored)
     certs/                  # Generated TLS certificates
     mosquitto/              # Mosquitto config and passwd

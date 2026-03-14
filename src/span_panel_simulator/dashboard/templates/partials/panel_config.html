@@ -6,12 +6,135 @@
         <input type="text" name="serial_number" value="{{ panel_config.serial_number }}" size="20">
       </label>
       <label>Tabs:
-        <input type="number" name="total_tabs" value="{{ panel_config.total_tabs }}" min="1" max="40" style="width:4em">
+        <input type="number" name="total_tabs" value="{{ panel_config.total_tabs }}" min="2" max="40" step="2" style="width:5em">
       </label>
       <label>Main Size (A):
-        <input type="number" name="main_size" value="{{ panel_config.main_size }}" min="100" max="400" style="width:4em">
+        <input type="number" name="main_size" value="{{ panel_config.main_size }}" min="100" max="400" style="width:5em">
       </label>
+      <label>SOC Shed (%):
+        <input type="number" name="soc_shed_threshold" value="{{ panel_config.soc_shed_threshold | default(20) }}" min="5" max="80" step="5" style="width:5em" title="Battery SOC below which SOC_THRESHOLD circuits are shed">
+      </label>
+    </div>
+
+    <div class="form-row" style="margin-top:0.5rem">
+      <div class="location-search-group">
+        <label>Location:
+          <input type="text" id="location-query" placeholder="Search city or address..."
+                 autocomplete="off" size="28">
+        </label>
+        <div id="location-results" class="location-dropdown" style="display:none"></div>
+      </div>
+      <label>Lat:
+        <input type="number" name="latitude" id="panel-lat"
+               value="{{ panel_config.latitude | default(37.7) }}"
+               step="0.01" style="width:7em">
+      </label>
+      <label>Lon:
+        <input type="number" name="longitude" id="panel-lon"
+               value="{{ panel_config.longitude | default(-122.4) }}"
+               step="0.01" style="width:7em">
+      </label>
+      <span id="location-display" class="location-name">
+        {%- if panel_config.location_name is defined and panel_config.location_name -%}
+          {{ panel_config.location_name }}
+        {%- endif -%}
+      </span>
       <button type="submit" class="btn btn-sm">Update</button>
     </div>
+
+    <div id="weather-status" class="weather-status" style="margin-top:0.4rem; font-size:0.82rem; color:var(--text-muted)"></div>
   </form>
 </div>
+
+<script>
+(function() {
+  var query = document.getElementById('location-query');
+  var results = document.getElementById('location-results');
+  var latInput = document.getElementById('panel-lat');
+  var lonInput = document.getElementById('panel-lon');
+  var display = document.getElementById('location-display');
+  var debounceTimer = null;
+
+  query.addEventListener('input', function() {
+    clearTimeout(debounceTimer);
+    var q = query.value.trim();
+    if (q.length < 3) {
+      results.style.display = 'none';
+      return;
+    }
+    debounceTimer = setTimeout(function() {
+      fetch('geocode?q=' + encodeURIComponent(q))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.length) {
+            results.innerHTML = '<div class="location-item location-empty">No results</div>';
+            results.style.display = 'block';
+            return;
+          }
+          var html = '';
+          data.forEach(function(item) {
+            html += '<div class="location-item" data-lat="' + item.lat +
+                    '" data-lon="' + item.lon + '">' +
+                    escapeHtml(item.display) + '</div>';
+          });
+          results.innerHTML = html;
+          results.style.display = 'block';
+        })
+        .catch(function() {
+          results.style.display = 'none';
+        });
+    }, 350);
+  });
+
+  var weatherStatus = document.getElementById('weather-status');
+
+  function fetchWeather(lat, lon) {
+    weatherStatus.textContent = 'Fetching historical weather data...';
+    fetch('fetch-weather?lat=' + lat + '&lon=' + lon)
+      .then(function(r) {
+        if (!r.ok) return r.json().then(function(d) { throw new Error(d.error || 'Failed'); });
+        return r.json();
+      })
+      .then(function(data) {
+        weatherStatus.innerHTML =
+          '<span style="color:var(--success)">&#10003;</span> ' +
+          escapeHtml(data.summary) +
+          ' <span style="color:var(--text-muted)">(' + escapeHtml(data.source) + ')</span>';
+      })
+      .catch(function(err) {
+        weatherStatus.innerHTML =
+          '<span style="color:var(--text-muted)">Using deterministic weather model</span>';
+      });
+  }
+
+  results.addEventListener('click', function(e) {
+    var item = e.target.closest('.location-item');
+    if (!item || !item.dataset.lat) return;
+    var lat = parseFloat(item.dataset.lat).toFixed(2);
+    var lon = parseFloat(item.dataset.lon).toFixed(2);
+    latInput.value = lat;
+    lonInput.value = lon;
+    display.textContent = item.textContent;
+    query.value = '';
+    results.style.display = 'none';
+    fetchWeather(lat, lon);
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!results.contains(e.target) && e.target !== query) {
+      results.style.display = 'none';
+    }
+  });
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(s));
+    return d.innerHTML;
+  }
+
+  // Auto-fetch weather for current coordinates on load
+  if (latInput.value && lonInput.value) {
+    fetchWeather(latInput.value, lonInput.value);
+  }
+})();
+</script>
