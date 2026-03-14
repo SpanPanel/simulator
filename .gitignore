@@ -13,3 +13,4 @@ venv/
 /certs/
 .local/
 .claude/
+.DS_Store
