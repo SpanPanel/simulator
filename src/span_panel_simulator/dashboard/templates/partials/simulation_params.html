@@ -142,7 +142,6 @@
 
   timeSlider.noUiSlider.on('start', function() { timeUserDragging = true; });
   timeSlider.noUiSlider.on('end', function(values) {
-    timeUserDragging = false;
     var mins = Math.round(Number(values[0]));
     var hh = ('0' + Math.floor(mins / 60)).slice(-2);
     var mm = ('0' + (mins % 60)).slice(-2);
@@ -155,7 +154,7 @@
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({time: iso})
-    });
+    }).finally(function() { timeUserDragging = false; });
   });
 
   timeSlider.noUiSlider.on('update', function(values) {
