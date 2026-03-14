@@ -55,28 +55,17 @@ ensure_prerequisites() {
         echo "Error: mosquitto not installed. Install with: brew install mosquitto"
         exit 1
     fi
-    if ! command -v python3 &>/dev/null; then
-        echo "Error: python3 not found"
+    if ! command -v uv &>/dev/null; then
+        echo "Error: uv not found. Install with: brew install uv"
         exit 1
     fi
 }
 
 ensure_venv() {
-    if [[ ! -d "${VENV_DIR}" ]]; then
-        echo "==> Creating virtual environment..."
-        python3 -m venv "${VENV_DIR}"
-    fi
+    echo "==> Syncing dependencies..."
+    uv sync --quiet
     # shellcheck disable=SC1091
     source "${VENV_DIR}/bin/activate"
-
-    # Install/update simulator package (editable install — only reinstall
-    # when pyproject.toml changes, since source edits are picked up live)
-    if [[ ! -f "${VENV_DIR}/.installed" ]] || \
-       [[ "${REPO_DIR}/pyproject.toml" -nt "${VENV_DIR}/.installed" ]]; then
-        echo "==> Installing simulator package..."
-        pip install -q -e "${REPO_DIR}"
-        touch "${VENV_DIR}/.installed"
-    fi
 }
 
 generate_certs() {

@@ -15,7 +15,7 @@ and energy modeling.
 
 ```bash
 # Prerequisites
-brew install mosquitto
+brew install mosquitto uv
 
 # Run
 ./scripts/run-local.sh
@@ -29,13 +29,33 @@ brew install mosquitto
 
 The script automatically:
 
-- Creates a Python virtual environment and installs the package
+- Creates a Python virtual environment via `uv` and installs the package
 - Generates TLS certificates (with the host LAN IP in the SAN)
 - Starts Mosquitto with MQTTS on port 8883
 - Starts the simulator with HTTP on port 80 and mDNS advertising
 - Detects your LAN IP from `en0`/`en1`
 
 No `sudo` required.
+
+## Development
+
+```bash
+# Install dependencies (creates .venv automatically)
+uv sync --group dev
+
+# Run tests
+uv run pytest
+
+# Lint + format
+uv run ruff check --fix src/ tests/
+uv run ruff format src/ tests/
+
+# Type check
+uv run mypy --strict src/span_panel_simulator/
+
+# Install pre-commit hooks (runs ruff, mypy --strict on every commit)
+uv run pre-commit install
+```
 
 ## Dashboard
 
