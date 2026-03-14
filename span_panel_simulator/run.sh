@@ -35,9 +35,26 @@ chmod 644 "${CERT_DIR}"/*.crt "${CERT_DIR}"/*.key
 
 # Set up Mosquitto credentials
 mosquitto_passwd -b -c /app/mosquitto/passwd "${BROKER_USERNAME}" "${BROKER_PASSWORD}"
-chmod 600 /app/mosquitto/passwd
-chown mosquitto:mosquitto /app/mosquitto/passwd
-cp /app/mosquitto/mosquitto.conf.template /app/mosquitto/mosquitto.conf
+chmod 644 /app/mosquitto/passwd
+
+# Generate Mosquitto config with correct cert paths
+cat > /app/mosquitto/mosquitto.conf <<CONF
+listener 18883
+cafile ${CERT_DIR}/ca.crt
+certfile ${CERT_DIR}/server.crt
+keyfile ${CERT_DIR}/server.key
+require_certificate false
+
+allow_anonymous false
+password_file /app/mosquitto/passwd
+
+persistence false
+
+log_dest stdout
+log_type warning
+log_type error
+log_type notice
+CONF
 
 # Start Mosquitto
 mosquitto -c /app/mosquitto/mosquitto.conf -d

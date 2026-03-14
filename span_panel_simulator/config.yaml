@@ -2,6 +2,7 @@ name: "SPAN Panel Simulator"
 description: "Simulates a SPAN electrical panel for development and testing"
 version: "0.1.0"
 slug: "span_panel_simulator"
+image: "ghcr.io/electrification-bus/simulator/{arch}"
 arch:
   - amd64
   - aarch64

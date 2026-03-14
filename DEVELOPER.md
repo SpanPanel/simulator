@@ -58,7 +58,7 @@ Every commit is validated by:
 | **check-yaml** | Valid YAML syntax |
 | **check-added-large-files** | Prevents accidental large file commits |
 
-## Simulation Engine
+## Simulation Engine Internals
 
 ### Power Calculation (per tick)
 
@@ -74,53 +74,6 @@ Every commit is validated by:
 10. Add noise (`noise_factor`)
 11. Apply load shedding overlays (if grid offline with battery)
 
-### Solar Model
-
-PV circuits use a geographic sine-based model instead of hourly multipliers:
-
-- Sunrise/sunset computed from latitude, longitude, and date
-- Solar elevation angle determines instantaneous production factor
-- Daily weather degradation from Open-Meteo historical cloud cover data
-- Falls back to deterministic seed-based weather when no API data available
-
-### HVAC Seasonal Modulation
-
-Circuits with `hvac_type` set automatically adjust power draw by season
-using a latitude-aware sinusoidal temperature model:
-
-| HVAC Type | Summer | Winter | Why |
-|---|---|---|---|
-| `central_ac` | Full compressor (~100%) | Blower fan only (~15%) | Gas furnace handles heating |
-| `heat_pump` | Full compressor (~100%) | COP reduces draw (~45%) | Heat pump efficiency in cold |
-| `heat_pump_aux` | Full compressor (~100%) | Aux strips exceed cooling (~140%) | Resistive backup below ~35F |
-
-The seasonal factor scales the base power before cycling is applied, so
-the on/off duty cycle remains unchanged while the power magnitude varies.
-
-### Battery (BSEE)
-
-The Battery Storage Energy Equipment tracks real state-of-energy by
-integrating power over time:
-
-- **Charging**: `SOE += power * dt * charge_efficiency`
-- **Discharging**: `SOE -= power * dt / discharge_efficiency`
-- **Backup reserve**: Normal discharge stops at `backup_reserve_pct`
-  (default 20%); only grid-disconnect emergencies drain to the 5% hard floor
-- **Charge modes**: Custom (hour-based schedule), Solar Generation (tracks
-  PV curve), Solar Excess (surplus after loads)
-
-### Load Shedding
-
-When the grid goes offline (dominant power source changes from GRID):
-
-1. `OFF_GRID` priority circuits: relay opened immediately
-2. `SOC_THRESHOLD` priority circuits: relay opened when SOC < threshold
-3. `NEVER` priority circuits: remain on
-4. Battery covers the load deficit (consumption minus PV production)
-5. PV continues operating if panel is islandable, otherwise zeroed
-
-User relay overrides take precedence -- closing a shed relay keeps it on.
-
 ### Energy Accumulation
 
 Energy integrates over time in watt-hours:
@@ -135,6 +88,91 @@ Consumed and produced energy are tracked separately per circuit.
 
 Only changed property values are republished each tick. Unchanged values
 are not retransmitted.
+
+## Home Assistant Add-on (App)
+
+### Directory naming matters
+
+The `span_panel_simulator/` directory **must** match the `slug` field in
+`config.yaml`. The HA Supervisor uses the directory name to identify the
+add-on — renaming it will break discovery. If you need to change the slug,
+update both the directory name and the `slug` field together.
+
+### Build pipeline
+
+The GitHub Actions workflow (`.github/workflows/build-addon.yaml`) builds
+the Docker image from the **repo root** as the build context (not from the
+add-on subdirectory). This is necessary because the Dockerfile needs access
+to `pyproject.toml`, `src/`, and `mosquitto/` which live at the repo root.
+
+The HA Supervisor would normally build from the add-on subdirectory, which
+can't reach parent files — that's why we use the `image:` field to pull
+pre-built images instead.
+
+The workflow:
+- Triggers on pushes to `main` that touch source, config, or workflow files
+- Builds per-architecture images (amd64, aarch64) using the appropriate
+  HA base image
+- Pushes to `ghcr.io/electrification-bus/simulator/{arch}:{version}`
+
+### Local testing
+
+There are three ways to run the simulator locally, depending on what
+you're testing:
+
+**1. Native (recommended for development)**
+
+Runs directly on the host with full mDNS visibility. Best for iterating
+on simulator code and testing integration discovery.
+
+```bash
+./scripts/run-local.sh
+```
+
+**2. Docker container**
+
+Builds and runs the same image that CI pushes to GHCR. Useful for
+verifying the container works before pushing. HTTP, MQTTS, and the
+dashboard are all reachable via the mapped ports. mDNS auto-discovery
+won't work on macOS because all container runtimes (Colima, Docker
+Desktop, OrbStack) run inside a Linux VM with NAT networking — the
+multicast packets never reach the host LAN. The `span-panel`
+integration can still connect by manual configuration instead of
+zeroconf discovery. On Linux, Docker runs natively and mDNS works
+with host networking.
+
+```bash
+# Build (use aarch64 base on Apple Silicon, amd64 on Intel/Linux)
+docker build -f span_panel_simulator/Dockerfile \
+  --build-arg BUILD_FROM=ghcr.io/home-assistant/aarch64-base-python:3.13-alpine3.21 \
+  -t span-panel-simulator:local .
+
+# Run
+mkdir -p .local/addon-test
+cat > .local/addon-test/options.json <<'EOF'
+{
+  "config_file": "span_simulator/default_config.yaml",
+  "tick_interval": 1.0,
+  "log_level": "INFO",
+  "advertise_address": "",
+  "dashboard_enabled": true
+}
+EOF
+
+docker run --rm \
+  -p 18883:18883 -p 8081:8081 -p 18080:18080 \
+  -v $(pwd)/configs:/config/span_simulator \
+  -v $(pwd)/.local/addon-test:/data \
+  span-panel-simulator:local
+```
+
+**3. HA add-on**
+
+Requires a Home Assistant instance running HA OS or a supervised install
+(the Supervisor manages add-on containers). Add the repo URL as a custom
+repository and install from the Add-on Store. This is the only way to
+test the full add-on lifecycle (options UI, Supervisor image pull,
+`/data/options.json` injection).
 
 ## TLS Certificates
 
@@ -153,8 +191,18 @@ next startup. Delete `.local/certs/` to force regeneration.
 
 ```
 simulator/
-  configs/                  # Panel YAML configurations
-  docs/images/              # Screenshots
+  repository.json            # HA add-on repository metadata
+  configs/                   # Panel YAML configurations
+  span_panel_simulator/      # HA add-on (dir name must match slug)
+    config.yaml              # Add-on metadata, image ref, options schema
+    build.yaml               # Per-architecture base images
+    Dockerfile               # Used by CI (build context is repo root)
+    run.sh                   # Container entry point
+    DOCS.md                  # User-facing add-on documentation
+    translations/en.yaml     # Option labels for HA UI
+  .github/workflows/
+    build-addon.yaml         # CI: build and push images to GHCR
+  docs/images/               # Screenshots
   scripts/
     run-local.sh            # macOS native (recommended)
     entrypoint.sh           # Docker entrypoint (Linux)

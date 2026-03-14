@@ -87,6 +87,20 @@ A theme selector in the header supports three modes:
 | **Light** | Forces light theme |
 | **Dark** | Forces dark theme |
 
+## Home Assistant Add-on
+
+The simulator can run as an HA add-on (app) so users with the `span-panel`
+integration can spin up a simulated panel directly in their HA environment.
+
+1. Go to **Settings > Add-ons > Add-on Store** > three-dot menu >
+   **Repositories**
+2. Add `https://github.com/electrification-bus/simulator`
+3. Install **SPAN Panel Simulator** from the store
+4. Configure options (config file, tick interval, log level) and start
+
+The add-on runs the simulator in a container with its own Mosquitto broker.
+The `span-panel` integration discovers it via mDNS just like a real panel.
+
 ## Running with Docker (Linux only)
 
 ```bash
@@ -357,6 +371,55 @@ mosquitto_pub -t "ebus/5/SPAN-TEST-001/core/dominant-power-source/set" -m "BATTE
 
 Relay and priority changes made via MQTT are reflected in the dashboard
 in real time.
+
+## Simulation Models
+
+### Solar
+
+PV circuits use a geographic sine-based model instead of hourly multipliers:
+
+- Sunrise/sunset computed from latitude, longitude, and date
+- Solar elevation angle determines instantaneous production factor
+- Daily weather degradation from Open-Meteo historical cloud cover data
+- Falls back to deterministic seed-based weather when no API data available
+
+### HVAC Seasonal Modulation
+
+Circuits with `hvac_type` set automatically adjust power draw by season
+using a latitude-aware sinusoidal temperature model:
+
+| HVAC Type | Summer | Winter | Why |
+|---|---|---|---|
+| `central_ac` | Full compressor (~100%) | Blower fan only (~15%) | Gas furnace handles heating |
+| `heat_pump` | Full compressor (~100%) | COP reduces draw (~45%) | Heat pump efficiency in cold |
+| `heat_pump_aux` | Full compressor (~100%) | Aux strips exceed cooling (~140%) | Resistive backup below ~35F |
+
+The seasonal factor scales the base power before cycling is applied, so
+the on/off duty cycle remains unchanged while the power magnitude varies.
+
+### Battery (BSEE)
+
+The Battery Storage Energy Equipment tracks real state-of-energy by
+integrating power over time:
+
+- **Charging**: `SOE += power * dt * charge_efficiency`
+- **Discharging**: `SOE -= power * dt / discharge_efficiency`
+- **Backup reserve**: Normal discharge stops at `backup_reserve_pct`
+  (default 20%); only grid-disconnect emergencies drain to the 5% hard floor
+- **Charge modes**: Custom (hour-based schedule), Solar Generation (tracks
+  PV curve), Solar Excess (surplus after loads)
+
+### Load Shedding
+
+When the grid goes offline (dominant power source changes from GRID):
+
+1. `OFF_GRID` priority circuits: relay opened immediately
+2. `SOC_THRESHOLD` priority circuits: relay opened when SOC < threshold
+3. `NEVER` priority circuits: remain on
+4. Battery covers the load deficit (consumption minus PV production)
+5. PV continues operating if panel is islandable, otherwise zeroed
+
+User relay overrides take precedence -- closing a shed relay keeps it on.
 
 ## Development
 
