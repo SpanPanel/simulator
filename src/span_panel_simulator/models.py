@@ -48,6 +48,7 @@ class SpanPVSnapshot:
     vendor_name: str | None = None
     product_name: str | None = None
     nameplate_capacity_w: float | None = None
+    software_version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +86,27 @@ class SpanBatterySnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class SpanPcsSnapshot:
+    """Power Control System state."""
+
+    enabled: bool = False
+    active: bool = False
+    import_limit_a: float = 0.0
+    feed_import_limit_a: float = 0.0
+    feed_import_limit_enablement: str = "UNCONFIGURED"
+    feed_import_limit_active: bool = False
+    grid_import_limit_a: float = 0.0
+    grid_import_limit_enablement: str = "UNCONFIGURED"
+    grid_import_limit_active: bool = False
+    off_grid_import_limit_a: float = 0.0
+    off_grid_import_limit_enablement: str = "UNCONFIGURED"
+    off_grid_import_limit_active: bool = False
+    requested_import_limit_a: float = 0.0
+    requested_import_limit_enablement: str = "UNCONFIGURED"
+    requested_import_limit_active: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class SpanPanelSnapshot:
     """Complete panel state — single point-in-time view."""
 
@@ -118,6 +140,9 @@ class SpanPanelSnapshot:
     main_breaker_rating_a: int | None = None
     wifi_ssid: str | None = None
     vendor_cloud: str | None = None
+    postal_code: str | None = None
+    time_zone: str | None = None
+    panel_model: str | None = None
 
     power_flow_pv: float | None = None
     power_flow_battery: float | None = None
@@ -133,3 +158,4 @@ class SpanPanelSnapshot:
     battery: SpanBatterySnapshot = field(default_factory=SpanBatterySnapshot)
     pv: SpanPVSnapshot = field(default_factory=SpanPVSnapshot)
     evse: dict[str, SpanEvseSnapshot] = field(default_factory=dict)
+    pcs: SpanPcsSnapshot = field(default_factory=SpanPcsSnapshot)

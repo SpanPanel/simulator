@@ -76,7 +76,7 @@ class PanelAdvertiser:
         self._zeroconf = None
         _LOGGER.info("mDNS advertiser stopped")
 
-    async def register_panel(self, serial: str, firmware: str) -> None:
+    async def register_panel(self, serial: str, firmware: str, *, model: str = "MAIN_32") -> None:
         """Advertise a panel on the local network.
 
         Registers two service types per panel:
@@ -110,6 +110,7 @@ class PanelAdvertiser:
         span_properties: dict[str, str] = {
             "serialNumber": serial,
             "firmwareVersion": firmware,
+            "model": model,
         }
 
         services: list[ServiceInfo] = []

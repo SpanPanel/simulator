@@ -19,6 +19,8 @@ class PanelConfig(TypedDict):
     latitude: NotRequired[float]  # degrees north, default 37.7
     longitude: NotRequired[float]  # degrees east, default -122.4
     soc_shed_threshold: NotRequired[float]  # SOC % below which SOC_THRESHOLD circuits are shed
+    postal_code: NotRequired[str]  # ZIP / postal code, default "94103"
+    time_zone: NotRequired[str]  # IANA timezone, default "America/Los_Angeles"
 
 
 class CyclingPattern(TypedDict, total=False):
@@ -102,6 +104,7 @@ class CircuitTemplateExtended(CircuitTemplate, total=False):
     battery_behavior: BatteryBehavior
     device_type: str  # Explicit override: "circuit", "evse", "pv"
     hvac_type: str  # "central_ac", "heat_pump", "heat_pump_aux"
+    breaker_rating: int  # Breaker rating in Amps (derived from power_range if not set)
 
 
 class CircuitDefinition(TypedDict):
@@ -117,6 +120,7 @@ class CircuitDefinitionExtended(CircuitDefinition, total=False):
     """Extended circuit definition with overrides."""
 
     overrides: dict[str, Any]
+    breaker_rating: int  # Per-circuit breaker rating in Amps (overrides template)
 
 
 class TabSynchronization(TypedDict):

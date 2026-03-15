@@ -28,6 +28,7 @@ ENTITY_TYPE_DEFAULTS: dict[str, dict[str, Any]] = {
             },
             "relay_behavior": "controllable",
             "priority": "NEVER",
+            "breaker_rating": 15,
         },
         "circuit": {
             "tabs": [],
@@ -46,6 +47,7 @@ ENTITY_TYPE_DEFAULTS: dict[str, dict[str, Any]] = {
             "relay_behavior": "non_controllable",
             "priority": "NEVER",
             "device_type": "pv",
+            "breaker_rating": 30,
         },
         "circuit": {
             "tabs": [],
@@ -62,6 +64,7 @@ ENTITY_TYPE_DEFAULTS: dict[str, dict[str, Any]] = {
             "relay_behavior": "controllable",
             "priority": "OFF_GRID",
             "device_type": "evse",
+            "breaker_rating": 50,
             "smart_behavior": {
                 "responds_to_grid": True,
                 "max_power_reduction": 0.6,
@@ -111,6 +114,7 @@ ENTITY_TYPE_DEFAULTS: dict[str, dict[str, Any]] = {
             },
             "relay_behavior": "controllable",
             "priority": "NEVER",
+            "breaker_rating": 40,
             "battery_behavior": {
                 "enabled": True,
                 "charge_mode": "custom",

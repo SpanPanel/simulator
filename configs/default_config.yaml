@@ -15,6 +15,7 @@ circuit_templates:
       power_variation: 0.1
     relay_behavior: controllable
     priority: NEVER
+    breaker_rating: 15
     time_of_day_profile:
       enabled: true
       peak_hours:
@@ -33,6 +34,7 @@ circuit_templates:
       power_variation: 0.1
     relay_behavior: controllable
     priority: OFF_GRID
+    breaker_rating: 15
     time_of_day_profile:
       enabled: true
       peak_hours:
@@ -58,6 +60,7 @@ circuit_templates:
       power_variation: 0.4
     relay_behavior: controllable
     priority: NEVER
+    breaker_rating: 15
   kitchen_outlets:
     energy_profile:
       mode: consumer
@@ -68,6 +71,7 @@ circuit_templates:
       power_variation: 0.5
     relay_behavior: controllable
     priority: NEVER
+    breaker_rating: 20
   refrigerator:
     energy_profile:
       mode: consumer
@@ -78,6 +82,7 @@ circuit_templates:
       power_variation: 0.2
     relay_behavior: non_controllable
     priority: NEVER
+    breaker_rating: 20
     cycling_pattern:
       on_duration: 600
       off_duration: 1800
@@ -91,6 +96,7 @@ circuit_templates:
       power_variation: 0.2
     relay_behavior: controllable
     priority: OFF_GRID
+    breaker_rating: 20
   hvac:
     energy_profile:
       mode: consumer
@@ -101,6 +107,7 @@ circuit_templates:
       power_variation: 0.1
     relay_behavior: controllable
     priority: NEVER
+    breaker_rating: 30
     cycling_pattern:
       on_duration: 1200
       off_duration: 2400
@@ -115,6 +122,7 @@ circuit_templates:
       power_variation: 0.25
     relay_behavior: controllable
     priority: OFF_GRID
+    breaker_rating: 30
     cycling_pattern:
       on_duration: 900
       off_duration: 1800
@@ -130,6 +138,7 @@ circuit_templates:
     relay_behavior: controllable
     priority: OFF_GRID
     device_type: evse
+    breaker_rating: 50
     smart_behavior:
       responds_to_grid: true
       max_power_reduction: 0.6
@@ -173,6 +182,7 @@ circuit_templates:
     relay_behavior: non_controllable
     priority: NEVER
     device_type: pv
+    breaker_rating: 30
   battery:
     energy_profile:
       mode: bidirectional
@@ -184,6 +194,7 @@ circuit_templates:
       efficiency: 0.95
     relay_behavior: controllable
     priority: NEVER
+    breaker_rating: 40
     battery_behavior:
       enabled: true
       nameplate_capacity_kwh: 13.5
@@ -201,6 +212,7 @@ circuit_templates:
       power_variation: 0.1
     relay_behavior: controllable
     priority: OFF_GRID
+    breaker_rating: 20
     cycling_pattern:
       on_duration: 7200
       off_duration: 14400
@@ -214,6 +226,7 @@ circuit_templates:
       power_variation: 0.1
     relay_behavior: controllable
     priority: NEVER
+    breaker_rating: 15
   new_circuit_tpl:
     energy_profile:
       mode: consumer
@@ -224,6 +237,7 @@ circuit_templates:
       power_variation: 0.3
     relay_behavior: controllable
     priority: NEVER
+    breaker_rating: 15
     time_of_day_profile:
       enabled: true
       hourly_multipliers:
@@ -397,6 +411,7 @@ circuits:
   tabs:
   - 20
   - 22
+  breaker_rating: 30
   overrides:
     typical_power: 3000.0
     power_range:
@@ -426,6 +441,7 @@ circuits:
   tabs:
   - 28
   - 30
+  breaker_rating: 40
   overrides:
     typical_power: 2500.0
     power_range:
@@ -437,6 +453,7 @@ circuits:
   tabs:
   - 31
   - 33
+  breaker_rating: 30
   overrides:
     typical_power: 4000.0
     power_range:

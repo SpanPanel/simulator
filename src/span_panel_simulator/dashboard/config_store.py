@@ -45,6 +45,7 @@ class EntityView:
     smart_behavior: dict[str, Any] | None = None
     battery_behavior: dict[str, Any] | None = None
     hvac_type: str | None = None
+    breaker_rating: int | None = None
     overrides: dict[str, Any] = field(default_factory=dict)
 
 
@@ -179,6 +180,7 @@ class ConfigStore:
             smart_behavior=template.get("smart_behavior"),
             battery_behavior=template.get("battery_behavior"),
             hvac_type=template.get("hvac_type"),
+            breaker_rating=circuit.get("breaker_rating") or template.get("breaker_rating"),
             overrides=dict(overrides),
         )
 
@@ -251,6 +253,13 @@ class ConfigStore:
                 bb["nameplate_capacity_kwh"] = float(data["nameplate_capacity_kwh"])
             if "backup_reserve_pct" in data:
                 bb["backup_reserve_pct"] = float(data["backup_reserve_pct"])
+
+        if "breaker_rating" in data:
+            br_val = str(data["breaker_rating"]).strip()
+            if br_val:
+                circuit["breaker_rating"] = int(br_val)
+            else:
+                circuit.pop("breaker_rating", None)
 
         if "hvac_type" in data:
             hvac_val = str(data["hvac_type"])

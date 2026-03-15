@@ -38,11 +38,21 @@ from span_panel_simulator.models import (
     SpanCircuitSnapshot,
     SpanEvseSnapshot,
     SpanPanelSnapshot,
+    SpanPcsSnapshot,
     SpanPVSnapshot,
 )
 from span_panel_simulator.solar import daily_weather_factor, solar_production_factor
 from span_panel_simulator.validation import validate_yaml_config
 from span_panel_simulator.weather import get_cached_weather
+
+# Panel size → Homie model enum (from 202609 schema)
+_PANEL_SIZE_TO_MODEL: dict[int, str] = {
+    16: "MAIN_16",
+    24: "MLO_24",
+    32: "MAIN_32",
+    40: "MAIN_40",
+    48: "MLO_48",
+}
 
 # Constants inlined from span-panel-api (simple string values)
 DSM_ON_GRID = "DSM_ON_GRID"
@@ -719,6 +729,7 @@ class DynamicSimulationEngine:
                     vendor_name="Simulated",
                     product_name="Virtual PV Inverter",
                     nameplate_capacity_w=5000.0,
+                    software_version="1.0.0-sim",
                 )
                 pv_power = circ.instant_power_w
                 break
@@ -735,6 +746,7 @@ class DynamicSimulationEngine:
                     advertised_current_a=32.0,
                     vendor_name="SPAN",
                     product_name="SPAN Drive",
+                    part_number="SPN-DRV-001",
                     serial_number=f"SIM-EVSE-{cid.upper()}",
                     software_version="1.0.0-sim",
                 )
@@ -748,6 +760,13 @@ class DynamicSimulationEngine:
         main_relay = "OPEN" if self._forced_grid_offline else MAIN_RELAY_CLOSED
         # Voltage drops to 0 when offline without battery
         line_voltage = 0.0 if (self._forced_grid_offline and self._bsee is None) else 120.0
+
+        # Panel model derived from tab count
+        panel_model = _PANEL_SIZE_TO_MODEL.get(total_tabs)
+
+        # Config-driven fields with sensible defaults
+        postal_code = self._config["panel_config"].get("postal_code", "94103")
+        time_zone = self._config["panel_config"].get("time_zone", "America/Los_Angeles")
 
         return SpanPanelSnapshot(
             serial_number=self._config["panel_config"]["serial_number"],
@@ -775,6 +794,9 @@ class DynamicSimulationEngine:
             main_breaker_rating_a=main_size,
             wifi_ssid="SimulatedNetwork",
             vendor_cloud="CONNECTED",
+            postal_code=postal_code,
+            time_zone=time_zone,
+            panel_model=panel_model,
             panel_size=total_tabs,
             power_flow_battery=power_flow_battery,
             power_flow_site=grid_power,
@@ -788,6 +810,7 @@ class DynamicSimulationEngine:
             battery=battery_snapshot,
             pv=pv_snapshot,
             evse=evse_devices,
+            pcs=SpanPcsSnapshot(),
         )
 
     # ------------------------------------------------------------------

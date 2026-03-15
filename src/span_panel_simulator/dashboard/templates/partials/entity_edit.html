@@ -28,6 +28,12 @@
           {% endfor %}
         </select>
       </label>
+      <label>Breaker (A):
+        <input type="number" name="breaker_rating"
+               value="{{ e.breaker_rating or '' }}"
+               min="15" max="200" step="5" style="width:5em"
+               placeholder="auto">
+      </label>
     </div>
 
     {% if e.entity_type == 'pv' %}

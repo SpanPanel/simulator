@@ -10,6 +10,7 @@ from span_panel_simulator.models import (
     SpanBatterySnapshot,
     SpanCircuitSnapshot,
     SpanPanelSnapshot,
+    SpanPcsSnapshot,
     SpanPVSnapshot,
 )
 from span_panel_simulator.publisher import HomiePublisher
@@ -31,6 +32,8 @@ def sample_snapshot() -> SpanPanelSnapshot:
             is_user_controllable=True,
             is_sheddable=False,
             is_never_backup=False,
+            current_a=1.25,
+            breaker_rating_a=15.0,
         ),
         "kitchen_outlets": SpanCircuitSnapshot(
             circuit_id="kitchen_outlets",
@@ -81,12 +84,17 @@ def sample_snapshot() -> SpanPanelSnapshot:
         eth0_link=True,
         wlan_link=False,
         wwan_link=False,
-        panel_size=8,
+        panel_size=32,
         dominant_power_source="GRID",
         grid_islandable=False,
         l1_voltage=121.3,
         l2_voltage=119.8,
         main_breaker_rating_a=200,
+        wifi_ssid="TestNetwork",
+        vendor_cloud="CONNECTED",
+        postal_code="94103",
+        time_zone="America/Los_Angeles",
+        panel_model="MAIN_32",
         power_flow_grid=950.0,
         power_flow_site=950.0,
         power_flow_pv=0.0,
@@ -98,6 +106,7 @@ def sample_snapshot() -> SpanPanelSnapshot:
         circuits=circuits,
         battery=SpanBatterySnapshot(),
         pv=SpanPVSnapshot(),
+        pcs=SpanPcsSnapshot(),
     )
 
 

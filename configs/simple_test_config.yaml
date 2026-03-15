@@ -17,6 +17,7 @@ circuit_templates:
       power_variation: 0.1
     relay_behavior: "controllable"
     priority: "NEVER"
+    breaker_rating: 15
 
   outlets:
     energy_profile:
@@ -26,6 +27,7 @@ circuit_templates:
       power_variation: 0.3
     relay_behavior: "controllable"
     priority: "NEVER"
+    breaker_rating: 15
 
   hvac:
     energy_profile:
@@ -35,6 +37,7 @@ circuit_templates:
       power_variation: 0.15
     relay_behavior: "controllable"
     priority: "OFF_GRID"
+    breaker_rating: 30
 
   solar:
     energy_profile:
@@ -44,6 +47,7 @@ circuit_templates:
       power_variation: 0.2
     relay_behavior: "non_controllable"
     priority: "NEVER"
+    breaker_rating: 30
 
 circuits:
   - id: "living_room_lights"

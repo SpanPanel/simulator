@@ -75,11 +75,12 @@ class TestPublishInit:
         desc_call = publish_mock.call_args_list[1]
         desc = json.loads(desc_call.args[1])
 
-        # Should have core, upstream-lugs, downstream-lugs, power-flows,
-        # plus 2 circuit nodes (unmapped_tab_2 excluded)
+        # Should have core, upstream-lugs, downstream-lugs, pcs-0,
+        # power-flows, plus 2 circuit nodes (unmapped_tab_2 excluded)
         assert "core" in desc["nodes"]
         assert "upstream-lugs" in desc["nodes"]
         assert "downstream-lugs" in desc["nodes"]
+        assert "pcs-0" in desc["nodes"]
         assert "power-flows" in desc["nodes"]
 
         circuit_nodes = [
@@ -291,3 +292,102 @@ class TestSetTopicResolution:
     def test_unknown_topic_returns_none(self, publisher: HomiePublisher) -> None:
         result = publisher.resolve_set_message("some/random/topic")
         assert result is None
+
+
+class TestSchemaFidelity:
+    """Verify all schema-defined properties are published."""
+
+    @pytest.mark.asyncio
+    async def test_core_new_properties(
+        self,
+        publisher: HomiePublisher,
+        publish_mock: AsyncMock,
+        sample_snapshot: SpanPanelSnapshot,
+    ) -> None:
+        """Core node publishes wifi-ssid, vendor-cloud, postal-code, time-zone, model."""
+        await publisher.publish_init(sample_snapshot)
+
+        published = {c.args[0]: c.args[1] for c in publish_mock.call_args_list}
+        prefix = "ebus/5/SPAN-TEST-001/core"
+
+        assert published[f"{prefix}/wifi-ssid"] == "TestNetwork"
+        assert published[f"{prefix}/vendor-cloud"] == "CONNECTED"
+        assert published[f"{prefix}/postal-code"] == "94103"
+        assert published[f"{prefix}/time-zone"] == "America/Los_Angeles"
+        assert published[f"{prefix}/model"] == "MAIN_32"
+
+    @pytest.mark.asyncio
+    async def test_lugs_feed_property(
+        self,
+        publisher: HomiePublisher,
+        publish_mock: AsyncMock,
+        sample_snapshot: SpanPanelSnapshot,
+    ) -> None:
+        """Lugs nodes publish feed property."""
+        await publisher.publish_init(sample_snapshot)
+
+        published = {c.args[0]: c.args[1] for c in publish_mock.call_args_list}
+
+        assert published["ebus/5/SPAN-TEST-001/upstream-lugs/feed"] == "GRID"
+        assert published["ebus/5/SPAN-TEST-001/downstream-lugs/feed"] == ""
+
+    @pytest.mark.asyncio
+    async def test_circuit_pcs_properties(
+        self,
+        publisher: HomiePublisher,
+        publish_mock: AsyncMock,
+        sample_snapshot: SpanPanelSnapshot,
+    ) -> None:
+        """Circuits publish pcs-managed and pcs-priority."""
+        await publisher.publish_init(sample_snapshot)
+
+        published = {c.args[0]: c.args[1] for c in publish_mock.call_args_list}
+
+        uuid = _stable_circuit_uuid("living_room_lights")
+        assert published[f"ebus/5/SPAN-TEST-001/{uuid}/pcs-managed"] == "false"
+        assert published[f"ebus/5/SPAN-TEST-001/{uuid}/pcs-priority"] == "0"
+
+    @pytest.mark.asyncio
+    async def test_pcs_node_in_description(
+        self,
+        publisher: HomiePublisher,
+        publish_mock: AsyncMock,
+        sample_snapshot: SpanPanelSnapshot,
+    ) -> None:
+        """PCS node appears in $description."""
+        await publisher.publish_init(sample_snapshot)
+
+        import json
+
+        desc = json.loads(publish_mock.call_args_list[1].args[1])
+        assert "pcs-0" in desc["nodes"]
+        assert desc["nodes"]["pcs-0"]["type"] == "energy.ebus.device.pcs"
+
+    @pytest.mark.asyncio
+    async def test_pcs_properties_published(
+        self,
+        publisher: HomiePublisher,
+        publish_mock: AsyncMock,
+        sample_snapshot: SpanPanelSnapshot,
+    ) -> None:
+        """PCS node properties are published with defaults."""
+        await publisher.publish_init(sample_snapshot)
+
+        published = {c.args[0]: c.args[1] for c in publish_mock.call_args_list}
+        prefix = "ebus/5/SPAN-TEST-001/pcs-0"
+
+        assert published[f"{prefix}/enabled"] == "false"
+        assert published[f"{prefix}/active"] == "false"
+        assert published[f"{prefix}/import-limit"] == "0.00"
+        assert published[f"{prefix}/feed-import-limit"] == "0.00"
+        assert published[f"{prefix}/feed-import-limit-enablement"] == "UNCONFIGURED"
+        assert published[f"{prefix}/feed-import-limit-active"] == "false"
+        assert published[f"{prefix}/grid-import-limit"] == "0.00"
+        assert published[f"{prefix}/grid-import-limit-enablement"] == "UNCONFIGURED"
+        assert published[f"{prefix}/grid-import-limit-active"] == "false"
+        assert published[f"{prefix}/off-grid-import-limit"] == "0.00"
+        assert published[f"{prefix}/off-grid-import-limit-enablement"] == "UNCONFIGURED"
+        assert published[f"{prefix}/off-grid-import-limit-active"] == "false"
+        assert published[f"{prefix}/requested-import-limit"] == "0.00"
+        assert published[f"{prefix}/requested-import-limit-enablement"] == "UNCONFIGURED"
+        assert published[f"{prefix}/requested-import-limit-active"] == "false"

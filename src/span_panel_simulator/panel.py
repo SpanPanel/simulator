@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from pathlib import Path
     from typing import Any
 
+    from span_panel_simulator.schema import HomieSchemaRegistry
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -33,10 +35,12 @@ class PanelInstance:
         publish_fn: Callable[[str, str, bool], Coroutine[Any, Any, None]],
         *,
         tick_interval: float = 1.0,
+        schema: HomieSchemaRegistry | None = None,
     ) -> None:
         self._config_path = config_path
         self._publish_fn = publish_fn
         self._tick_interval = tick_interval
+        self._schema = schema
 
         self._engine: DynamicSimulationEngine | None = None
         self._publisher: HomiePublisher | None = None
@@ -79,6 +83,7 @@ class PanelInstance:
         self._publisher = HomiePublisher(
             serial_number=serial,
             publish_fn=self._publish_fn,
+            schema=self._schema,
         )
 
         # Initial full publish

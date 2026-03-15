@@ -30,7 +30,9 @@ from span_panel_simulator.const import (
 )
 from span_panel_simulator.dashboard import DashboardContext, create_dashboard_app
 from span_panel_simulator.discovery import PanelAdvertiser
+from span_panel_simulator.engine import _PANEL_SIZE_TO_MODEL
 from span_panel_simulator.panel import PanelInstance
+from span_panel_simulator.schema import HomieSchemaRegistry, load_schema
 
 if TYPE_CHECKING:
     from span_panel_simulator.certs import CertificateBundle
@@ -128,6 +130,7 @@ class SimulatorApp:
         self._dashboard_runner: web.AppRunner | None = None
         self._advertiser: PanelAdvertiser | None = None
         self._certs: CertificateBundle | None = None
+        self._schema: HomieSchemaRegistry | None = None
         self._running = False
         self._mqtt_client: aiomqtt.Client | None = None
         self._reload_event: asyncio.Event = asyncio.Event()
@@ -274,17 +277,24 @@ class SimulatorApp:
             config_path=config_path,
             publish_fn=self._publish,
             tick_interval=self._tick_interval,
+            schema=self._schema,
         )
         serial = await panel.start()
 
         self._panels[config_path] = panel
         self._serial_to_panel[serial] = panel
 
+        # Derive model from panel tab count
+        panel_model = "MAIN_32"
+        if panel.engine is not None and panel.engine._config is not None:
+            total_tabs = panel.engine._config["panel_config"].get("total_tabs", 32)
+            panel_model = _PANEL_SIZE_TO_MODEL.get(total_tabs, "MAIN_32")
+
         # Update the HTTP server and mDNS registries
         if self._http_server is not None:
             self._http_server.register_panel(serial, self._firmware)
         if self._advertiser is not None:
-            await self._advertiser.register_panel(serial, self._firmware)
+            await self._advertiser.register_panel(serial, self._firmware, model=panel_model)
 
         _LOGGER.info("Registered panel %s from %s", serial, config_path.name)
         return panel
@@ -441,11 +451,12 @@ class SimulatorApp:
 
         # 2. Resolve homie schema
         schema_path = self._homie_schema_path or _find_homie_schema()
+        self._schema = load_schema(schema_path)
 
         # 3. Start bootstrap HTTP server (multi-panel aware)
         http_server = BootstrapHttpServer(
             certs=certs,
-            homie_schema_path=schema_path,
+            schema=self._schema,
             broker_username=self._broker_username,
             broker_password=self._broker_password,
             broker_host=self._broker_host,

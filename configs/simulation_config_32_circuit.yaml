@@ -19,6 +19,7 @@ circuit_templates:
       power_variation: 0.1
     relay_behavior: "controllable"
     priority: "NEVER"
+    breaker_rating: 15
 
   # Exterior lighting with time-based patterns
   lighting:
@@ -29,6 +30,7 @@ circuit_templates:
       power_variation: 0.05
     relay_behavior: "controllable"
     priority: "OFF_GRID"
+    breaker_rating: 15
     time_of_day_profile:
       enabled: true
       peak_hours: [18, 19, 20, 21, 22]  # Evening hours
@@ -46,6 +48,7 @@ circuit_templates:
       on_duration: 1200   # 20 minutes
       off_duration: 2400  # 40 minutes
     hvac_type: "central_ac"
+    breaker_rating: 30
 
   # Large appliances (dishwasher, laundry, etc.)
   large_appliance:
@@ -56,6 +59,7 @@ circuit_templates:
       power_variation: 0.15
     relay_behavior: "controllable"
     priority: "OFF_GRID"
+    breaker_rating: 20
 
   # Refrigerator with compressor cycling
   refrigerator:
@@ -66,6 +70,7 @@ circuit_templates:
       power_variation: 0.2
     relay_behavior: "non_controllable"
     priority: "NEVER"
+    breaker_rating: 20
     cycling_pattern:
       on_duration: 600    # 10 minutes
       off_duration: 1800  # 30 minutes
@@ -79,6 +84,7 @@ circuit_templates:
       power_variation: 0.05
     relay_behavior: "controllable"
     priority: "OFF_GRID"
+    breaker_rating: 50
     device_type: "evse"  # Generates EVSE (SPAN Drive) snapshot
     smart_behavior:
       responds_to_grid: true
@@ -120,6 +126,7 @@ circuit_templates:
       power_variation: 0.1
     relay_behavior: "controllable"
     priority: "OFF_GRID"
+    breaker_rating: 20
     cycling_pattern:
       on_duration: 7200   # 2 hours on
       off_duration: 14400 # 4 hours off
@@ -135,6 +142,7 @@ circuit_templates:
       nameplate_capacity_w: 4000.0
     relay_behavior: "non_controllable"
     priority: "NEVER"
+    breaker_rating: 30
 
   # Backup generator - another producer type
   backup_generator:
@@ -146,6 +154,7 @@ circuit_templates:
       efficiency: 0.92  # 92% fuel efficiency
     relay_behavior: "controllable"
     priority: "NEVER"
+    breaker_rating: 40
 
   # Battery storage - bidirectional
   battery_storage:
@@ -157,6 +166,7 @@ circuit_templates:
       efficiency: 0.95  # 95% round-trip efficiency
     relay_behavior: "controllable"
     priority: "NEVER"
+    breaker_rating: 40
     battery_behavior:
       enabled: true
       nameplate_capacity_kwh: 13.5
@@ -175,6 +185,7 @@ circuit_templates:
       efficiency: 0.75  # 75% efficiency
     relay_behavior: "non_controllable"
     priority: "NEVER"
+    breaker_rating: 15
 
   # General outlet circuits
   outlets:
@@ -185,6 +196,7 @@ circuit_templates:
       power_variation: 0.4  # Very variable loads
     relay_behavior: "controllable"
     priority: "NEVER"
+    breaker_rating: 15
 
   # Kitchen specific outlets (higher capacity)
   kitchen_outlets:
@@ -195,6 +207,7 @@ circuit_templates:
       power_variation: 0.5  # Very variable - appliances
     relay_behavior: "controllable"
     priority: "NEVER"
+    breaker_rating: 20
 
   # Heat pump with seasonal efficiency
   heat_pump:
@@ -209,6 +222,7 @@ circuit_templates:
       on_duration: 900    # 15 minutes on
       off_duration: 1800  # 30 minutes off
     hvac_type: "heat_pump"
+    breaker_rating: 30
 
   # Major appliances (dishwasher, laundry, etc.)
   major_appliance:
@@ -219,6 +233,7 @@ circuit_templates:
       power_variation: 0.3
     relay_behavior: "controllable"
     priority: "OFF_GRID"
+    breaker_rating: 20
 
 circuits:
   # Lighting circuits (tabs 1-6)
@@ -336,6 +351,7 @@ circuits:
     name: "Electric Dryer"
     template: "major_appliance"
     tabs: [18, 20]  # 240V appliance
+    breaker_rating: 30
     overrides:
       typical_power: 3000.0
       power_range: [0.0, 4000.0]
@@ -344,6 +360,7 @@ circuits:
     name: "Electric Oven"
     template: "major_appliance"
     tabs: [19, 21]  # 240V appliance
+    breaker_rating: 40
     overrides:
       typical_power: 2500.0
       power_range: [0.0, 3500.0]

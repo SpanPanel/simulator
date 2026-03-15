@@ -37,9 +37,9 @@ from span_panel_simulator.const import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from span_panel_simulator.certs import CertificateBundle
+    from span_panel_simulator.schema import HomieSchemaRegistry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class BootstrapHttpServer:
     def __init__(
         self,
         certs: CertificateBundle,
-        homie_schema_path: Path,
+        schema: HomieSchemaRegistry,
         *,
         broker_username: str = DEFAULT_BROKER_USERNAME,
         broker_password: str = DEFAULT_BROKER_PASSWORD,
@@ -67,7 +67,7 @@ class BootstrapHttpServer:
         self._port = port
         self._reload_callback = reload_callback
 
-        self._homie_schema = homie_schema_path.read_text(encoding="utf-8")
+        self._homie_schema = schema.raw_json
         self._app = web.Application()
         self._runner: web.AppRunner | None = None
 
@@ -119,6 +119,7 @@ class BootstrapHttpServer:
                 {
                     "serialNumber": serial_filter,
                     "firmwareVersion": firmware,
+                    "proximityProven": True,
                 }
             )
 
@@ -133,6 +134,7 @@ class BootstrapHttpServer:
             {
                 "serialNumber": serial,
                 "firmwareVersion": firmware,
+                "proximityProven": True,
             }
         )
 

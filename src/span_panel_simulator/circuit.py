@@ -22,6 +22,9 @@ if TYPE_CHECKING:
     from span_panel_simulator.engine import RealisticBehaviorEngine
 
 
+_STANDARD_BREAKER_SIZES = (15, 20, 25, 30, 40, 50, 60, 70, 80, 100, 125, 150, 200)
+
+
 class SimulatedCircuit:
     """Encapsulates the state and logic for a single simulated circuit."""
 
@@ -38,6 +41,10 @@ class SimulatedCircuit:
         # Apply circuit-level overrides to the template
         if "overrides" in circuit_def:
             self._template.update(circuit_def["overrides"])  # type: ignore[typeddict-item]
+
+        # Circuit-level breaker_rating overrides template
+        if "breaker_rating" in circuit_def:
+            self._template["breaker_rating"] = circuit_def["breaker_rating"]
 
         # Derived from template (stable across ticks)
         self._energy_mode: str = self._template["energy_profile"]["mode"]
@@ -97,6 +104,14 @@ class SimulatedCircuit:
         """Produce a frozen snapshot of the current circuit state."""
         tabs = self._circuit_def["tabs"]
         controllable = self._template["relay_behavior"] == "controllable"
+        is_240v = len(tabs) == 2
+        voltage = 240.0 if is_240v else 120.0
+
+        breaker_rating = self._template.get("breaker_rating")
+        if breaker_rating is None:
+            max_power = max(abs(x) for x in self._template["energy_profile"]["power_range"])
+            breaker_rating = self._derive_breaker_rating(max_power, voltage)
+
         return SpanCircuitSnapshot(
             circuit_id=self._circuit_def["id"],
             name=self._circuit_def["name"],
@@ -111,7 +126,9 @@ class SimulatedCircuit:
             is_never_backup=False,
             always_on=not controllable,
             device_type=self._device_type_str,
-            is_240v=len(tabs) == 2,
+            is_240v=is_240v,
+            current_a=abs(self._instant_power_w) / voltage,
+            breaker_rating_a=float(breaker_rating),
             energy_accum_update_time_s=self._last_tick_time,
             instant_power_update_time_s=self._last_tick_time,
         )
@@ -167,6 +184,15 @@ class SimulatedCircuit:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _derive_breaker_rating(max_power_w: float, voltage: float) -> int:
+        """Derive a standard breaker rating from max power and voltage."""
+        amps = max_power_w / voltage
+        for size in _STANDARD_BREAKER_SIZES:
+            if amps <= size:
+                return size
+        return _STANDARD_BREAKER_SIZES[-1]
 
     def _derive_device_type(self) -> str:
         """Derive device_type from the template.
