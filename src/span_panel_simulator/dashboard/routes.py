@@ -78,6 +78,8 @@ def _dashboard_context(request: web.Request) -> dict[str, Any]:
         "preset_labels": PRESET_LABELS,
         "unmapped_tabs": store.get_unmapped_tabs(),
         "config_files": _available_configs(request),
+        "panel_source": store.get_panel_source(),
+        "origin_serial": store.get_origin_serial(),
     }
 
 
@@ -216,6 +218,10 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/load-config", handle_load_config)
     app.router.add_post("/clone", handle_clone)
     app.router.add_post("/save-reload", handle_save_reload)
+
+    # Panel source provenance
+    app.router.add_get("/panel-source", handle_get_panel_source)
+    app.router.add_post("/sync-panel-source", handle_sync_panel_source)
 
 
 # -- Full page --
@@ -797,3 +803,55 @@ async def handle_save_reload(request: web.Request) -> web.Response:
         text='<div class="flash success">Config saved and reload triggered.</div>',
         content_type="text/html",
     )
+
+
+# -- Panel source provenance --
+
+
+def _panel_source_context(request: web.Request) -> dict[str, Any]:
+    """Build the provenance section template context."""
+    store = _store(request)
+    return {
+        "panel_source": store.get_panel_source(),
+        "origin_serial": store.get_origin_serial(),
+    }
+
+
+async def handle_get_panel_source(request: web.Request) -> web.Response:
+    return _render(
+        "partials/panel_source.html",
+        request,
+        _panel_source_context(request),
+    )
+
+
+async def handle_sync_panel_source(request: web.Request) -> web.Response:
+    """Re-scrape the source panel and overwrite typical_power + energy seeds."""
+    from span_panel_simulator.clone import update_config_from_scrape
+    from span_panel_simulator.scraper import ScrapeError, register_with_panel, scrape_ebus
+
+    store = _store(request)
+    panel_source = store.get_panel_source()
+    if not panel_source:
+        return web.Response(
+            text='<div class="flash error">No panel source configured.</div>',
+            content_type="text/html",
+        )
+
+    host = panel_source.get("host", "")
+    passphrase = panel_source.get("passphrase")
+
+    try:
+        creds, ca_pem = await register_with_panel(host, passphrase)
+        scraped = await scrape_ebus(creds, ca_pem)
+    except ScrapeError as exc:
+        return web.Response(
+            text=f'<div class="flash error">Sync failed: [{exc.phase}] {exc}</div>',
+            content_type="text/html",
+        )
+
+    update_config_from_scrape(store._state, scraped)
+
+    ctx = _panel_source_context(request)
+    ctx["sync_message"] = "Updated typical_power and energy seeds from source panel."
+    return _render("partials/panel_source.html", request, ctx)

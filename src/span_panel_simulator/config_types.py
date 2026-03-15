@@ -10,6 +10,15 @@ from __future__ import annotations
 from typing import Any, Literal, NotRequired, TypedDict
 
 
+class PanelSource(TypedDict, total=False):
+    """Source panel connection details for clone configs."""
+
+    origin_serial: str  # real panel's serial (immutable provenance)
+    host: str  # IP or hostname of the source panel
+    passphrase: str | None  # proximity code (null for door-bypass)
+    last_synced: str  # ISO 8601 timestamp of last sync
+
+
 class PanelConfig(TypedDict):
     """Panel configuration."""
 
@@ -63,6 +72,8 @@ class EnergyProfileExtended(EnergyProfile, total=False):
 
     efficiency: float  # Energy conversion efficiency (0.0 to 1.0)
     nameplate_capacity_w: float  # PV nameplate rating in watts (positive)
+    initial_consumed_energy_wh: float  # seed from real panel's imported-energy
+    initial_produced_energy_wh: float  # seed from real panel's exported-energy
 
 
 class CircuitTemplate(TypedDict):
@@ -154,3 +165,4 @@ class SimulationConfig(TypedDict):
     simulation_params: SimulationParams
     unmapped_tab_templates: NotRequired[dict[str, CircuitTemplateExtended]]
     tab_synchronizations: NotRequired[list[TabSynchronization]]
+    panel_source: NotRequired[PanelSource]

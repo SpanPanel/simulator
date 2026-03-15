@@ -75,9 +75,16 @@ class SimulatedCircuit:
         # Dynamic overrides (set by dashboard / API)
         self._overrides: dict[str, object] = {}
 
-        # Seed energy counters with 1-year estimate
-        produced, consumed = behavior_engine.estimate_annual_energy_wh(self._template)
-        self._produced_energy_wh, self._consumed_energy_wh = produced, consumed
+        # Seed energy counters: prefer explicit seeds from clone, fall back to estimate
+        ep = self._template["energy_profile"]
+        initial_consumed = ep.get("initial_consumed_energy_wh")
+        initial_produced = ep.get("initial_produced_energy_wh")
+        if initial_consumed is not None or initial_produced is not None:
+            self._consumed_energy_wh = float(initial_consumed) if initial_consumed else 0.0
+            self._produced_energy_wh = float(initial_produced) if initial_produced else 0.0
+        else:
+            produced, consumed = behavior_engine.estimate_annual_energy_wh(self._template)
+            self._produced_energy_wh, self._consumed_energy_wh = produced, consumed
 
     # ------------------------------------------------------------------
     # Public API

@@ -23,6 +23,9 @@ def validate_yaml_config(config_data: Any) -> None:
     validate_circuit_templates(config_data["circuit_templates"])
     validate_circuits(config_data["circuits"], config_data["circuit_templates"])
 
+    if "panel_source" in config_data:
+        validate_panel_source(config_data["panel_source"])
+
 
 def validate_panel_config(panel_config: Any) -> None:
     """Validate panel configuration section."""
@@ -96,6 +99,23 @@ def validate_single_circuit(index: int, circuit: Any, circuit_templates: dict[st
 
     if len(tabs) == 2:
         validate_double_pole_tabs(index, circuit.get("name", f"circuit {index}"), tabs)
+
+
+def validate_panel_source(panel_source: Any) -> None:
+    """Validate panel_source block for clone provenance."""
+    if not isinstance(panel_source, dict):
+        raise ValueError("panel_source must be a dictionary")
+
+    required_fields = ["origin_serial", "host"]
+    for field in required_fields:
+        if field not in panel_source:
+            raise ValueError(f"Missing required panel_source field: {field}")
+
+    if not isinstance(panel_source["origin_serial"], str):
+        raise ValueError("panel_source.origin_serial must be a string")
+
+    if not isinstance(panel_source["host"], str):
+        raise ValueError("panel_source.host must be a string")
 
 
 def validate_double_pole_tabs(index: int, name: str, tabs: list[int]) -> None:

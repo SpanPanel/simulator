@@ -91,7 +91,7 @@ class CloneHandler:
         # Phase 3: Translate to YAML config
         await _send_status(ws, "translating", "Mapping eBus properties to simulator config")
         try:
-            config = translate_scraped_panel(scraped)
+            config = translate_scraped_panel(scraped, host=host, passphrase=passphrase)
         except Exception as exc:
             await _send_error(ws, "translating", f"Translation failed: {exc}")
             return

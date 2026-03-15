@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from span_panel_simulator.clone import translate_scraped_panel, write_clone_config
+from span_panel_simulator.clone import (
+    translate_scraped_panel,
+    update_config_from_scrape,
+    write_clone_config,
+)
 from span_panel_simulator.scraper import ScrapedPanel
 from span_panel_simulator.validation import validate_yaml_config
 
@@ -60,6 +64,8 @@ def _base_properties() -> dict[str, str]:
     _set("aaa111", "shed-priority", "NEVER")
     _set("aaa111", "active-power", "-150.0")
     _set("aaa111", "always-on", "false")
+    _set("aaa111", "imported-energy", "54321.0")
+    _set("aaa111", "exported-energy", "0.0")
 
     # Circuit 2: Kitchen Outlets — 240V, space 3/5
     _set("bbb222", "name", "Kitchen Outlets")
@@ -80,6 +86,8 @@ def _base_properties() -> dict[str, str]:
     _set("ccc333", "shed-priority", "NEVER")
     _set("ccc333", "active-power", "3000.0")  # producing (positive on eBus = export)
     _set("ccc333", "always-on", "true")
+    _set("ccc333", "imported-energy", "0.0")
+    _set("ccc333", "exported-energy", "1234567.0")
 
     # Circuit 4: Battery Storage — 240V, space 11/13, fed by bess-0
     _set("ddd444", "name", "Battery Storage")
@@ -314,3 +322,165 @@ class TestWriteCloneConfig:
         output = write_clone_config(config, tmp_path, _SERIAL)
         loaded = yaml.safe_load(output.read_text())
         validate_yaml_config(loaded)
+
+
+class TestEnergySeeding:
+    """Tests for initial energy accumulator seeding from scraped data."""
+
+    def test_consumer_imported_energy_seeded(self) -> None:
+        """Consumer circuit gets initial_consumed_energy_wh from imported-energy."""
+        config = translate_scraped_panel(_make_scraped())
+        templates = config["circuit_templates"]
+        assert isinstance(templates, dict)
+        t = templates["clone_1"]
+        assert isinstance(t, dict)
+        ep = t["energy_profile"]
+        assert isinstance(ep, dict)
+        assert ep["initial_consumed_energy_wh"] == 54321.0
+
+    def test_zero_energy_not_seeded(self) -> None:
+        """Zero-valued energy is not written (avoids overriding annual estimate)."""
+        config = translate_scraped_panel(_make_scraped())
+        templates = config["circuit_templates"]
+        assert isinstance(templates, dict)
+        t = templates["clone_1"]
+        assert isinstance(t, dict)
+        ep = t["energy_profile"]
+        assert isinstance(ep, dict)
+        assert "initial_produced_energy_wh" not in ep
+
+    def test_producer_exported_energy_seeded(self) -> None:
+        """Producer circuit gets initial_produced_energy_wh from exported-energy."""
+        config = translate_scraped_panel(_make_scraped())
+        templates = config["circuit_templates"]
+        assert isinstance(templates, dict)
+        t = templates["clone_7"]
+        assert isinstance(t, dict)
+        ep = t["energy_profile"]
+        assert isinstance(ep, dict)
+        assert ep["initial_produced_energy_wh"] == 1234567.0
+
+    def test_missing_energy_no_seed(self) -> None:
+        """Circuits without energy topics get no initial energy seeds."""
+        config = translate_scraped_panel(_make_scraped())
+        templates = config["circuit_templates"]
+        assert isinstance(templates, dict)
+        # Kitchen Outlets (space 3) has no energy topics
+        t = templates["clone_3"]
+        assert isinstance(t, dict)
+        ep = t["energy_profile"]
+        assert isinstance(ep, dict)
+        assert "initial_consumed_energy_wh" not in ep
+        assert "initial_produced_energy_wh" not in ep
+
+
+class TestPanelSource:
+    """Tests for panel_source credential persistence."""
+
+    def test_panel_source_written_when_host_provided(self) -> None:
+        """panel_source block is written when host is passed to translate."""
+        config = translate_scraped_panel(
+            _make_scraped(), host="192.168.1.100", passphrase="secret"
+        )
+        ps = config.get("panel_source")
+        assert isinstance(ps, dict)
+        assert ps["origin_serial"] == _SERIAL
+        assert ps["host"] == "192.168.1.100"
+        assert ps["passphrase"] == "secret"
+        assert "last_synced" in ps
+
+    def test_no_panel_source_without_host(self) -> None:
+        """panel_source is omitted when host is not provided."""
+        config = translate_scraped_panel(_make_scraped())
+        assert "panel_source" not in config
+
+    def test_panel_source_null_passphrase(self) -> None:
+        """panel_source supports null passphrase (door-bypass)."""
+        config = translate_scraped_panel(_make_scraped(), host="192.168.1.100", passphrase=None)
+        ps = config.get("panel_source")
+        assert isinstance(ps, dict)
+        assert ps["passphrase"] is None
+
+    def test_panel_source_validates(self) -> None:
+        """Config with panel_source passes validation."""
+        config = translate_scraped_panel(
+            _make_scraped(), host="192.168.1.100", passphrase="secret"
+        )
+        validate_yaml_config(config)
+
+    def test_panel_source_roundtrip(self, tmp_path: Path) -> None:
+        """panel_source survives YAML write/load roundtrip."""
+        config = translate_scraped_panel(
+            _make_scraped(), host="192.168.1.100", passphrase="secret"
+        )
+        output = write_clone_config(config, tmp_path, _SERIAL)
+        loaded = yaml.safe_load(output.read_text())
+        validate_yaml_config(loaded)
+        ps = loaded["panel_source"]
+        assert ps["origin_serial"] == _SERIAL
+        assert ps["host"] == "192.168.1.100"
+
+
+class TestUpdateConfigFromScrape:
+    """Tests for the lightweight startup refresh (update_config_from_scrape)."""
+
+    def test_typical_power_updated(self) -> None:
+        """Active power changes are reflected in typical_power."""
+        config = translate_scraped_panel(_make_scraped(), host="192.168.1.100", passphrase=None)
+
+        # Modify scraped data to simulate changed power
+        props = _base_properties()
+        props[f"{_PREFIX}/aaa111/active-power"] = "-250.0"
+        updated_scraped = _make_scraped(props=props)
+
+        changed = update_config_from_scrape(config, updated_scraped)
+        assert changed is True
+
+        templates = config["circuit_templates"]
+        assert isinstance(templates, dict)
+        t = templates["clone_1"]
+        assert isinstance(t, dict)
+        ep = t["energy_profile"]
+        assert isinstance(ep, dict)
+        assert ep["typical_power"] == 250.0
+
+    def test_energy_seeds_updated(self) -> None:
+        """Energy accumulators are updated from new scrape."""
+        config = translate_scraped_panel(_make_scraped(), host="192.168.1.100", passphrase=None)
+
+        props = _base_properties()
+        props[f"{_PREFIX}/aaa111/imported-energy"] = "99999.0"
+        updated_scraped = _make_scraped(props=props)
+
+        changed = update_config_from_scrape(config, updated_scraped)
+        assert changed is True
+
+        templates = config["circuit_templates"]
+        assert isinstance(templates, dict)
+        t = templates["clone_1"]
+        assert isinstance(t, dict)
+        ep = t["energy_profile"]
+        assert isinstance(ep, dict)
+        assert ep["initial_consumed_energy_wh"] == 99999.0
+
+    def test_last_synced_updated(self) -> None:
+        """panel_source.last_synced is updated on refresh."""
+        config = translate_scraped_panel(_make_scraped(), host="192.168.1.100", passphrase=None)
+        ps = config.get("panel_source")
+        assert isinstance(ps, dict)
+        old_synced = ps["last_synced"]
+
+        import time
+
+        time.sleep(0.01)  # ensure timestamp difference
+        update_config_from_scrape(config, _make_scraped())
+
+        assert ps["last_synced"] != old_synced
+
+    def test_no_change_returns_false(self) -> None:
+        """Returns False when scrape data matches existing config."""
+        config = translate_scraped_panel(_make_scraped())
+        # No panel_source → last_synced never updated → only data comparison
+        # Remove panel_source to test pure data path
+        changed = update_config_from_scrape(config, _make_scraped())
+        assert changed is False

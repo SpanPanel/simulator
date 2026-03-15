@@ -10,10 +10,10 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import yaml
+
 if TYPE_CHECKING:
     from pathlib import Path
-
-import yaml
 
 from span_panel_simulator.dashboard.defaults import make_defaults
 from span_panel_simulator.dashboard.presets import (
@@ -122,6 +122,19 @@ class ConfigStore:
         for key in ("latitude", "longitude", "soc_shed_threshold"):
             if key in data:
                 cfg[key] = float(data[key])
+
+    def get_panel_source(self) -> dict[str, Any] | None:
+        """Return the panel_source block, or None if absent."""
+        ps = self._state.get("panel_source")
+        return dict(ps) if isinstance(ps, dict) else None
+
+    def get_origin_serial(self) -> str | None:
+        """Return origin_serial from panel_source, if present."""
+        ps = self._state.get("panel_source")
+        if isinstance(ps, dict):
+            origin: object = ps.get("origin_serial")
+            return str(origin) if isinstance(origin, str) else None
+        return None
 
     # -- Simulation params --
 

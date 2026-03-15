@@ -15,6 +15,7 @@ Design principles:
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import yaml
@@ -62,8 +63,18 @@ _NIGHT_CHARGING_HOURS: dict[int, float] = {
 # ------------------------------------------------------------------
 
 
-def translate_scraped_panel(scraped: ScrapedPanel) -> dict[str, object]:
+def translate_scraped_panel(
+    scraped: ScrapedPanel,
+    *,
+    host: str | None = None,
+    passphrase: str | None = None,
+) -> dict[str, object]:
     """Translate a scraped panel into a simulator config dict.
+
+    Args:
+        scraped: The scraped panel data.
+        host: Source panel IP/hostname (stored in panel_source for refresh).
+        passphrase: Source panel passphrase (stored in panel_source for refresh).
 
     Returns a dict matching the ``SimulationConfig`` TypedDict shape,
     ready for YAML serialisation and ``validate_yaml_config()``.
@@ -145,6 +156,14 @@ def translate_scraped_panel(scraped: ScrapedPanel) -> dict[str, object]:
         },
     }
 
+    if host is not None:
+        config["panel_source"] = {
+            "origin_serial": scraped.serial_number,
+            "host": host,
+            "passphrase": passphrase,
+            "last_synced": datetime.now(UTC).isoformat(),
+        }
+
     _LOGGER.info(
         "Translated panel %s: %d circuits, %d templates, bess=%s, pv=%s, evse=%s",
         clone_serial,
@@ -156,6 +175,78 @@ def translate_scraped_panel(scraped: ScrapedPanel) -> dict[str, object]:
     )
 
     return config
+
+
+def update_config_from_scrape(
+    config: dict[str, object],
+    scraped: ScrapedPanel,
+) -> bool:
+    """Update an existing config dict with fresh values from a scrape.
+
+    Patches ``typical_power``, energy seeds, and ``panel_source.last_synced``
+    in-place.  Used by the startup refresh path.
+
+    Returns True if any values were changed.
+    """
+    prefix = f"ebus/5/{scraped.serial_number}"
+    templates = config.get("circuit_templates")
+    if not isinstance(templates, dict):
+        return False
+
+    nodes = scraped.description.get("nodes", {})
+    circuit_nodes = _nodes_of_type(nodes, TYPE_CIRCUIT)
+
+    changed = False
+
+    for node_uuid in circuit_nodes:
+        space = _int_prop(scraped.properties, prefix, node_uuid, "space")
+        if space is None:
+            continue
+
+        template_name = f"clone_{space}"
+        template = templates.get(template_name)
+        if not isinstance(template, dict):
+            continue
+
+        ep = template.get("energy_profile")
+        if not isinstance(ep, dict):
+            continue
+
+        # Update typical_power from current active-power
+        active_power = _float_prop(scraped.properties, prefix, node_uuid, "active-power")
+        if active_power is not None:
+            mode = ep.get("mode", "consumer")
+            new_typical = -abs(active_power) if mode == "producer" else abs(active_power)
+            if ep.get("typical_power") != new_typical:
+                ep["typical_power"] = new_typical
+                changed = True
+
+        # Update energy seeds
+        imported = _float_prop(scraped.properties, prefix, node_uuid, "imported-energy")
+        if (
+            imported is not None
+            and imported > 0
+            and ep.get("initial_consumed_energy_wh") != imported
+        ):
+            ep["initial_consumed_energy_wh"] = imported
+            changed = True
+
+        exported = _float_prop(scraped.properties, prefix, node_uuid, "exported-energy")
+        if (
+            exported is not None
+            and exported > 0
+            and ep.get("initial_produced_energy_wh") != exported
+        ):
+            ep["initial_produced_energy_wh"] = exported
+            changed = True
+
+    # Update last_synced timestamp
+    panel_source = config.get("panel_source")
+    if isinstance(panel_source, dict):
+        panel_source["last_synced"] = datetime.now(UTC).isoformat()
+        changed = True
+
+    return changed
 
 
 def write_clone_config(
@@ -365,6 +456,10 @@ def _translate_circuit(
         power_range = [0.0, max_power]
         typical_power = typical
 
+    # Seed energy accumulators from scraped values
+    imported_energy = _float_prop(properties, prefix, node_uuid, "imported-energy")
+    exported_energy = _float_prop(properties, prefix, node_uuid, "exported-energy")
+
     # Build template
     energy_profile: dict[str, object] = {
         "mode": mode,
@@ -372,6 +467,11 @@ def _translate_circuit(
         "typical_power": typical_power,
         "power_variation": 0.1,
     }
+
+    if imported_energy is not None and imported_energy > 0:
+        energy_profile["initial_consumed_energy_wh"] = imported_energy
+    if exported_energy is not None and exported_energy > 0:
+        energy_profile["initial_produced_energy_wh"] = exported_energy
 
     template: dict[str, object] = {
         "energy_profile": energy_profile,
