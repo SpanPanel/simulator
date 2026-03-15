@@ -307,6 +307,51 @@
   });
 
   var lastSimDay = null;
+  var panelTimeZone = null;
+
+  function formatPanelTime(epochSec, tz) {
+    var d = new Date(epochSec * 1000);
+    if (tz) {
+      try {
+        var fmt = new Intl.DateTimeFormat('en-US', {
+          timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        });
+        return fmt.format(d);
+      } catch(e) { /* fall through */ }
+    }
+    var hh = ('0' + d.getHours()).slice(-2);
+    var mm = ('0' + d.getMinutes()).slice(-2);
+    var ss = ('0' + d.getSeconds()).slice(-2);
+    return hh + ':' + mm + ':' + ss;
+  }
+
+  function formatPanelDate(epochSec, tz) {
+    var d = new Date(epochSec * 1000);
+    if (tz) {
+      try {
+        return new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(d);
+      } catch(e) { /* fall through */ }
+    }
+    return d.toLocaleDateString();
+  }
+
+  function getPanelHourMinute(epochSec, tz) {
+    var d = new Date(epochSec * 1000);
+    if (tz) {
+      try {
+        var parts = new Intl.DateTimeFormat('en-US', {
+          timeZone: tz, hour: 'numeric', minute: 'numeric', hour12: false
+        }).formatToParts(d);
+        var h = 0, m = 0;
+        parts.forEach(function(p) {
+          if (p.type === 'hour') h = parseInt(p.value, 10);
+          if (p.type === 'minute') m = parseInt(p.value, 10);
+        });
+        return { hours: h, minutes: m };
+      } catch(e) { /* fall through */ }
+    }
+    return { hours: d.getHours(), minutes: d.getMinutes() };
+  }
 
   function pollPower() {
     fetch('power-summary')
@@ -314,12 +359,10 @@
       .then(function(data) {
         if (!data || data.error) return;
         var t = data.simulation_time;
-        var d = new Date(t * 1000);
-        var hh = ('0' + d.getHours()).slice(-2);
-        var mm = ('0' + d.getMinutes()).slice(-2);
-        var ss = ('0' + d.getSeconds()).slice(-2);
-        var timeLabel = hh + ':' + mm + ':' + ss;
-        var dayStr = d.toLocaleDateString();
+        if (data.time_zone) panelTimeZone = data.time_zone;
+
+        var timeLabel = formatPanelTime(t, panelTimeZone);
+        var dayStr = formatPanelDate(t, panelTimeZone);
 
         chartTimeEl.textContent = dayStr + ' ' + timeLabel;
 
@@ -344,7 +387,8 @@
         }
 
         if (!timeUserDragging) {
-          var currentMins = d.getHours() * 60 + d.getMinutes();
+          var hm = getPanelHourMinute(t, panelTimeZone);
+          var currentMins = hm.hours * 60 + hm.minutes;
           timeSlider.noUiSlider.set([currentMins]);
         }
 

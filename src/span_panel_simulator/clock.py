@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from zoneinfo import ZoneInfo
+
     from span_panel_simulator.config_types import SimulationParams
 
 
@@ -27,16 +29,23 @@ class SimulationClock:
         self._use_simulation_time = False
         self._time_acceleration = 1.0
         self._pending_override: str | None = None
+        self._panel_tz: ZoneInfo | None = None
 
     # ------------------------------------------------------------------
     # Initialization
     # ------------------------------------------------------------------
 
-    def initialize(self, sim_params: SimulationParams) -> None:
+    def initialize(
+        self,
+        sim_params: SimulationParams,
+        *,
+        panel_timezone: ZoneInfo | None = None,
+    ) -> None:
         """Configure the clock from simulation parameters.
 
         Must be called once during engine startup, after config is loaded.
         """
+        self._panel_tz = panel_timezone
         self._use_simulation_time = sim_params.get("use_simulation_time", False)
         self._time_acceleration = sim_params.get("time_acceleration", 1.0)
 
@@ -111,11 +120,18 @@ class SimulationClock:
         self._time_offset = 0.0
 
     def _apply_start_time(self, start_time_str: str) -> None:
-        """Parse an ISO datetime string and set the time offset."""
+        """Parse an ISO datetime string and set the time offset.
+
+        Naive datetimes (no timezone suffix) are interpreted as panel-local
+        time when ``_panel_tz`` is set, so the dashboard slider sends
+        panel-local values regardless of the host system's timezone.
+        """
         if start_time_str.endswith("Z"):
             start_time_str = start_time_str[:-1]
 
         sim_start_dt = datetime.fromisoformat(start_time_str)
+        if sim_start_dt.tzinfo is None and self._panel_tz is not None:
+            sim_start_dt = sim_start_dt.replace(tzinfo=self._panel_tz)
         sim_start_timestamp = sim_start_dt.timestamp()
 
         self._time_offset = sim_start_timestamp - self._real_start_time

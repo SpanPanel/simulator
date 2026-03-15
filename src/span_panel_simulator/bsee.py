@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
     from span_panel_simulator.engine import RealisticBehaviorEngine
@@ -37,12 +38,14 @@ class BatteryStorageEquipment:
         *,
         nameplate_capacity_kwh: float = 13.5,
         behavior_engine: RealisticBehaviorEngine | None = None,
+        panel_timezone: ZoneInfo | None = None,
     ) -> None:
         self._battery_behavior = battery_behavior
         self._panel_serial = panel_serial
         self._feed_circuit_id = feed_circuit_id
         self._nameplate_capacity_kwh = nameplate_capacity_kwh
         self._behavior_engine = behavior_engine
+        self._tz: ZoneInfo = panel_timezone or ZoneInfo("America/Los_Angeles")
 
         self._charge_efficiency: float = float(battery_behavior.get("charge_efficiency", 0.95))
         self._discharge_efficiency: float = float(
@@ -205,7 +208,7 @@ class BatteryStorageEquipment:
         if charge_mode != "custom" and self._behavior_engine is not None:
             return self._behavior_engine.last_battery_direction
 
-        current_hour = datetime.fromtimestamp(current_time).hour
+        current_hour = datetime.fromtimestamp(current_time, tz=self._tz).hour
 
         charge_hours: list[int] = self._battery_behavior.get("charge_hours", [])
         discharge_hours: list[int] = self._battery_behavior.get("discharge_hours", [])

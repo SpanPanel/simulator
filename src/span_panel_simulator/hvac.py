@@ -9,6 +9,10 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from zoneinfo import ZoneInfo
 
 VALID_HVAC_TYPES: tuple[str, ...] = ("central_ac", "heat_pump", "heat_pump_aux")
 
@@ -53,13 +57,20 @@ def _estimated_temperature(month_frac: float, latitude: float) -> float:
     return annual_mean + amplitude * math.cos(phase)
 
 
-def hvac_seasonal_factor(timestamp: float, latitude: float, hvac_type: str) -> float:
+def hvac_seasonal_factor(
+    timestamp: float,
+    latitude: float,
+    hvac_type: str,
+    *,
+    tz: ZoneInfo | None = None,
+) -> float:
     """Compute seasonal power multiplier for an HVAC circuit.
 
     Args:
         timestamp: Unix epoch seconds (simulation time).
         latitude: Panel latitude in degrees north.
         hvac_type: One of ``VALID_HVAC_TYPES``.
+        tz: Panel-local timezone for calendar-date resolution.
 
     Returns:
         Multiplier in [``_STANDBY_MIN``, ``_HEATING_RATIOS[hvac_type]``]
@@ -68,7 +79,11 @@ def hvac_seasonal_factor(timestamp: float, latitude: float, hvac_type: str) -> f
     if hvac_type not in _HEATING_RATIOS:
         return 1.0
 
-    dt = datetime.fromtimestamp(timestamp)
+    dt = (
+        datetime.fromtimestamp(timestamp, tz=tz)
+        if tz is not None
+        else datetime.fromtimestamp(timestamp)
+    )
     # Fractional month: 1-based, day/30 gives rough intra-month position
     month_frac = dt.month + (dt.day - 1) / 30.0
 

@@ -9,7 +9,6 @@ or calls ``to_snapshot()`` to produce the transport-agnostic dataclass.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 from span_panel_simulator.models import SpanCircuitSnapshot
@@ -297,7 +296,7 @@ class SimulatedCircuit:
         if charge_mode != "custom":
             return self._behavior_engine.last_battery_direction
 
-        current_hour = datetime.fromtimestamp(current_time).hour
+        current_hour = self._behavior_engine.local_hour(current_time)
         charge_hours: list[int] = battery_config.get("charge_hours", [])
         discharge_hours: list[int] = battery_config.get("discharge_hours", [])
         idle_hours: list[int] = battery_config.get("idle_hours", [])

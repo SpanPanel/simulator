@@ -211,6 +211,11 @@ class SimulatorApp:
         # All circuits off when offline without battery
         all_off = not engine.grid_online and not engine.has_battery
 
+        # Resolve panel timezone string
+        time_zone = "America/Los_Angeles"
+        if engine._behavior_engine is not None:
+            time_zone = str(engine._behavior_engine.panel_timezone)
+
         return {
             "grid_w": round(grid, 1),
             "pv_w": round(pv, 1),
@@ -225,6 +230,7 @@ class SimulatorApp:
             "shed_ids": shed_ids,
             "user_open_ids": user_open_ids,
             "all_off": all_off,
+            "time_zone": time_zone,
         }
 
     def _set_simulation_time(self, iso_str: str) -> None:

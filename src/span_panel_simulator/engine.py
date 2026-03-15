@@ -17,6 +17,7 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 import yaml
 
@@ -70,12 +71,54 @@ PANEL_OFF_GRID = "PANEL_OFF_GRID"
 class RealisticBehaviorEngine:
     """Engine for realistic circuit behaviors."""
 
+    _DEFAULT_TZ = "America/Los_Angeles"
+
     def __init__(self, simulation_start_time: float, config: SimulationConfig) -> None:
         self._start_time = simulation_start_time
         self._config = config
         self._circuit_cycle_states: dict[str, dict[str, Any]] = {}
         self._last_battery_direction: str = "idle"
         self._solar_excess_w: float = 0.0
+        self._tz = self._resolve_timezone(config)
+
+    # ------------------------------------------------------------------
+    # Timezone helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_timezone(config: SimulationConfig) -> ZoneInfo:
+        """Resolve panel timezone: explicit config > lat/lon lookup > fallback."""
+        panel = config["panel_config"]
+        explicit = panel.get("time_zone")
+        if explicit:
+            try:
+                return ZoneInfo(str(explicit))
+            except (KeyError, ValueError):
+                pass
+
+        lat = panel.get("latitude")
+        lon = panel.get("longitude")
+        if lat is not None and lon is not None:
+            from timezonefinder import TimezoneFinder
+
+            tz_name = TimezoneFinder().timezone_at(lat=float(lat), lng=float(lon))
+            if tz_name is not None:
+                return ZoneInfo(tz_name)
+
+        return ZoneInfo(RealisticBehaviorEngine._DEFAULT_TZ)
+
+    @property
+    def panel_timezone(self) -> ZoneInfo:
+        """The resolved IANA timezone for the simulated panel."""
+        return self._tz
+
+    def local_hour(self, timestamp: float) -> int:
+        """Return the hour-of-day at the panel's location."""
+        return datetime.fromtimestamp(timestamp, tz=self._tz).hour
+
+    def local_datetime(self, timestamp: float) -> datetime:
+        """Return a timezone-aware datetime at the panel's location."""
+        return datetime.fromtimestamp(timestamp, tz=self._tz)
 
     @property
     def last_battery_direction(self) -> str:
@@ -146,7 +189,7 @@ class RealisticBehaviorEngine:
         self, base_power: float, template: CircuitTemplateExtended, current_time: float
     ) -> float:
         """Apply time-of-day power modulation for consumer circuits."""
-        current_hour = datetime.fromtimestamp(current_time).hour
+        current_hour = self.local_hour(current_time)
 
         profile = template.get("time_of_day_profile", {})
 
@@ -195,7 +238,7 @@ class RealisticBehaviorEngine:
         if not hvac_type:
             return base_power
         latitude = self._config["panel_config"].get("latitude", 37.7)
-        return base_power * hvac_seasonal_factor(current_time, latitude, hvac_type)
+        return base_power * hvac_seasonal_factor(current_time, latitude, hvac_type, tz=self._tz)
 
     def _apply_cycling_behavior(
         self,
@@ -228,7 +271,7 @@ class RealisticBehaviorEngine:
         smart = template.get("smart_behavior", {})
         max_reduction = smart.get("max_power_reduction", 0.5)
 
-        current_hour = int((current_time % 86400) / 3600)
+        current_hour = self.local_hour(current_time)
         if 17 <= current_hour <= 21:
             reduction_factor = 1.0 - max_reduction
             return base_power * reduction_factor
@@ -239,8 +282,7 @@ class RealisticBehaviorEngine:
         self, base_power: float, template: CircuitTemplateExtended, current_time: float
     ) -> float:
         """Apply battery behavior with charge mode support."""
-        dt = datetime.fromtimestamp(current_time)
-        current_hour = dt.hour
+        current_hour = self.local_hour(current_time)
 
         battery_config = template.get("battery_behavior", {})
         if not isinstance(battery_config, dict):
@@ -471,7 +513,7 @@ class RealisticBehaviorEngine:
             for month_idx in range(12):
                 doy = sum(days_in_month[:month_idx]) + 15
                 ts = ref_jan1 + (doy - 1) * 86400 + 12 * 3600
-                hvac_total += hvac_seasonal_factor(ts, lat, hvac_type)
+                hvac_total += hvac_seasonal_factor(ts, lat, hvac_type, tz=self._tz)
             hvac_avg = hvac_total / 12.0
 
         # Smart behavior: 19 hours full + 5 hours (17-21) reduced
@@ -614,9 +656,12 @@ class DynamicSimulationEngine:
                 raise ValueError("YAML configuration is required")
 
             self._initialize_tab_synchronizations()
-            self._clock.initialize(self._config.get("simulation_params", {}))
             self._behavior_engine = RealisticBehaviorEngine(
                 self._clock.real_start_time, self._config
+            )
+            self._clock.initialize(
+                self._config.get("simulation_params", {}),
+                panel_timezone=self._behavior_engine.panel_timezone,
             )
             self._build_circuits()
             self._bsee = self._create_bsee()
@@ -1145,11 +1190,17 @@ class DynamicSimulationEngine:
             if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
                 battery_dict: dict[str, Any] = dict(battery_cfg)
                 nameplate: float = float(battery_cfg.get("nameplate_capacity_kwh", 13.5))
+                panel_tz = (
+                    self._behavior_engine.panel_timezone
+                    if self._behavior_engine is not None
+                    else ZoneInfo(RealisticBehaviorEngine._DEFAULT_TZ)
+                )
                 return BatteryStorageEquipment(
                     battery_behavior=battery_dict,
                     panel_serial=self._config["panel_config"]["serial_number"],
                     feed_circuit_id=circuit_def["id"],
                     nameplate_capacity_kwh=nameplate,
                     behavior_engine=self._behavior_engine,
+                    panel_timezone=panel_tz,
                 )
         return None
