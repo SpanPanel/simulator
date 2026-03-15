@@ -352,6 +352,198 @@ class RealisticBehaviorEngine:
         self._last_battery_direction = "charging"
         return min(self._solar_excess_w, abs(max_charge))
 
+    # ------------------------------------------------------------------
+    # Annual energy estimation (seeds initial circuit counters)
+    # ------------------------------------------------------------------
+
+    def estimate_annual_energy_wh(self, template: CircuitTemplateExtended) -> tuple[float, float]:
+        """Estimate one year of accumulated energy for seeding circuit counters.
+
+        Dispatches on ``energy_profile.mode`` to produce a realistic starting
+        baseline so circuits don't begin at 0 Wh.
+
+        Returns:
+            ``(produced_wh, consumed_wh)`` estimated over ~1 year.
+        """
+        mode = template["energy_profile"]["mode"]
+
+        if mode == "producer":
+            solar_factor = self._estimate_solar_annual_factor()
+            produced = abs(template["energy_profile"]["typical_power"]) * solar_factor * 8760
+            return (produced, 0.0)
+
+        if mode == "bidirectional":
+            return self._estimate_battery_annual_wh(template)
+
+        return (0.0, self._estimate_consumer_annual_wh(template))
+
+    def _estimate_solar_annual_factor(self) -> float:
+        """Average solar x weather capacity factor across 12 representative days.
+
+        Samples ``solar_production_factor * daily_weather_factor`` on the 15th
+        of each month, every hour (288 total samples), using the configured
+        latitude, longitude, and panel serial seed.
+        """
+        lat = self._config["panel_config"].get("latitude", 37.7)
+        lon = self._config["panel_config"].get("longitude", -122.4)
+        seed = hash(self._config["panel_config"]["serial_number"])
+
+        monthly_factors: dict[int, float] | None = None
+        cached = get_cached_weather(lat, lon)
+        if cached is not None:
+            monthly_factors = cached.monthly_factors
+
+        days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        ref_jan1 = 1704067200  # 2024-01-01 00:00:00 UTC
+
+        total = 0.0
+        for month_idx in range(12):
+            doy = sum(days_in_month[:month_idx]) + 15
+            for hour in range(24):
+                ts = ref_jan1 + (doy - 1) * 86400 + hour * 3600
+                sf = solar_production_factor(ts, lat, lon)
+                wf = daily_weather_factor(ts, seed=seed, monthly_factors=monthly_factors)
+                total += sf * wf
+
+        return total / 288.0  # 12 days x 24 hours
+
+    def _estimate_consumer_annual_wh(self, template: CircuitTemplateExtended) -> float:
+        """Estimate annual consumed energy for a consumer circuit.
+
+        Uses ``typical_power``, duty cycle, time-of-day profile, HVAC seasonal
+        adjustment, and smart behaviour to produce a realistic annual total.
+
+        Circuits without any time modulation receive a conservative daily-usage
+        estimate based on load magnitude to avoid assuming 24/7 operation.
+        """
+        typical_power: float = template["energy_profile"]["typical_power"]
+
+        # Duty cycle from cycling pattern
+        has_cycling = False
+        cycling = template.get("cycling_pattern")
+        if cycling:
+            on_dur = cycling.get("on_duration", 900)
+            off_dur = cycling.get("off_duration", 1800)
+            duty_cycle = on_dur / (on_dur + off_dur)
+            has_cycling = True
+        else:
+            duty_cycle = 1.0
+
+        # Time-of-day average
+        tod_avg = 1.0
+        has_tod = False
+        profile = template.get("time_of_day_profile", {})
+        if profile.get("enabled", False):
+            hour_factors = profile.get("hour_factors", {})
+            hourly_mult = profile.get("hourly_multipliers", {})
+            peak_hours = profile.get("peak_hours", [])
+
+            if hour_factors:
+                has_tod = True
+                tod_avg = sum(float(hour_factors.get(h, 0.0)) for h in range(24)) / 24.0
+            elif hourly_mult:
+                has_tod = True
+                tod_avg = sum(float(hourly_mult.get(h, 0.0)) for h in range(24)) / 24.0
+            elif peak_hours:
+                has_tod = True
+                # For annual estimation, non-peak hours should be low since the
+                # circuit is mostly inactive outside its peak usage window.
+                total_factor = 0.0
+                for h in range(24):
+                    if h in peak_hours:
+                        total_factor += 1.0
+                    elif 0 <= h <= 5:
+                        # Deep night — minimal usage
+                        total_factor += 0.05
+                    else:
+                        # Daytime / evening off-peak — occasional use
+                        total_factor += 0.15
+                tod_avg = total_factor / 24.0
+
+        # HVAC seasonal average: sample mid-month across a full year
+        hvac_avg = 1.0
+        hvac_type = template.get("hvac_type")
+        if hvac_type:
+            lat = self._config["panel_config"].get("latitude", 37.7)
+            days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            ref_jan1 = 1704067200
+            hvac_total = 0.0
+            for month_idx in range(12):
+                doy = sum(days_in_month[:month_idx]) + 15
+                ts = ref_jan1 + (doy - 1) * 86400 + 12 * 3600
+                hvac_total += hvac_seasonal_factor(ts, lat, hvac_type)
+            hvac_avg = hvac_total / 12.0
+
+        # Smart behavior: 19 hours full + 5 hours (17-21) reduced
+        smart_avg = 1.0
+        smart = template.get("smart_behavior", {})
+        if smart.get("responds_to_grid", False):
+            max_reduction = smart.get("max_power_reduction", 0.5)
+            smart_avg = (19.0 + 5.0 * (1.0 - max_reduction)) / 24.0
+
+        # For circuits with no cycling, no TOD, and no HVAC modulation, apply
+        # a default daily-operating-hours estimate.  Circuits whose power_range
+        # has a non-zero minimum (always-on loads) are excluded.
+        usage_factor = 1.0
+        if not has_cycling and not has_tod and hvac_type is None:
+            power_range = template["energy_profile"].get("power_range", [0, typical_power])
+            min_power = float(power_range[0]) if power_range else 0.0
+            if min_power <= 0:
+                if typical_power <= 200:
+                    daily_hours = 6.0
+                elif typical_power <= 500:
+                    daily_hours = 3.0
+                elif typical_power <= 3000:
+                    daily_hours = 1.0
+                else:
+                    daily_hours = 2.5
+                usage_factor = daily_hours / 24.0
+
+        avg_power = typical_power * duty_cycle * tod_avg * hvac_avg * smart_avg * usage_factor
+        return avg_power * 8760
+
+    def _estimate_battery_annual_wh(
+        self, template: CircuitTemplateExtended
+    ) -> tuple[float, float]:
+        """Estimate annual battery energy ``(produced_wh, consumed_wh)``."""
+        battery_config = template.get("battery_behavior", {})
+        if not isinstance(battery_config, dict) or not battery_config.get("enabled", False):
+            return (0.0, 0.0)
+
+        charge_mode: str = battery_config.get("charge_mode", "custom")
+        max_charge = abs(float(battery_config.get("max_charge_power", 3000.0)))
+        max_discharge = abs(float(battery_config.get("max_discharge_power", 2500.0)))
+        discharge_hours: list[int] = battery_config.get("discharge_hours", [])
+
+        # Discharge -> production (common to all charge modes)
+        produced_wh = 0.0
+        if discharge_hours:
+            avg_discharge = sum(
+                max_discharge * self._get_demand_factor_from_config(h, battery_config)
+                for h in discharge_hours
+            ) / len(discharge_hours)
+            produced_wh = avg_discharge * len(discharge_hours) * 365
+
+        consumed_wh = 0.0
+        if charge_mode == "custom":
+            charge_hours: list[int] = battery_config.get("charge_hours", [])
+            if charge_hours:
+                avg_charge = sum(
+                    max_charge * self._get_solar_intensity_from_config(h, battery_config)
+                    for h in charge_hours
+                ) / len(charge_hours)
+                consumed_wh = avg_charge * len(charge_hours) * 365
+
+        elif charge_mode == "solar-gen":
+            solar_factor = self._estimate_solar_annual_factor()
+            consumed_wh = max_charge * solar_factor * 8760
+
+        elif charge_mode == "solar-excess":
+            solar_factor = self._estimate_solar_annual_factor()
+            consumed_wh = 0.3 * max_charge * solar_factor * 8760
+
+        return (produced_wh, consumed_wh)
+
 
 # ---------------------------------------------------------------------------
 # DynamicSimulationEngine (orchestrator)

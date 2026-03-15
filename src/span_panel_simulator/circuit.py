@@ -38,9 +38,22 @@ class SimulatedCircuit:
         self._template = deepcopy(template)
         self._behavior_engine = behavior_engine
 
-        # Apply circuit-level overrides to the template
+        # Apply circuit-level overrides to the template, routing
+        # energy-profile keys into the nested ``energy_profile`` dict.
         if "overrides" in circuit_def:
-            self._template.update(circuit_def["overrides"])  # type: ignore[typeddict-item]
+            _ENERGY_PROFILE_KEYS = {
+                "mode",
+                "power_range",
+                "typical_power",
+                "power_variation",
+                "efficiency",
+                "nameplate_capacity_w",
+            }
+            for key, value in circuit_def["overrides"].items():
+                if key in _ENERGY_PROFILE_KEYS:
+                    self._template["energy_profile"][key] = value  # type: ignore[literal-required]
+                else:
+                    self._template[key] = value  # type: ignore[literal-required]
 
         # Circuit-level breaker_rating overrides template
         if "breaker_rating" in circuit_def:
@@ -61,6 +74,10 @@ class SimulatedCircuit:
 
         # Dynamic overrides (set by dashboard / API)
         self._overrides: dict[str, object] = {}
+
+        # Seed energy counters with 1-year estimate
+        produced, consumed = behavior_engine.estimate_annual_energy_wh(self._template)
+        self._produced_energy_wh, self._consumed_energy_wh = produced, consumed
 
     # ------------------------------------------------------------------
     # Public API
