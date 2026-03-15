@@ -136,7 +136,7 @@ class TestPropertyMapping:
         publish_mock: AsyncMock,
         sample_snapshot: SpanPanelSnapshot,
     ) -> None:
-        """Circuit power must be negated and converted to kW."""
+        """Circuit power must be negated (W on wire, consumer negates on read)."""
         await publisher.publish_init(sample_snapshot)
 
         published = {c.args[0]: c.args[1] for c in publish_mock.call_args_list}
@@ -145,9 +145,9 @@ class TestPropertyMapping:
         uuid = _stable_circuit_uuid("living_room_lights")
         topic = f"ebus/5/SPAN-TEST-001/{uuid}/active-power"
 
-        # 150W consumption → -0.1500 kW on wire (consumer negates on read)
+        # 150W consumption → -150.0 W on wire (consumer negates on read)
         assert topic in published
-        assert float(published[topic]) == pytest.approx(-0.15, abs=0.001)
+        assert float(published[topic]) == pytest.approx(-150.0, abs=0.1)
 
     @pytest.mark.asyncio
     async def test_circuit_energy_swap(

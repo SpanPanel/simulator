@@ -676,6 +676,22 @@ class DynamicSimulationEngine:
                 power_flow_battery = total_consumption - total_production
             else:
                 power_flow_battery = battery_power_w
+
+            # Rebuild battery circuit snapshot — the original was captured
+            # before the BSEE update and off-grid deficit calculation, so it
+            # has stale power.  Sync the circuit object then re-snapshot.
+            if battery_circuit is not None:
+                battery_circuit._instant_power_w = power_flow_battery
+                cid = battery_circuit.circuit_id
+                snap = battery_circuit.to_snapshot()
+                if cid in shed_ids:
+                    snap = replace(
+                        snap,
+                        relay_state="OPEN",
+                        relay_requester="BACKUP",
+                        instant_power_w=0.0,
+                    )
+                circuit_snapshots[cid] = snap
         else:
             battery_snapshot = SpanBatterySnapshot()
             if self._forced_grid_offline:

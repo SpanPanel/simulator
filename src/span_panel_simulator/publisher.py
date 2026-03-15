@@ -259,10 +259,9 @@ class HomiePublisher:
             if circ.current_a is not None:
                 p[self._prop_topic(node, "current")] = _format_float(circ.current_a)
 
-            # Circuit active-power is published in kW (Homie schema unit).
-            # Snapshot has watts.  Consumer negates on read, so we negate on write.
-            power_kw = -circ.instant_power_w / 1000.0
-            p[self._prop_topic(node, "active-power")] = _format_float(power_kw, 4)
+            # Circuit active-power schema unit is W (not kW — kW is lugs only).
+            # Consumer negates on read, so we negate on write.
+            p[self._prop_topic(node, "active-power")] = _format_float(-circ.instant_power_w)
 
             # Energy: consumer swaps imported/exported perspective.
             # "exported-energy" on wire = consumed_energy_wh in snapshot
