@@ -11,6 +11,7 @@ from pathlib import Path
 
 from span_panel_simulator.app import SimulatorApp
 from span_panel_simulator.const import (
+    CLONE_WSS_PORT,
     DASHBOARD_PORT,
     DEFAULT_BROKER_PASSWORD,
     DEFAULT_BROKER_USERNAME,
@@ -98,6 +99,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Port to advertise via mDNS (when host port differs from container port)",
     )
     parser.add_argument(
+        "--clone-wss-port",
+        type=int,
+        default=int(os.environ.get("CLONE_WSS_PORT", str(CLONE_WSS_PORT))),
+        help="Port for the clone WebSocket server (default: 19443)",
+    )
+    parser.add_argument(
         "--log-level",
         default=os.environ.get("LOG_LEVEL", "INFO"),
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -156,6 +163,7 @@ def main(argv: list[str] | None = None) -> None:
         dashboard_port=args.dashboard_port,
         advertise_address=args.advertise_address,
         advertise_http_port=args.advertise_http_port,
+        clone_wss_port=args.clone_wss_port,
     )
 
     try:
