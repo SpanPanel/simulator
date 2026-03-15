@@ -274,6 +274,55 @@ def write_clone_config(
     return output_path
 
 
+def update_config_location(config_path: Path, latitude: float, longitude: float) -> str:
+    """Update latitude, longitude, and timezone in a YAML config file.
+
+    Reads the existing config, sets the new coordinates and derived
+    IANA timezone, then writes the file back.
+
+    Args:
+        config_path: Path to the YAML config file.
+        latitude: Degrees north.
+        longitude: Degrees east.
+
+    Returns:
+        The resolved IANA timezone string.
+
+    Raises:
+        ValueError: If the file does not contain a valid config dict.
+    """
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        msg = f"Invalid config format in {config_path}"
+        raise ValueError(msg)
+
+    panel_cfg = raw.get("panel_config", {})
+    panel_cfg["latitude"] = latitude
+    panel_cfg["longitude"] = longitude
+
+    from timezonefinder import TimezoneFinder
+
+    tz_result = TimezoneFinder().timezone_at(lat=latitude, lng=longitude)
+    tz_name: str = str(tz_result) if tz_result is not None else "America/Los_Angeles"
+    panel_cfg["time_zone"] = tz_name
+
+    raw["panel_config"] = panel_cfg
+
+    config_path.write_text(
+        yaml.dump(raw, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    _LOGGER.info(
+        "Updated location in %s: %.4f, %.4f → %s",
+        config_path.name,
+        latitude,
+        longitude,
+        tz_name,
+    )
+    return tz_name
+
+
 # ------------------------------------------------------------------
 # Internal helpers
 # ------------------------------------------------------------------

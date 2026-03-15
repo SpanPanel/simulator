@@ -20,6 +20,7 @@ from aiohttp import web
 
 from span_panel_simulator.bootstrap import BootstrapHttpServer
 from span_panel_simulator.certs import generate_certificates
+from span_panel_simulator.clone import update_config_location
 from span_panel_simulator.clone_handler import CloneHandler
 from span_panel_simulator.const import (
     CLONE_WSS_PORT,
@@ -36,6 +37,7 @@ from span_panel_simulator.discovery import PanelAdvertiser
 from span_panel_simulator.engine import _PANEL_SIZE_TO_MODEL
 from span_panel_simulator.panel import PanelInstance
 from span_panel_simulator.schema import HomieSchemaRegistry, load_schema
+from span_panel_simulator.sio_handler import SioContext, create_sio_server
 
 if TYPE_CHECKING:
     from span_panel_simulator.certs import CertificateBundle
@@ -272,6 +274,34 @@ class SimulatorApp:
             )
 
     # ------------------------------------------------------------------
+    # Socket.IO callbacks
+    # ------------------------------------------------------------------
+
+    async def _update_panel_location(
+        self, serial: str, latitude: float, longitude: float
+    ) -> dict[str, str]:
+        """Update a panel's config file with new coordinates and trigger reload.
+
+        Called by the Socket.IO ``set_location`` event handler.
+        """
+        config_path: Path | None = None
+        for path, panel in self._panels.items():
+            if panel.is_running and panel.serial_number == serial:
+                config_path = path
+                break
+
+        if config_path is None:
+            return {"status": "error", "message": f"Panel {serial} not found"}
+
+        try:
+            tz_name = update_config_location(config_path, latitude, longitude)
+        except (ValueError, OSError) as exc:
+            return {"status": "error", "message": str(exc)}
+
+        self.request_reload()
+        return {"status": "ok", "time_zone": tz_name}
+
+    # ------------------------------------------------------------------
     # MQTT publish callback (shared across all panels)
     # ------------------------------------------------------------------
 
@@ -465,7 +495,10 @@ class SimulatorApp:
         schema_path = self._homie_schema_path or _find_homie_schema()
         self._schema = load_schema(schema_path)
 
-        # 3. Start bootstrap HTTP server (multi-panel aware)
+        # 3. Start bootstrap HTTP server (multi-panel aware) with Socket.IO
+        sio_ctx = SioContext(update_panel_location=self._update_panel_location)
+        sio = create_sio_server(sio_ctx)
+
         http_server = BootstrapHttpServer(
             certs=certs,
             schema=self._schema,
@@ -474,6 +507,7 @@ class SimulatorApp:
             broker_host=self._broker_host,
             port=self._http_port,
             reload_callback=self.request_reload,
+            sio_server=sio,
         )
         self._http_server = http_server
         await http_server.start()
