@@ -33,10 +33,20 @@ class PanelConfig(TypedDict):
 
 
 class CyclingPattern(TypedDict, total=False):
-    """Cycling behavior configuration."""
+    """Cycling behavior configuration.
+
+    Supports two modes:
+      - Explicit: ``on_duration`` / ``off_duration`` (seconds)
+      - Statistical: ``duty_cycle`` (0.0-1.0, mean/max ratio from HA stats)
+
+    When ``duty_cycle`` is set it takes precedence; the engine derives
+    on/off durations from it and an optional ``period`` (default 2700 s).
+    """
 
     on_duration: int  # Seconds
     off_duration: int  # Seconds
+    duty_cycle: float  # 0.0-1.0 — fraction of cycle spent on (from HA mean/max)
+    period: int  # Total cycle length in seconds (default 2700 = 45 min)
 
 
 class TimeOfDayProfile(TypedDict, total=False):
@@ -115,6 +125,7 @@ class CircuitTemplateExtended(CircuitTemplate, total=False):
     battery_behavior: BatteryBehavior
     device_type: str  # Explicit override: "circuit", "evse", "pv"
     hvac_type: str  # "central_ac", "heat_pump", "heat_pump_aux"
+    monthly_factors: dict[int, float]  # month (1-12) -> multiplier (1.0 = peak month)
     breaker_rating: int  # Breaker rating in Amps (derived from power_range if not set)
 
 

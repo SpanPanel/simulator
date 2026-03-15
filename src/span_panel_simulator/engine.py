@@ -149,8 +149,8 @@ class RealisticBehaviorEngine:
         elif template.get("time_of_day_profile", {}).get("enabled", False):
             base_power = self._apply_time_of_day_modulation(base_power, template, current_time)
 
-        # Apply HVAC seasonal modulation
-        base_power = self._apply_hvac_seasonal_modulation(base_power, template, current_time)
+        # Apply seasonal modulation (HA-derived monthly_factors or HVAC model)
+        base_power = self._apply_seasonal_modulation(base_power, template, current_time)
 
         # Apply cycling behavior
         if "cycling_pattern" in template:
@@ -230,10 +230,20 @@ class RealisticBehaviorEngine:
         )
         return abs(base_power) * factor * weather
 
-    def _apply_hvac_seasonal_modulation(
+    def _apply_seasonal_modulation(
         self, base_power: float, template: CircuitTemplateExtended, current_time: float
     ) -> float:
-        """Scale power by seasonal HVAC factor when hvac_type is configured."""
+        """Scale power by seasonal factors.
+
+        Checks ``monthly_factors`` first (HA-derived, works for any load
+        type -- pool pumps, HVAC, seasonal appliances).  Falls back to
+        the latitude-based ``hvac_type`` model for hand-authored configs.
+        """
+        monthly = template.get("monthly_factors")
+        if monthly:
+            month = self.local_datetime(current_time).month
+            return base_power * float(monthly.get(month, 1.0))
+
         hvac_type = template.get("hvac_type")
         if not hvac_type:
             return base_power
@@ -247,12 +257,27 @@ class RealisticBehaviorEngine:
         template: CircuitTemplateExtended,
         current_time: float,
     ) -> float:
-        """Apply cycling on/off behavior (like HVAC)."""
+        """Apply cycling on/off behavior (like HVAC).
+
+        Accepts either explicit ``on_duration``/``off_duration`` or a
+        statistical ``duty_cycle`` (0.0-1.0).  When ``duty_cycle`` is
+        present it takes precedence -- the engine derives on/off from it
+        and an optional ``period`` (default 2700 s / 45 min).
+        """
         cycling = template.get("cycling_pattern", {})
-        on_duration = cycling.get("on_duration", 900)
-        off_duration = cycling.get("off_duration", 1800)
+
+        dc = cycling.get("duty_cycle")
+        if dc is not None:
+            period = cycling.get("period", 2700)
+            on_duration = int(float(dc) * period)
+            off_duration = period - on_duration
+        else:
+            on_duration = cycling.get("on_duration", 900)
+            off_duration = cycling.get("off_duration", 1800)
 
         cycle_length = on_duration + off_duration
+        if cycle_length <= 0:
+            return base_power
         cycle_position = (current_time - self._start_time) % cycle_length
 
         if circuit_id not in self._circuit_cycle_states:
@@ -464,9 +489,13 @@ class RealisticBehaviorEngine:
         has_cycling = False
         cycling = template.get("cycling_pattern")
         if cycling:
-            on_dur = cycling.get("on_duration", 900)
-            off_dur = cycling.get("off_duration", 1800)
-            duty_cycle = on_dur / (on_dur + off_dur)
+            dc = cycling.get("duty_cycle")
+            if dc is not None:
+                duty_cycle = float(dc)
+            else:
+                on_dur = cycling.get("on_duration", 900)
+                off_dur = cycling.get("off_duration", 1800)
+                duty_cycle = on_dur / (on_dur + off_dur) if (on_dur + off_dur) > 0 else 1.0
             has_cycling = True
         else:
             duty_cycle = 1.0
@@ -502,10 +531,13 @@ class RealisticBehaviorEngine:
                         total_factor += 0.15
                 tod_avg = total_factor / 24.0
 
-        # HVAC seasonal average: sample mid-month across a full year
-        hvac_avg = 1.0
+        # Seasonal average: HA-derived monthly_factors or HVAC model
+        seasonal_avg = 1.0
+        monthly = template.get("monthly_factors")
         hvac_type = template.get("hvac_type")
-        if hvac_type:
+        if monthly:
+            seasonal_avg = sum(float(monthly.get(m, 1.0)) for m in range(1, 13)) / 12.0
+        elif hvac_type:
             lat = self._config["panel_config"].get("latitude", 37.7)
             days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
             ref_jan1 = 1704067200
@@ -514,7 +546,7 @@ class RealisticBehaviorEngine:
                 doy = sum(days_in_month[:month_idx]) + 15
                 ts = ref_jan1 + (doy - 1) * 86400 + 12 * 3600
                 hvac_total += hvac_seasonal_factor(ts, lat, hvac_type, tz=self._tz)
-            hvac_avg = hvac_total / 12.0
+            seasonal_avg = hvac_total / 12.0
 
         # Smart behavior: 19 hours full + 5 hours (17-21) reduced
         smart_avg = 1.0
@@ -527,7 +559,7 @@ class RealisticBehaviorEngine:
         # a default daily-operating-hours estimate.  Circuits whose power_range
         # has a non-zero minimum (always-on loads) are excluded.
         usage_factor = 1.0
-        if not has_cycling and not has_tod and hvac_type is None:
+        if not has_cycling and not has_tod and hvac_type is None and monthly is None:
             power_range = template["energy_profile"].get("power_range", [0, typical_power])
             min_power = float(power_range[0]) if power_range else 0.0
             if min_power <= 0:
@@ -541,7 +573,7 @@ class RealisticBehaviorEngine:
                     daily_hours = 2.5
                 usage_factor = daily_hours / 24.0
 
-        avg_power = typical_power * duty_cycle * tod_avg * hvac_avg * smart_avg * usage_factor
+        avg_power = typical_power * duty_cycle * tod_avg * seasonal_avg * smart_avg * usage_factor
         return avg_power * 8760
 
     def _estimate_battery_annual_wh(
