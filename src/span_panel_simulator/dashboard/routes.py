@@ -876,6 +876,21 @@ async def handle_sync_panel_source(request: web.Request) -> web.Response:
 # -- Clone from real panel --
 
 
+def _slugify_circuit_name(name: str) -> str:
+    """Slugify a circuit name to match HA's entity_id convention.
+
+    ``"Microwave  & Oven"`` -> ``"microwave_oven"``
+    ``"Lights-Outlets Bedroom"`` -> ``"lights_outlets_bedroom"``
+    """
+    import re
+
+    slug = name.lower()
+    # Replace any non-alphanumeric run with a single underscore
+    slug = re.sub(r"[^a-z0-9]+", "_", slug)
+    # Strip leading/trailing underscores
+    return slug.strip("_")
+
+
 def _clone_panel_context(request: web.Request, **extra: object) -> dict[str, Any]:
     """Build the clone panel section template context."""
     ctx = _ctx(request)
@@ -1042,10 +1057,7 @@ async def handle_import_ha_profiles(request: web.Request) -> web.Response:
                 circ_name = str(circ.get("name", ""))
                 template = str(circ.get("template", ""))
                 if circ_name and template:
-                    # Slugify the circuit name to match the HA entity key
-                    slug = circ_name.lower().replace(" ", "_").replace("-", "_")
-                    # Remove non-alphanumeric chars except underscore
-                    slug = "".join(c for c in slug if c.isalnum() or c == "_")
+                    slug = _slugify_circuit_name(circ_name)
                     name_to_template[slug] = template
 
         # Remap profiles from circuit_key to template_name
