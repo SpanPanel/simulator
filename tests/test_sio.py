@@ -142,7 +142,7 @@ class TestPanelNamespace:
         mock_update = AsyncMock(
             return_value=update_result or {"status": "ok", "time_zone": "America/New_York"}
         )
-        mock_clone = AsyncMock(return_value={"status": "ok"})
+        mock_clone = AsyncMock(return_value=({"status": "ok"}, None))
         mock_profiles = AsyncMock(return_value={"status": "ok", "templates_updated": 0})
         ctx = SioContext(
             update_panel_location=mock_update,

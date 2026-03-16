@@ -138,6 +138,7 @@ class SimulatorApp:
         self._running = False
         self._mqtt_client: aiomqtt.Client | None = None
         self._reload_event: asyncio.Event = asyncio.Event()
+        self._pending_clone_ready: dict[str, asyncio.Event] = {}
 
     # ------------------------------------------------------------------
     # Dashboard helpers
@@ -233,10 +234,13 @@ class SimulatorApp:
         passphrase: str | None,
         latitude: float,
         longitude: float,
-    ) -> dict[str, object]:
+    ) -> tuple[dict[str, object], asyncio.Event | None]:
         """Run the clone pipeline and apply location.
 
         Called by the Socket.IO ``clone_panel`` event handler.
+        Returns ``(result_dict, ready_event)`` where *ready_event* is set
+        once the clone panel has been registered after reload, or ``None``
+        on error.
         """
         from span_panel_simulator.clone import translate_scraped_panel, write_clone_config
         from span_panel_simulator.homie_const import TYPE_BESS, TYPE_EVSE, TYPE_PV
@@ -246,32 +250,30 @@ class SimulatorApp:
         try:
             creds, ca_pem = await register_with_panel(host, passphrase)
         except ScrapeError as exc:
-            return {"status": "error", "phase": exc.phase, "message": str(exc)}
+            return {"status": "error", "phase": exc.phase, "message": str(exc)}, None
 
         # Phase 2: Scrape
         try:
             scraped = await scrape_ebus(creds, ca_pem)
         except ScrapeError as exc:
-            return {"status": "error", "phase": exc.phase, "message": str(exc)}
+            return {"status": "error", "phase": exc.phase, "message": str(exc)}, None
 
         # Phase 3: Translate
         try:
             config = translate_scraped_panel(scraped, host=host, passphrase=passphrase)
         except Exception as exc:
-            return {"status": "error", "phase": "translating", "message": str(exc)}
+            return {"status": "error", "phase": "translating", "message": str(exc)}, None
 
         # Phase 4: Write
         try:
             output_path = write_clone_config(config, self._config_dir, scraped.serial_number)
         except ValueError as exc:
-            return {"status": "error", "phase": "writing", "message": str(exc)}
+            return {"status": "error", "phase": "writing", "message": str(exc)}, None
 
         # Phase 5: Apply location
         tz_name = update_config_location(output_path, latitude, longitude)
 
-        self.request_reload()
-
-        # Build result summary
+        # Build result summary before triggering reload
         nodes = scraped.description.get("nodes", {})
         circuit_count = sum(
             1
@@ -280,7 +282,7 @@ class SimulatorApp:
         )
         clone_serial = make_clone_serial(scraped.serial_number)
 
-        return {
+        result: dict[str, object] = {
             "status": "ok",
             "serial": scraped.serial_number,
             "clone_serial": clone_serial,
@@ -297,6 +299,14 @@ class SimulatorApp:
             ),
             "time_zone": tz_name,
         }
+
+        # Trigger reload and provide a future the caller can await
+        # to know when the clone panel is fully registered.
+        ready_event = asyncio.Event()
+        self._pending_clone_ready[clone_serial] = ready_event
+        self.request_reload()
+
+        return result, ready_event
 
     async def _apply_usage_profiles(
         self,
@@ -493,13 +503,18 @@ class SimulatorApp:
             await self._reload_event.wait()
             self._reload_event.clear()
             try:
-                await self.reload()
+                result = await self.reload()
                 # Re-subscribe for any new panels' /set topics
                 if self._mqtt_client is not None:
                     for panel in self._panels.values():
                         if panel.publisher is not None:
                             for topic in panel.publisher.get_set_topics():
                                 await self._mqtt_client.subscribe(topic)
+                # Signal any pending clone_ready events for newly started panels
+                for serial in result["started"]:
+                    event = self._pending_clone_ready.pop(serial, None)
+                    if event is not None:
+                        event.set()
             except Exception:
                 _LOGGER.exception("Reload failed")
 

@@ -12,12 +12,14 @@ Protocol v1.0 -- namespace ``/v1/panel``::
                             server acks  {"status": "ok", "time_zone": str}
     clone_panel          -> client sends {"host", "passphrase", "latitude", "longitude"}
                             server acks  {"status": "ok", "clone_serial", "circuits", ...}
+                            server emits "clone_ready" {} when panel is registered
     apply_usage_profiles -> client sends {"clone_serial", "profiles": {template: {…}}}
                             server acks  {"status": "ok", "templates_updated": int}
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -40,7 +42,7 @@ class SioContext:
     update_panel_location: Callable[[str, float, float], Coroutine[Any, Any, dict[str, str]]]
     clone_panel: Callable[
         [str, str | None, float, float],
-        Coroutine[Any, Any, dict[str, object]],
+        Coroutine[Any, Any, tuple[dict[str, object], asyncio.Event | None]],
     ]
     apply_usage_profiles: Callable[
         [str, dict[str, dict[str, object]]],
@@ -61,6 +63,7 @@ class _PanelNamespace(socketio.AsyncNamespace):  # type: ignore[misc]
     def __init__(self, namespace: str, ctx: SioContext) -> None:
         super().__init__(namespace)
         self._ctx = ctx
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     async def on_connect(
         self,
@@ -134,7 +137,7 @@ class _PanelNamespace(socketio.AsyncNamespace):  # type: ignore[misc]
         if not isinstance(longitude, int | float):
             return {"status": "error", "phase": "validation", "message": "Missing 'longitude'"}
 
-        result = await self._ctx.clone_panel(
+        result, ready_event = await self._ctx.clone_panel(
             str(host),
             str(passphrase) if passphrase else None,
             float(latitude),
@@ -146,7 +149,22 @@ class _PanelNamespace(socketio.AsyncNamespace):  # type: ignore[misc]
             host,
             result.get("status"),
         )
+
+        if ready_event is not None:
+            task = asyncio.create_task(self._emit_clone_ready(sid, ready_event))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
         return result
+
+    async def _emit_clone_ready(self, sid: str, ready_event: asyncio.Event) -> None:
+        """Wait for the clone panel to be registered, then notify the client."""
+        try:
+            await asyncio.wait_for(ready_event.wait(), timeout=30)
+            await self.emit("clone_ready", {}, to=sid)
+            _LOGGER.info("Emitted clone_ready to %s", sid)
+        except TimeoutError:
+            _LOGGER.warning("Timed out waiting for clone panel registration (sid=%s)", sid)
 
     async def on_apply_usage_profiles(
         self, sid: str, data: dict[str, object]

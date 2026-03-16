@@ -42,6 +42,14 @@ HA Integration                   Simulator                        Real Panel
      |<-- ack ----------------------|                                |
      |   {clone_serial, circuits,   |                                |
      |    time_zone, ...}           |                                |
+     |                              |-- (async) reload completes     |
+     |                              |-- panel registered             |
+     |<-- clone_ready {} -----------|                                |
+     |                              |                                |
+     |-- apply_usage_profiles ----->|  (if profiles available)       |
+     |   {clone_serial, profiles}   |                                |
+     |<-- ack ----------------------|                                |
+     |   {status, templates_updated}|                                |
 ```
 
 ### Socket.IO Contract
@@ -49,8 +57,9 @@ HA Integration                   Simulator                        Real Panel
 - **Namespace**: `/v1/panel`
 - **Event**: `clone_panel`
 - **Payload**: `{"host": "...", "passphrase": "...", "latitude": float, "longitude": float}`
-- **Result**: `{"status": "ok", "serial": "...", "clone_serial": "...", "filename": "...", "circuits": N, "has_bess": bool, "has_pv": bool, "has_evse": bool, "time_zone": "..."}`
-- **Error**: `{"status": "error", "phase": "...", "message": "..."}`
+- **Result (ack)**: `{"status": "ok", "serial": "...", "clone_serial": "...", "filename": "...", "circuits": N, "has_bess": bool, "has_pv": bool, "has_evse": bool, "time_zone": "..."}`
+- **Error (ack)**: `{"status": "error", "phase": "...", "message": "..."}`
+- **Server event**: `clone_ready {}` — emitted to the same SID after the async reload completes and the clone panel is registered in the simulator's panel registry. Clients that intend to send `apply_usage_profiles` should wait for this event rather than sending immediately after the ack, since the panel may not yet be registered when the ack arrives.
 
 ### eBus Scrape Strategy
 
@@ -210,26 +219,31 @@ The HA SPAN integration already has access to the HA recorder, knows the circuit
 ```text
 HA Integration                                 Simulator
      |                                            |
-     |-- clone_panel ---------------------------->|  (existing)
-     |<-- {clone_serial, circuits, ...} ----------|
+     |-- build_usage_profiles()                   |  (HA internal:
+     |   recorder/statistics_during_period         |   hourly 30d,
+     |   (hourly: 30 days, monthly: 12 months)    |   monthly 12mo)
      |                                            |
-     |-- recorder/statistics_during_period        |  (HA internal,
-     |   (hourly: 30 days, monthly: 12 months)    |   not the simulator)
+     |== Socket.IO /v1/panel ===================>|  (single session)
      |                                            |
-     |-- derive profiles per circuit              |
-     |   (typical_power, hour_factors,            |
-     |    power_variation, duty_cycle,            |
-     |    monthly_factors)                        |
+     |-- clone_panel ---------------------------->|
+     |<-- ack {clone_serial, circuits, ...} ------|
+     |                                            |  (async reload)
+     |   (waiting for clone_ready)                |  (panel registered)
+     |<-- clone_ready {} -------------------------|
      |                                            |
-     |-- apply_usage_profiles ------------------->|  (new Socket.IO event)
+     |-- apply_usage_profiles ------------------->|  (same connection)
      |   {clone_serial, profiles: {               |
      |     "clone_2": {...},                      |
      |     "clone_15": {...},                     |
      |   }}                                       |
-     |<-- {status: ok, templates_updated: N} -----|
+     |<-- ack {status: ok, templates_updated: N} -|
+     |                                            |
+     |== disconnect ==============================|
 ```
 
-**Why separate events**: `clone_panel` and `apply_usage_profiles` are independent operations. Profiles can be re-imported without re-cloning — the topology rarely changes, but usage patterns may be worth refreshing before a new modeling session. Both are thin Socket.IO RPC calls over the existing `/v1/panel` namespace.
+**Single session**: The clone and profile delivery run on one Socket.IO connection. The integration builds profiles from the HA recorder *before* connecting, then sends `clone_panel`. After the ack, it waits for the simulator to emit `clone_ready` (signaling the clone panel is registered after the async reload), then sends `apply_usage_profiles` on the same connection. This eliminates the race condition where profiles are sent before the panel exists in the simulator's registry.
+
+**Why separate events**: `clone_panel` and `apply_usage_profiles` are independent operations. Profiles can be re-imported without re-cloning — the topology rarely changes, but usage patterns may be worth refreshing before a new modeling session.
 
 **Why the integration, not the simulator**: The integration runs inside HA and has native access to `recorder/statistics_during_period`. The simulator has no HA credentials, no HA API client, and no reason to acquire either. The integration computes the profiles; the simulator applies them to its config. Each side does what it already knows how to do.
 
@@ -271,13 +285,13 @@ Circuits with fewer than 24 hourly data points are skipped.
 
 #### Orchestration
 
-`clone_and_profile()` in `simulation_utils.py` orchestrates the full sequence: clone → build profiles → send profiles. The clone is the gate — if it fails, the entire operation fails. Profile building and delivery are **best-effort**: failures are logged but do not affect the clone result. Empty profiles (no recorder data) skip delivery silently.
+The config flow builds profiles from the recorder before connecting, then calls `clone_with_profiles()` in `simulation_utils.py` which manages a single Socket.IO session: clone → wait for `clone_ready` → send profiles. The clone is the gate — if it fails, the entire operation fails. Profile building and delivery are **best-effort**: failures are logged but do not affect the clone result. Empty profiles (no recorder data) skip delivery silently.
 
 #### Files (integration repo: `~/projects/HA/span`)
 
 - **`simulator_profile_builder.py`** — Queries `statistics_during_period` for circuit power entities over 30-day (hourly) and 12-month (monthly) windows. Maps circuits to template names via `min(tabs)`. Derives `typical_power`, `power_variation`, `hour_factors`, `duty_cycle`, `monthly_factors` per circuit. Returns `dict[str, dict[str, object]]` keyed by template name.
-- **`simulation_utils.py`** — `ProfileResult` dataclass, `send_usage_profiles()` Socket.IO call, `clone_and_profile()` orchestrator.
-- **`config_flow.py`** — Clone step calls `clone_and_profile()` instead of bare `execute_clone_via_simulator()`. No new UI elements — profile delivery is transparent and best-effort.
+- **`simulation_utils.py`** — `CloneResult`, `ProfileResult` dataclasses; `clone_with_profiles()` manages a single Socket.IO session (clone → wait for `clone_ready` → send profiles); `discover_clone_simulators()` for mDNS discovery.
+- **`config_flow.py`** — Options flow builds profiles via `_build_profiles_best_effort()`, then passes them to `clone_with_profiles()`. No new UI elements — profile delivery is transparent and best-effort.
 
 ### Simulator Side: Profile Application
 
@@ -336,8 +350,8 @@ The engine already supports all of these parameters — no engine changes requir
 #### Files (simulator repo)
 
 - **`profile_applicator.py`** — Pure function: reads clone config YAML, merges incoming profile dicts into matching `circuit_templates`, writes back. Converts JSON string keys to int. Skips `typical_power`/`power_variation` overwrite for producer/bidirectional modes. Returns count of templates updated.
-- **`sio_handler.py`** — `apply_usage_profiles` callback in `SioContext`; `on_apply_usage_profiles` handler in `_PanelNamespace` with validation (non-empty serial, non-empty profiles dict).
-- **`app.py`** — `_apply_usage_profiles()` method looks up panel via `_serial_to_panel`, calls `apply_usage_profiles()`, triggers `request_reload()`.
+- **`sio_handler.py`** — `SioContext` with `clone_panel` (returns `(result, ready_event)` tuple) and `apply_usage_profiles` callbacks. `on_clone_panel` returns the ack immediately, then schedules a background task (`_emit_clone_ready`) that awaits the ready event and emits `clone_ready` to the SID. `on_apply_usage_profiles` handler with validation (non-empty serial, non-empty profiles dict).
+- **`app.py`** — `_clone_panel()` returns `(result_dict, asyncio.Event)`. The event is registered in `_pending_clone_ready` and set by `_reload_watcher()` after the panel appears in `reload()["started"]`. `_apply_usage_profiles()` looks up panel via `_serial_to_panel`, calls `apply_usage_profiles()`, triggers `request_reload()`.
 - **No changes to `engine.py`** — it already consumes all target parameters.
 
 ### Tests
