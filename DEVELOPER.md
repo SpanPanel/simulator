@@ -9,7 +9,7 @@
 
 ```bash
 # Clone and enter the repo
-git clone https://github.com/electrification-bus/simulator.git
+git clone https://github.com/SpanPanel/simulator.git
 cd simulator
 
 # Create venv and install all dependencies (runtime + dev)
@@ -113,7 +113,7 @@ The workflow:
 - Triggers on pushes to `main` that touch source, config, or workflow files
 - Builds per-architecture images (amd64, aarch64) using the appropriate
   HA base image
-- Pushes to `ghcr.io/electrification-bus/simulator/{arch}:{version}`
+- Pushes to `ghcr.io/SpanPanel/simulator/{arch}:{version}`
 
 ### Local testing
 

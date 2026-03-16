@@ -116,8 +116,8 @@ The source panel's connection details are stored in the clone YAML:
 
 ```yaml
 panel_source:
-  origin_serial: "nj-2316-005k6"   # real panel's serial (immutable provenance)
-  host: "192.168.65.70"
+  origin_serial: "nj-2316-XXXXX"   # real panel's serial (immutable provenance)
+  host: "192.168.1.100"
   passphrase: "..."                 # null for door-bypass
   last_synced: "2026-03-15T10:30:00"
 ```
@@ -130,7 +130,7 @@ The clone is treated as an independent modeling baseline from the moment it's cr
 
 The dashboard shows provenance when a `panel_source` block is present:
 
-- Display: "Cloned from **nj-2316-005k6** at 192.168.65.70 — last synced 2026-03-15 10:30"
+- Display: "Cloned from **nj-2316-XXXXX** at 192.168.1.100 — last synced 2026-03-15 10:30"
 - Action: "Update eBus Energy" — re-scrapes and overwrites energy seed values with current readings from the real panel
 
 eBus provides real-time state only — it does not expose historical data from SPAN's cloud warehouse. The energy seed refresh is useful for resyncing cumulative counters, but `typical_power` and usage profiles are not updated here since an instantaneous active-power snapshot is not representative of actual consumption patterns.
@@ -246,7 +246,7 @@ The config flow builds profiles from the recorder before connecting, then calls 
 
 ```json
 {
-  "clone_serial": "sim-nj-2316-005k6-clone",
+  "clone_serial": "sim-nj-2316-XXXXX-clone",
   "profiles": {
     "clone_2": {
       "typical_power": 145.3,

@@ -1,5 +1,10 @@
 # SPAN Panel Simulator
 
+> **Work in Progress** — This project is under active development and may be
+> relocated to a different repository or organization. APIs, configuration
+> formats, and architectural decisions are subject to change. Do not depend
+> on this repository URL as a stable reference.
+
 A standalone eBus simulator that mimics real SPAN panel behavior: mDNS
 discovery, bootstrap HTTP API, TLS certificate provisioning, and Homie v5
 MQTT publishing.
@@ -102,7 +107,7 @@ integration can spin up a simulated panel directly in their HA environment.
 
 1. Go to **Settings > Add-ons > Add-on Store** > three-dot menu >
    **Repositories**
-2. Add `https://github.com/electrification-bus/simulator`
+2. Add `https://github.com/SpanPanel/simulator`
 3. Install **SPAN Panel Simulator** from the store
 4. Configure options (config file, tick interval, log level) and start
 
