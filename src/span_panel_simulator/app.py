@@ -300,6 +300,16 @@ class SimulatorApp:
             "time_zone": tz_name,
         }
 
+        # A clone creates a new config file outside the filter scope —
+        # clear the filter so reload() discovers it.
+        if self._config_filter is not None:
+            _LOGGER.info(
+                "Clearing config filter '%s' to include clone %s",
+                self._config_filter,
+                output_path.name,
+            )
+            self._config_filter = None
+
         # Trigger reload and provide a future the caller can await
         # to know when the clone panel is fully registered.
         ready_event = asyncio.Event()
@@ -510,10 +520,18 @@ class SimulatorApp:
                         if panel.publisher is not None:
                             for topic in panel.publisher.get_set_topics():
                                 await self._mqtt_client.subscribe(topic)
-                # Signal any pending clone_ready events for newly started panels
-                for serial in result["started"]:
+                # Signal any pending clone_ready events for started or reloaded panels
+                ready_serials = result["started"] + result["reloaded"]
+                _LOGGER.debug(
+                    "Reload complete: started=%s reloaded=%s pending_keys=%s",
+                    result["started"],
+                    result["reloaded"],
+                    list(self._pending_clone_ready.keys()),
+                )
+                for serial in ready_serials:
                     event = self._pending_clone_ready.pop(serial, None)
                     if event is not None:
+                        _LOGGER.info("Setting clone_ready event for %s", serial)
                         event.set()
             except Exception:
                 _LOGGER.exception("Reload failed")
