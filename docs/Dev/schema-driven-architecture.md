@@ -1,12 +1,4 @@
-# Schema-Driven Architecture Plan
-
-## Status
-
-- **Phase 1 (Schema Registry)**: Complete — `schema.py` with `HomieSchemaRegistry`
-- **Phase 2 (Startup Validation)**: Complete — `_validate_against_schema()` in publisher
-- **Phase 3 (Schema-Driven /set)**: Complete — `_get_set_topics_from_schema()`
-- **Phase 4 (Declarative Mapping)**: Complete — extractor tuples per node type, `_apply_extractors`
-- **Phase 5 (Type Validation)**: Complete — `validate_value()` in schema, debug-gated in publisher
+# Schema-Driven Architecture
 
 ## Problem
 
@@ -16,13 +8,9 @@ The Homie schema (`data/homie_schema.json`) and the publisher (`publisher.py`) a
 
 Make the schema the contract — not just documentation. The publisher's job shifts from "know what to publish" to "know how to compute each value the schema requires."
 
-## Phases
+## Schema Registry
 
-### Phase 1: Schema Registry
-
-Parse `homie_schema.json` into typed dataclasses at startup. This is the foundation — all subsequent phases reference the registry.
-
-**New file:** `src/span_panel_simulator/schema.py`
+`src/span_panel_simulator/schema.py` parses `homie_schema.json` into typed dataclasses at startup. All downstream consumers reference the registry.
 
 ```
 SchemaProperty(frozen dataclass)
@@ -45,39 +33,23 @@ load_schema(path: Path) -> HomieSchemaRegistry
   Parse JSON, return typed registry.
 ```
 
-**Changes:**
-- `app.py`: Parse schema via `load_schema()`, pass registry to `BootstrapHttpServer` and `PanelInstance`
-- `bootstrap.py`: Accept registry, serve `registry.to_json()` (or keep raw text alongside)
-- `publisher.py`: Accept registry reference in constructor
+- `app.py` parses the schema via `load_schema()` and passes the registry to `BootstrapHttpServer` and `PanelInstance`
+- `bootstrap.py` accepts the registry and serves the raw JSON
+- `publisher.py` accepts the registry reference in its constructor
 
-### Phase 2: Startup Validation
+## Startup Validation
 
-After the first `publish_init`, cross-reference published properties against the schema. Log warnings for drift — no behavior change.
-
-**In `publisher.py`:**
-
-After `_snapshot_to_properties()` returns the full property map, extract the set of `(node_id, property_name)` pairs that were published. For each node in `$description`, look up its type in the registry and compare:
+After the first `publish_init`, the publisher cross-references published properties against the schema via `_validate_against_schema()`. For each node in `$description`, it looks up the type in the registry and compares:
 
 - **Missing**: schema declares property, publisher didn't emit it → `WARNING`
 - **Extra**: publisher emitted property not in schema → `WARNING`
 
-This runs once at startup (inside `publish_init`), not on every diff tick.
+This runs once at startup (inside `publish_init`), not on every diff tick. A dedicated test loads the bundled schema, publishes a full snapshot, and asserts zero missing/extra warnings — breaking immediately when schema and publisher diverge.
 
-**Test:** A dedicated test loads the bundled schema, publishes a full snapshot, and asserts zero missing/extra warnings. This test breaks immediately when schema and publisher diverge.
+## Schema-Driven `/set` Topics
 
-### Phase 3: Schema-Driven `/set` Topics
+`_get_set_topics_from_schema()` replaces the former hardcoded `/set` subscription list:
 
-Replace the hardcoded `get_set_topics()` with a schema-driven implementation.
-
-**Current** (hardcoded):
-```python
-topics.append(self._set_topic(NODE_CORE, "dominant-power-source"))
-for node_uuid in self._circuit_uuid_map.values():
-    topics.append(self._set_topic(node_uuid, "relay"))
-    topics.append(self._set_topic(node_uuid, "shed-priority"))
-```
-
-**New** (schema-driven):
 ```python
 for node_id, node_type_id in self._description_nodes.items():
     node_type = self._schema.node_types.get(node_type_id)
@@ -88,22 +60,16 @@ for node_id, node_type_id in self._description_nodes.items():
             topics.append(self._set_topic(node_id, prop_name))
 ```
 
-**Requires:** `_build_description` stores a `_description_nodes: dict[str, str]` mapping `node_id -> type_id` so `get_set_topics` can iterate it.
+`_build_description` stores a `_description_nodes: dict[str, str]` mapping `node_id -> type_id` so `get_set_topics` can iterate it. When the schema adds a new `settable: true` property, the simulator subscribes automatically.
 
-**Benefit:** When the schema adds a new `settable: true` property, the simulator subscribes automatically.
+## Declarative Property Mapping
 
-### Phase 4: Declarative Property Mapping
+Imperative `_map_*` methods are replaced with a registry of `(property_name, extractor)` tuples per node type, applied via `_apply_extractors`.
 
-Replace imperative `_map_*` methods with a registry of `(property_name, extractor)` tuples per node type.
-
-**New types in `publisher.py`:**
 ```python
 PropertyExtractor = Callable[[SpanPanelSnapshot], str | None]
 CircuitPropertyExtractor = Callable[[SpanCircuitSnapshot], str | None]
-```
 
-**Example — core properties:**
-```python
 _CORE_PROPERTIES: list[tuple[str, PropertyExtractor]] = [
     ("vendor-name", lambda s: "SPAN"),
     ("serial-number", lambda s: s.serial_number),
@@ -115,61 +81,39 @@ _CORE_PROPERTIES: list[tuple[str, PropertyExtractor]] = [
 ]
 ```
 
-**Generic map method:**
-```python
-def _map_from_extractors(
-    self,
-    node_id: str,
-    extractors: Sequence[tuple[str, Callable[..., str | None]]],
-    source: object,
-    props: dict[str, str],
-) -> None:
-    for prop_name, extractor in extractors:
-        value = extractor(source)
-        if value is not None:
-            props[self._prop_topic(node_id, prop_name)] = value
-```
+Each property mapping is a single line — easy to audit against the schema. The extractor list is validated against the schema registry at startup (every schema property has an extractor, every extractor has a schema property). Adding a new property is adding one tuple, not editing a method body.
 
-**Benefits:**
-- Each property mapping is a single line — easy to audit against schema
-- The extractor list can be validated against the schema registry at startup (Phase 2 validation becomes: "every schema property has an extractor, every extractor has a schema property")
-- Adding a new property is adding one tuple, not editing a method body
+## Type Validation
 
-**Migration:** Convert one `_map_*` method at a time. Each conversion is a self-contained refactor with no behavioral change (verified by existing tests).
-
-### Phase 5: Type Validation (dev/test mode)
-
-Add optional datatype validation that checks published values against schema declarations:
+`validate_value(prop: SchemaProperty, value: str) -> str | None` checks published values against schema declarations, gated by debug log level:
 
 - `enum` with `format: "A,B,C"` → value must be one of A, B, C
 - `float` → value must parse as float
 - `integer` → value must parse as int and have no decimal
 - `boolean` → value must be "true" or "false"
 
-**Implementation:** A `validate_value(prop: SchemaProperty, value: str) -> str | None` function that returns an error message or None. Called during `publish_init` in debug mode (controlled by log level or a flag).
+Called during `publish_init` only — not during `publish_diff`.
 
-**Not called during `publish_diff`** — validation is a startup check only.
+## File Summary
 
-## File Impact Summary
+| File | Role |
+|------|------|
+| `schema.py` | Schema registry dataclasses + parser |
+| `app.py` | Parses schema, passes registry through |
+| `bootstrap.py` | Accepts registry, serves raw JSON |
+| `publisher.py` | Accepts registry; startup validation; declarative mapping |
+| `homie_const.py` | TYPE_* constants validated against registry |
+| `tests/test_publisher.py` | Schema drift detection test |
+| `tests/test_schema.py` | Registry parsing + type validation tests |
 
-| File | Phase | Change |
-|------|-------|--------|
-| `schema.py` (new) | 1 | Schema registry dataclasses + parser |
-| `app.py` | 1 | Parse schema, pass registry through |
-| `bootstrap.py` | 1 | Accept registry (keep serving raw JSON) |
-| `publisher.py` | 1-4 | Accept registry, validate, declarative mapping |
-| `homie_const.py` | 3 | TYPE_* constants still used but validated against registry |
-| `tests/test_publisher.py` | 2 | Schema drift detection test |
-| `tests/test_schema.py` (new) | 1,5 | Registry parsing + type validation tests |
+## Phase Dependencies
 
-## Ordering Constraint
-
-Each phase builds on the previous. Phase 1 is prerequisite for all others. Phases 2 and 3 are independent of each other but both require Phase 1. Phase 4 benefits from Phase 2 (validation catches mistakes during refactor). Phase 5 requires Phase 1.
+Each layer builds on the previous:
 
 ```
-Phase 1 (Registry)
-  ├── Phase 2 (Startup Validation)
-  ├── Phase 3 (Schema-Driven /set)
-  └── Phase 4 (Declarative Mapping) ← benefits from Phase 2
-       └── Phase 5 (Type Validation)
+Schema Registry
+  ├── Startup Validation
+  ├── Schema-Driven /set
+  └── Declarative Mapping ← benefits from Startup Validation
+       └── Type Validation
 ```

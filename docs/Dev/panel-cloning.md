@@ -1,14 +1,14 @@
 # Panel Cloning & Usage Modeling
 
-## Context
+## Overview
 
-The simulator supports BESS/SPAN Drive simulation, breaker ratings, and full Homie v5 eBus publishing. Given credentials for a **real** SPAN panel, the simulator connects to its eBus, scrapes every retained topic, and translates the result into a simulator YAML config — a faithful starting point that can then be tuned.
+The simulator clones a real SPAN panel by connecting to its eBus, scraping every retained topic, and translating the result into a simulator YAML config. The clone captures the panel's topology, breaker sizing, and energy state — a faithful starting point for modeling infrastructure changes (BESS, solar, EVSE upgrades).
 
-The goal is to provide a basis for downstream modeling of changes to BESS, solar, or EVSE infrastructure for upgrades. The clone captures the panel's topology and sizing; the usage modeling features below build on that foundation to produce realistic energy profiles.
+Usage modeling layers on top of the clone: the HA SPAN integration derives per-circuit energy profiles from historical recorder data and delivers them to the simulator via Socket.IO. The clone provides the topology; the profiles provide the behavioral shape.
 
 ---
 
-## Implemented: Clone Pipeline
+## Clone Pipeline
 
 ### Transport: Socket.IO
 
@@ -78,7 +78,7 @@ HA Integration                   Simulator                        Real Panel
 - PV: nameplate capacity, production profile
 - EVSE: night-charging time-of-day profile
 
-### sim- serial prefix
+### sim- Serial Prefix
 
 All simulated panels are prefixed with `sim-` so the HA integration can distinguish simulators from real hardware:
 
@@ -97,7 +97,7 @@ All simulated panels are prefixed with `sim-` so the HA integration can distingu
 
 ---
 
-## Implemented: Credential Persistence & Energy Seeding
+## Credential Persistence & Energy Seeding
 
 ### Clone-time energy seeding
 
@@ -124,97 +124,41 @@ panel_source:
 
 `origin_serial` is the real panel's serial number — distinct from the clone's `panel_config.serial_number` (which has the `-clone` suffix). The passphrase is the panel's proximity code, not a cloud credential. It lives alongside the config it produced, on the same local machine that already has direct network access to the panel.
 
-The clone is treated as an independent modeling baseline from the moment it's created. There is no automatic startup refresh — the point-in-time snapshot from cloning captures topology and sizing, which is what matters for modeling. Usage patterns are better calibrated via HA historical import (see below) than another point-in-time scrape.
+The clone is treated as an independent modeling baseline from the moment it's created. There is no automatic startup refresh — the point-in-time snapshot from cloning captures topology and sizing, which is what matters for modeling.
 
-### Dashboard: update from panel
+### Dashboard: Update eBus Energy
 
 The dashboard shows provenance when a `panel_source` block is present:
 
 - Display: "Cloned from **nj-2316-005k6** at 192.168.65.70 — last synced 2026-03-15 10:30"
-- Action: "Update from panel" — re-scrapes and overwrites `typical_power` and energy seeds with current values. Confirmation dialog warns: *"This will overwrite typical_power and energy values with current readings from the real panel. Any manual customizations to those values will be lost."*
+- Action: "Update eBus Energy" — re-scrapes and overwrites energy seed values with current readings from the real panel
+
+eBus provides real-time state only — it does not expose historical data from SPAN's cloud warehouse. The energy seed refresh is useful for resyncing cumulative counters, but `typical_power` and usage profiles are not updated here since an instantaneous active-power snapshot is not representative of actual consumption patterns.
 
 Configs without `panel_source` (hand-authored or future detached clones) show no provenance section.
 
 ### Files
 
-- `clone.py`: Energy seed mapping in `_translate_circuit`; `panel_source` block written when `host` is provided; `update_config_from_scrape()` for on-demand refresh
+- `clone.py`: Energy seed mapping in `_translate_circuit`; `panel_source` block written when `host` is provided; `update_config_from_scrape()` for on-demand energy refresh
 - `circuit.py`: Prefers `initial_*_energy_wh` seeds over annual estimate when present
 - `config_types.py`: `PanelSource` TypedDict; `initial_consumed_energy_wh` / `initial_produced_energy_wh` in `EnergyProfileExtended`; `panel_source` in `SimulationConfig`
 - `validation.py`: `validate_panel_source()` for the `panel_source` block
 - `app.py`: Passes `host`/`passphrase` through to `translate_scraped_panel` in `_clone_panel()`
 - `dashboard/routes.py`: `GET /panel-source`, `POST /sync-panel-source`
-- `dashboard/templates/partials/panel_source.html`: Provenance display with update action
+- `dashboard/templates/partials/panel_source.html`: Provenance display with energy refresh action
 - `dashboard/config_store.py`: `get_panel_source()`, `get_origin_serial()`
 
 ---
 
-## Feature: Dashboard Clone UI
+## HA Usage Profile Import
 
-### Problem
+### Data Source Limitations
 
-Cloning currently requires the HA SPAN integration to trigger the Socket.IO `clone_panel` event. This creates a dependency on a separate codebase and makes the simulator less self-contained. Users should be able to clone directly from the simulator dashboard.
-
-### Design
-
-#### mDNS panel browser
-
-The simulator already has `zeroconf` / `AsyncZeroconf` for advertising. Add a `ServiceBrowser` that discovers `_span._tcp.local.` services on the LAN.
-
-- Real SPAN panels advertise `_span._tcp` with their serial number in the TXT record
-- Filter out the simulator's own entries (match against known simulator serials, or check for `sim-` prefix)
-- Maintain a live dict of discovered panels: `{serial: {host, ip, port, txt_properties}}`
-- Panels that disappear from mDNS are removed after a grace period
-
-#### Dashboard route
-
-`GET /admin/discovered-panels` returns the current set of discovered panels as JSON. The dashboard polls this on an interval while the clone dialog is open.
-
-`POST /admin/clone` accepts `{host, passphrase}` and drives the scrape-translate-write pipeline directly — the same `register_with_panel` → `scrape_ebus` → `translate_scraped_panel` → `write_clone_config` → reload sequence that `app._clone_panel()` orchestrates, but invoked via HTTP rather than Socket.IO.
-
-#### UI
-
-A "Clone Panel" button in the dashboard navigation opens an HTMX dialog:
-
-```
-┌─────────────────────────────────┐
-│  Clone from SPAN Panel          │
-│                                 │
-│  Panel:  [▾ nj-2316-005k6    ] │
-│          192.168.65.70          │
-│                                 │
-│  Passphrase: [________________] │
-│                                 │
-│  [Cancel]            [Clone]    │
-└─────────────────────────────────┘
-```
-
-- The dropdown is populated from `/admin/discovered-panels`
-- On submit, POST to `/admin/clone`
-- Progress feedback via HTMX polling against a task-status endpoint, or SSE stream
-- On completion: redirect to the new panel's dashboard, or display a success message with the clone serial and circuit count
-
-#### Scope
-
-- `discovery.py`: Add `ServiceBrowser` for `_span._tcp.local.`, maintain discovered panel dict
-- `dashboard/routes.py`: Add `GET /admin/discovered-panels` and `POST /admin/clone`
-- `dashboard/templates/`: New clone dialog partial (HTMX)
-- `dashboard/templates/base.html`: "Clone Panel" button in nav
-
----
-
-## Implemented: HA Usage Profile Import (Integration-Driven)
-
-### Problem
-
-A cloned panel has accurate topology but synthetic energy behavior. The simulator's engine generates power values from `typical_power`, time-of-day profiles, and noise — useful for exercising the eBus interface, but not representative of actual consumption patterns. For modeling infrastructure changes (adding battery capacity, upgrading solar, sizing an EVSE), the simulation needs to reflect how the household actually uses power.
-
-### Goal
-
-Import historical usage data from Home Assistant to derive per-circuit energy profiles that drive the simulation engine. The goal is **not** to replay history verbatim — it is to extract the usage *shape* (daily patterns, seasonal variation, per-circuit relative load) and use that to parameterize the simulator's existing engine so that forward-looking modeling scenarios are grounded in real behavior.
+eBus exposes real-time circuit state but no historical data. SPAN's cloud warehouse stores high-resolution, long-lived per-circuit history that would be ideal for profile derivation, but there is no public API to access it. The HA integration works around this by querying the HA recorder's long-term statistics — a pragmatic second-best that depends on how long HA has been collecting data for the panel.
 
 ### Architecture: Integration Does the Heavy Lifting
 
-The HA SPAN integration already has access to the HA recorder, knows the circuit entity IDs, and drives the clone flow over Socket.IO. Rather than giving the simulator its own HA API client, the integration queries HA statistics, derives per-circuit profiles, and delivers pre-computed values to the simulator via a dedicated Socket.IO event.
+The HA SPAN integration has access to the HA recorder, knows the circuit entity IDs, and drives the clone flow over Socket.IO. Rather than giving the simulator its own HA API client, the integration queries HA statistics, derives per-circuit profiles, and delivers pre-computed values to the simulator via a dedicated Socket.IO event.
 
 ```text
 HA Integration                                 Simulator
@@ -241,17 +185,17 @@ HA Integration                                 Simulator
      |== disconnect ==============================|
 ```
 
-**Single session**: The clone and profile delivery run on one Socket.IO connection. The integration builds profiles from the HA recorder *before* connecting, then sends `clone_panel`. After the ack, it waits for the simulator to emit `clone_ready` (signaling the clone panel is registered after the async reload), then sends `apply_usage_profiles` on the same connection. This eliminates the race condition where profiles are sent before the panel exists in the simulator's registry.
+**Single session**: The clone and profile delivery run on one Socket.IO connection. The integration builds profiles from the HA recorder before connecting, then sends `clone_panel`. After the ack, it waits for `clone_ready` (signaling the clone panel is registered after the async reload), then sends `apply_usage_profiles` on the same connection.
 
 **Why separate events**: `clone_panel` and `apply_usage_profiles` are independent operations. Profiles can be re-imported without re-cloning — the topology rarely changes, but usage patterns may be worth refreshing before a new modeling session.
 
-**Why the integration, not the simulator**: The integration runs inside HA and has native access to `recorder/statistics_during_period`. The simulator has no HA credentials, no HA API client, and no reason to acquire either. The integration computes the profiles; the simulator applies them to its config. Each side does what it already knows how to do.
+**Why the integration, not the simulator**: The integration runs inside HA and has native access to `recorder/statistics_during_period`. The simulator has no HA credentials, no HA API client, and no reason to acquire either. The integration computes the profiles; the simulator applies them to its config.
 
 ### HA Side: Profile Derivation (integration repo)
 
 #### Statistics source
 
-HA's recorder stores per-circuit sensor data published by the SPAN integration. The recorder's **long-term statistics** (`recorder/statistics_during_period`) retain hourly aggregates (mean, min, max) indefinitely. Short-term state history is purged after the configured retention period, but the hourly buckets persist. A month of data is sufficient; a year gives seasonal resolution.
+HA's recorder stores per-circuit sensor data published by the SPAN integration. The recorder's long-term statistics (`recorder/statistics_during_period`) retain hourly aggregates (mean, min, max) indefinitely. Short-term state history is purged after the configured retention period, but the hourly buckets persist. A month of data is sufficient; a year gives seasonal resolution.
 
 #### Entity resolution
 
@@ -265,9 +209,8 @@ Circuit-to-template mapping: for each circuit in `SpanPanelSnapshot.circuits`, `
 
 Two targeted queries per clone operation:
 
-1. **Hourly stats, last 30 days** (~720 points/circuit): `statistics_during_period(hass, now-30d, now, stat_ids, "hour", None, {"mean", "min", "max"})` — derives `typical_power`, `power_variation`, `hour_factors`, `duty_cycle`
-
-2. **Monthly stats, last 12 months** (~12 points/circuit): `statistics_during_period(hass, now-365d, now, stat_ids, "month", None, {"mean"})` — derives `monthly_factors`
+1. **Hourly stats, last 30 days** (~720 points/circuit): derives `typical_power`, `power_variation`, `hour_factors`, `duty_cycle`
+2. **Monthly stats, last 12 months** (~12 points/circuit): derives `monthly_factors`
 
 Circuits with fewer than 24 hourly data points are skipped.
 
@@ -285,13 +228,13 @@ Circuits with fewer than 24 hourly data points are skipped.
 
 #### Orchestration
 
-The config flow builds profiles from the recorder before connecting, then calls `clone_with_profiles()` in `simulation_utils.py` which manages a single Socket.IO session: clone → wait for `clone_ready` → send profiles. The clone is the gate — if it fails, the entire operation fails. Profile building and delivery are **best-effort**: failures are logged but do not affect the clone result. Empty profiles (no recorder data) skip delivery silently.
+The config flow builds profiles from the recorder before connecting, then calls `clone_with_profiles()` in `simulation_utils.py` which manages a single Socket.IO session: clone → wait for `clone_ready` → send profiles. The clone is the gate — if it fails, the entire operation fails. Profile building and delivery are best-effort: failures are logged but do not affect the clone result. Empty profiles (no recorder data) skip delivery silently.
 
 #### Files (integration repo: `~/projects/HA/span`)
 
 - **`simulator_profile_builder.py`** — Queries `statistics_during_period` for circuit power entities over 30-day (hourly) and 12-month (monthly) windows. Maps circuits to template names via `min(tabs)`. Derives `typical_power`, `power_variation`, `hour_factors`, `duty_cycle`, `monthly_factors` per circuit. Returns `dict[str, dict[str, object]]` keyed by template name.
 - **`simulation_utils.py`** — `CloneResult`, `ProfileResult` dataclasses; `clone_with_profiles()` manages a single Socket.IO session (clone → wait for `clone_ready` → send profiles); `discover_clone_simulators()` for mDNS discovery.
-- **`config_flow.py`** — Options flow builds profiles via `_build_profiles_best_effort()`, then passes them to `clone_with_profiles()`. No new UI elements — profile delivery is transparent and best-effort.
+- **`config_flow.py`** — Options flow builds profiles via `_build_profiles_best_effort()`, then passes them to `clone_with_profiles()`. Profile delivery is transparent and best-effort.
 
 ### Simulator Side: Profile Application
 
@@ -326,7 +269,7 @@ All profile fields are optional per circuit. The simulator merges only the field
 
 #### Merge rules
 
-Profile application is an **additive merge** into the clone config's `circuit_templates`:
+Profile application is an additive merge into the clone config's `circuit_templates`:
 
 | Profile field | Target YAML path | Merge behavior |
 |---|---|---|
@@ -336,11 +279,11 @@ Profile application is an **additive merge** into the clone config's `circuit_te
 | `duty_cycle` | `cycling_pattern.duty_cycle` | Overwrite |
 | `monthly_factors` | `monthly_factors` | Overwrite |
 
-Fields **not** touched by profile merge: `mode`, `power_range`, `relay_behavior`, `priority`, `breaker_rating`, `device_type`, `battery_behavior`, `initial_*_energy_wh`, `nameplate_capacity_w`.
+Fields not touched by profile merge: `mode`, `power_range`, `relay_behavior`, `priority`, `breaker_rating`, `device_type`, `battery_behavior`, `initial_*_energy_wh`, `nameplate_capacity_w`.
 
 #### Engine integration
 
-The engine already supports all of these parameters — no engine changes required:
+The engine already supports all of these parameters — no engine changes were required:
 
 - `time_of_day_profile.hour_factors` — applied in `_apply_time_of_day_modulation()`
 - `cycling_pattern.duty_cycle` — applied in `_apply_cycling_behavior()`
@@ -351,28 +294,9 @@ The engine already supports all of these parameters — no engine changes requir
 
 - **`profile_applicator.py`** — Pure function: reads clone config YAML, merges incoming profile dicts into matching `circuit_templates`, writes back. Converts JSON string keys to int. Skips `typical_power`/`power_variation` overwrite for producer/bidirectional modes. Returns count of templates updated.
 - **`sio_handler.py`** — `SioContext` with `clone_panel` (returns `(result, ready_event)` tuple) and `apply_usage_profiles` callbacks. `on_clone_panel` returns the ack immediately, then schedules a background task (`_emit_clone_ready`) that awaits the ready event and emits `clone_ready` to the SID. `on_apply_usage_profiles` handler with validation (non-empty serial, non-empty profiles dict).
-- **`app.py`** — `_clone_panel()` returns `(result_dict, asyncio.Event)`. The event is registered in `_pending_clone_ready` and set by `_reload_watcher()` after the panel appears in `reload()["started"]`. `_apply_usage_profiles()` looks up panel via `_serial_to_panel`, calls `apply_usage_profiles()`, triggers `request_reload()`.
-- **No changes to `engine.py`** — it already consumes all target parameters.
+- **`app.py`** — `_clone_panel()` returns `(result_dict, asyncio.Event)`. The event is registered in `_pending_clone_ready` and set by `_reload_watcher()` after the panel appears in `reload()["started"]` or `reload()["reloaded"]`. `_apply_usage_profiles()` looks up panel via `_serial_to_panel`, calls `apply_usage_profiles()`, triggers `request_reload()`.
 
 ### Tests
 
 - **`test_profile_applicator.py`** — 10 tests: basic merge, string key conversion, duty cycle, monthly factors, producer skip, missing template, empty profiles, multiple templates, field preservation, invalid config.
-- **`test_sio.py`** — 5 new tests for `apply_usage_profiles` event validation: valid call, missing serial, empty serial, missing profiles, empty profiles.
-
-### Dashboard: Re-import
-
-The dashboard can trigger a profile re-import for configs with `panel_source` (since the integration knows which panel to query). This is a future extension — the Socket.IO event is the same `apply_usage_profiles`, but initiated from the dashboard rather than the config flow. The dashboard would need to signal the integration to re-derive and push, or expose a manual profile upload.
-
----
-
-## Implementation Priority
-
-| Feature                            | Status      | Value                                                        |
-| ---------------------------------- | ----------- | ------------------------------------------------------------ |
-| Clone pipeline                     | Done        | Scrape-translate-write from real panel via Socket.IO         |
-| Credential persistence + seeding   | Done        | Energy seeds from real panel; provenance + on-demand refresh |
-| Socket.IO clone channel + sim-     | Done        | HA integration clones via existing Socket.IO session         |
-| HA usage profile import            | Done        | Realistic modeling basis for infrastructure upgrade planning |
-| Dashboard clone UI                 | Not started | Self-contained simulator, no HA integration dependency       |
-
-The dashboard clone UI is independent and lower priority — the integration already provides the clone trigger via Socket.IO.
+- **`test_sio.py`** — 5 tests for `apply_usage_profiles` event validation: valid call, missing serial, empty serial, missing profiles, empty profiles.
