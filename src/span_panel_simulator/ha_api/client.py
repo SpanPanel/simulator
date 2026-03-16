@@ -122,9 +122,14 @@ class HAClient:
                 "Content-Type": "application/json",
             }
             timeout = aiohttp.ClientTimeout(total=_TIMEOUT_S)
+            # Skip SSL verification for local dev — HA typically uses
+            # self-signed certs.  In add-on mode the connection is
+            # over localhost HTTP so this has no effect.
+            connector = aiohttp.TCPConnector(ssl=False)
             self._session = aiohttp.ClientSession(
                 headers=headers,
                 timeout=timeout,
+                connector=connector,
             )
         return self._session
 

@@ -238,6 +238,10 @@ def _compute_hour_factors(hourly_stats: list[dict[str, object]]) -> dict[int, fl
 
     hour_avgs = {h: hour_sums[h] / hour_counts[h] for h in hour_sums}
 
+    # Fill any missing hours by interpolating from neighbors (circular).
+    if 0 < len(hour_avgs) < 24:
+        hour_avgs = _interpolate_hourly_gaps(hour_avgs)
+
     peak = max(hour_avgs.values()) if hour_avgs else 1.0
     if peak <= 0:
         return {h: 1.0 for h in range(24)}
@@ -269,8 +273,97 @@ def _compute_monthly_factors(monthly_stats: list[dict[str, object]]) -> dict[int
 
     month_avgs = {m: month_sums[m] / month_counts[m] for m in month_sums}
 
+    # Fill gaps by circular interpolation from neighboring months.
+    # Months with no observations inherit from the nearest months
+    # that do have data, wrapping around Dec→Jan.
+    month_avgs = _interpolate_monthly_gaps(month_avgs)
+
     peak = max(month_avgs.values()) if month_avgs else 1.0
     if peak <= 0:
         return {m: 1.0 for m in range(1, 13)}
 
     return {m: round(month_avgs.get(m, 0.0) / peak, 3) for m in range(1, 13)}
+
+
+def _interpolate_hourly_gaps(hour_avgs: dict[int, float]) -> dict[int, float]:
+    """Fill missing hours by linearly interpolating from neighbors (circular 0-23)."""
+    observed = sorted(hour_avgs)
+    if len(observed) >= 24:
+        return hour_avgs
+
+    if len(observed) <= 1:
+        val = next(iter(hour_avgs.values())) if hour_avgs else 0.0
+        return {h: val for h in range(24)}
+
+    filled = dict(hour_avgs)
+    for h in range(24):
+        if h in filled:
+            continue
+        before_h, before_val = _nearest_in_cycle(h, hour_avgs, 24, -1)
+        after_h, after_val = _nearest_in_cycle(h, hour_avgs, 24, 1)
+        dist_before = (h - before_h) % 24 or 24
+        dist_after = (after_h - h) % 24 or 24
+        total = dist_before + dist_after
+        filled[h] = (after_val * dist_before + before_val * dist_after) / total
+    return filled
+
+
+def _interpolate_monthly_gaps(month_avgs: dict[int, float]) -> dict[int, float]:
+    """Fill missing months by linearly interpolating from neighbors.
+
+    Months wrap circularly (Dec neighbors Jan).  If only one month has
+    data, all months get that value.  If no months have data the caller
+    handles it.
+    """
+    observed = sorted(month_avgs)  # months with data (1-based)
+    if len(observed) >= 12:
+        return month_avgs  # no gaps
+
+    if len(observed) <= 1:
+        # Single observation — use it everywhere
+        val = next(iter(month_avgs.values())) if month_avgs else 0.0
+        return {m: val for m in range(1, 13)}
+
+    filled = dict(month_avgs)
+
+    for m in range(1, 13):
+        if m in filled:
+            continue
+
+        # Find nearest observed month before and after (circularly)
+        before_m, before_val = _nearest_in_cycle(m, month_avgs, 12, -1, offset=1)
+        after_m, after_val = _nearest_in_cycle(m, month_avgs, 12, 1, offset=1)
+
+        # Circular distance
+        dist_before = (m - before_m) % 12 or 12
+        dist_after = (after_m - m) % 12 or 12
+        total = dist_before + dist_after
+
+        # Linear interpolation weighted by distance
+        filled[m] = (after_val * dist_before + before_val * dist_after) / total
+
+    return filled
+
+
+def _nearest_in_cycle(
+    pos: int,
+    values: dict[int, float],
+    cycle_len: int,
+    direction: int,
+    *,
+    offset: int = 0,
+) -> tuple[int, float]:
+    """Find the nearest observed position in a circular sequence.
+
+    Args:
+        pos: Current position to search from.
+        values: Observed positions and their values.
+        cycle_len: Length of the cycle (24 for hours, 12 for months).
+        direction: -1 for backward, 1 for forward.
+        offset: Starting value of the cycle (0 for hours, 1 for months).
+    """
+    for step in range(1, cycle_len + 1):
+        candidate = ((pos - offset + direction * step) % cycle_len) + offset
+        if candidate in values:
+            return candidate, values[candidate]
+    return pos, 0.0
