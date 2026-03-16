@@ -41,6 +41,7 @@ from span_panel_simulator.sio_handler import SioContext, create_sio_server
 if TYPE_CHECKING:
     from span_panel_simulator.certs import CertificateBundle
     from span_panel_simulator.engine import DynamicSimulationEngine
+    from span_panel_simulator.ha_api.client import HAClient, HAConnectionConfig
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -110,6 +111,7 @@ class SimulatorApp:
         dashboard_port: int = DASHBOARD_PORT,
         advertise_address: str | None = None,
         advertise_http_port: int | None = None,
+        ha_config: HAConnectionConfig | None = None,
     ) -> None:
         self._config_dir = config_dir
         self._config_filter = config_filter
@@ -139,6 +141,8 @@ class SimulatorApp:
         self._mqtt_client: aiomqtt.Client | None = None
         self._reload_event: asyncio.Event = asyncio.Event()
         self._pending_clone_ready: dict[str, asyncio.Event] = {}
+        self._ha_config = ha_config
+        self._ha_client: HAClient | None = None
 
     # ------------------------------------------------------------------
     # Dashboard helpers
@@ -600,6 +604,18 @@ class SimulatorApp:
         await dashboard_site.start()
         _LOGGER.info("Dashboard listening on http://0.0.0.0:%d", self._dashboard_port)
 
+        # 3c. Initialise HA API client (if configured)
+        if self._ha_config is not None:
+            from span_panel_simulator.ha_api.client import HAClient
+
+            self._ha_client = HAClient(self._ha_config)
+            if await self._ha_client.async_validate():
+                _LOGGER.info("HA API: connected and validated")
+            else:
+                _LOGGER.warning("HA API: validation failed — continuing without HA")
+                await self._ha_client.close()
+                self._ha_client = None
+
         # 4. Start mDNS advertiser
         advertiser = PanelAdvertiser(
             http_port=self._advertise_http_port or self._http_port,
@@ -641,6 +657,8 @@ class SimulatorApp:
                 await self._dashboard_runner.cleanup()
             if self._http_server is not None:
                 await self._http_server.stop()
+            if self._ha_client is not None:
+                await self._ha_client.close()
             _LOGGER.info("Simulator shut down")
 
     async def stop(self) -> None:

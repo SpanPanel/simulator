@@ -129,6 +129,26 @@ on simulator code and testing integration discovery.
 ./scripts/run-local.sh
 ```
 
+To connect to a Home Assistant instance for entity discovery and recorder
+statistics (needed for profile import, cost modeling, and the data
+acquisition layer), pass your HA credentials:
+
+```bash
+./scripts/run-local.sh --ha-url http://192.168.1.10:8123 --ha-token YOUR_LONG_LIVED_TOKEN
+```
+
+Or via environment variables:
+
+```bash
+export HA_URL=http://192.168.1.10:8123
+export HA_TOKEN=YOUR_LONG_LIVED_TOKEN
+./scripts/run-local.sh
+```
+
+When running as an HA add-on, the Supervisor injects `SUPERVISOR_TOKEN`
+automatically and these are not needed.  See `ha_api/client.py` for
+the dual-mode detection logic.
+
 **2. Docker container**
 
 Builds and runs the same image that CI pushes to GHCR. Useful for
@@ -223,7 +243,11 @@ simulator/
     certs.py                # TLS certificate generation
     models.py               # Snapshot dataclasses
     config_types.py         # YAML schema TypedDicts
-    dashboard/              # Web dashboard (port 8080)
+    ha_api/                 # Home Assistant API client (dual-mode)
+      client.py             # REST API client (Supervisor or local)
+      entity_discovery.py   # SPAN device -> circuit entity mapping
+      profile_builder.py    # Recorder stats -> usage profiles
+    dashboard/              # Web dashboard (port 18080)
       routes.py             # HTMX route handlers
       config_store.py       # In-memory config state
       presets.py             # Profile and schedule presets

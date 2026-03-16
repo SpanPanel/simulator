@@ -102,6 +102,23 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=os.environ.get("LOG_LEVEL", "INFO"),
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
+
+    # Home Assistant API — for local development.  When running as an
+    # add-on, SUPERVISOR_TOKEN is injected automatically and these are
+    # not needed.
+    parser.add_argument(
+        "--ha-url",
+        default=os.environ.get("HA_URL"),
+        help="Home Assistant URL (e.g. http://192.168.1.10:8123). "
+        "Not needed when running as an HA add-on.",
+    )
+    parser.add_argument(
+        "--ha-token",
+        default=os.environ.get("HA_TOKEN"),
+        help="Long-lived access token for Home Assistant. "
+        "Not needed when running as an HA add-on.",
+    )
+
     return parser.parse_args(argv)
 
 
@@ -142,6 +159,18 @@ def main(argv: list[str] | None = None) -> None:
                 sys.exit(1)
             logging.info("Found %d config(s) in %s", len(yamls), config_dir)
 
+    # Resolve HA API connection (add-on mode auto-detects via env var)
+    from span_panel_simulator.ha_api.client import HAConnectionConfig
+
+    ha_config = HAConnectionConfig.from_environment(
+        ha_url=args.ha_url,
+        ha_token=args.ha_token,
+    )
+    if ha_config:
+        logging.info("HA API configured: %s", ha_config.base_url)
+    else:
+        logging.info("HA API not configured — running without HA integration")
+
     app = SimulatorApp(
         config_dir=config_dir,
         config_filter=config_filter,
@@ -156,6 +185,7 @@ def main(argv: list[str] | None = None) -> None:
         dashboard_port=args.dashboard_port,
         advertise_address=args.advertise_address,
         advertise_http_port=args.advertise_http_port,
+        ha_config=ha_config,
     )
 
     try:

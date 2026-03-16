@@ -15,11 +15,13 @@ Ports bind to the host's LAN interface for full mDNS visibility.
 Prerequisites: brew install mosquitto
 
 Options:
-  --debug       Run with DEBUG log level
-  --stop        Stop the running simulator and Mosquitto
-  --restart     Stop then start the simulator and Mosquitto
-  --status      Show running processes
-  -h, --help    Show this help message
+  --debug              Run with DEBUG log level
+  --stop               Stop the running simulator and Mosquitto
+  --restart            Stop then start the simulator and Mosquitto
+  --status             Show running processes
+  --ha-url URL         Home Assistant URL (e.g. http://192.168.1.10:8123)
+  --ha-token TOKEN     Long-lived access token for Home Assistant
+  -h, --help           Show this help message
 
 Environment variables:
   ADVERTISE_ADDRESS Override mDNS advertised IP (auto-detected from en0/en1)
@@ -32,6 +34,8 @@ Environment variables:
   HTTP_PORT         Bootstrap HTTP port (default: 8081)
   DASHBOARD_PORT    Dashboard UI port (default: 18080)
   BROKER_PORT       MQTTS port (default: 18883)
+  HA_URL            Home Assistant URL (alternative to --ha-url)
+  HA_TOKEN          Long-lived access token (alternative to --ha-token)
 EOF
     exit 0
 }
@@ -165,7 +169,10 @@ run_simulator() {
     echo "    Dashboard:  http://${advertise_addr:-localhost}:${DASHBOARD_PORT}"
     echo "    MQTTS:      ${advertise_addr}:${BROKER_PORT}"
     if [[ -n "${advertise_addr}" ]]; then
-        echo "    mDNS:    ${advertise_addr}"
+        echo "    mDNS:       ${advertise_addr}"
+    fi
+    if [[ -n "${HA_URL}" ]]; then
+        echo "    HA API:     ${HA_URL}"
     fi
 
     "${VENV_DIR}/bin/python3" -m span_panel_simulator \
@@ -180,7 +187,9 @@ run_simulator() {
         --log-level "${LOG_LEVEL:-INFO}" \
         ${advertise_addr:+--advertise-address "${advertise_addr}"} \
         --advertise-http-port "${ADVERTISE_HTTP_PORT}" \
-        ${CONFIG_NAME:+--config "${CONFIG_NAME}"} &
+        ${CONFIG_NAME:+--config "${CONFIG_NAME}"} \
+        ${HA_URL:+--ha-url "${HA_URL}"} \
+        ${HA_TOKEN:+--ha-token "${HA_TOKEN}"} &
 
     local sim_pid=$!
     echo "${sim_pid}" > "${PID_DIR}/simulator.pid"
@@ -198,14 +207,18 @@ run_simulator() {
 # --- Main ---
 
 ACTION="run"
+HA_URL="${HA_URL:-}"
+HA_TOKEN="${HA_TOKEN:-}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --debug)   LOG_LEVEL="DEBUG"; shift ;;
-        --stop)    ACTION="stop"; shift ;;
-        --restart) ACTION="restart"; shift ;;
-        --status)  ACTION="status"; shift ;;
-        -h|--help) usage ;;
+        --debug)    LOG_LEVEL="DEBUG"; shift ;;
+        --stop)     ACTION="stop"; shift ;;
+        --restart)  ACTION="restart"; shift ;;
+        --status)   ACTION="status"; shift ;;
+        --ha-url)   HA_URL="$2"; shift 2 ;;
+        --ha-token) HA_TOKEN="$2"; shift 2 ;;
+        -h|--help)  usage ;;
         *) echo "Unknown option: $1"; usage ;;
     esac
 done
