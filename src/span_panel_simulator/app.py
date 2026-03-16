@@ -611,6 +611,7 @@ class SimulatorApp:
             self._ha_client = HAClient(self._ha_config)
             if await self._ha_client.async_validate():
                 _LOGGER.info("HA API: connected and validated")
+                dashboard_ctx.ha_client = self._ha_client
             else:
                 _LOGGER.warning("HA API: validation failed — continuing without HA")
                 await self._ha_client.close()

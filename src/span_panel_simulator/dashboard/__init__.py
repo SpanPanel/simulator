@@ -38,6 +38,7 @@ class DashboardContext:
     set_grid_islandable: Callable[[bool], None] = lambda _: None
     set_circuit_priority: Callable[[str, str], None] = lambda _id, _pri: None
     set_circuit_relay: Callable[[str, str], None] = lambda _id, _state: None
+    ha_client: Any = None  # HAClient | None — optional, set when HA API is available
 
 
 def create_dashboard_app(context: DashboardContext) -> web.Application:

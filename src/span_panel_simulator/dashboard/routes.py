@@ -68,6 +68,8 @@ def _available_configs(request: web.Request) -> list[str]:
 def _dashboard_context(request: web.Request) -> dict[str, Any]:
     """Build the full-page template context."""
     store = _store(request)
+    ctx = _ctx(request)
+    panel_source = store.get_panel_source()
     return {
         "panel_config": store.get_panel_config(),
         "sim_params": store.get_simulation_params(),
@@ -78,8 +80,10 @@ def _dashboard_context(request: web.Request) -> dict[str, Any]:
         "preset_labels": PRESET_LABELS,
         "unmapped_tabs": store.get_unmapped_tabs(),
         "config_files": _available_configs(request),
-        "panel_source": store.get_panel_source(),
+        "panel_source": panel_source,
         "origin_serial": store.get_origin_serial(),
+        "ha_available": ctx.ha_client is not None,
+        "clone_host": panel_source.get("host", "") if panel_source else "",
     }
 
 
@@ -222,6 +226,10 @@ def setup_routes(app: web.Application) -> None:
     # Panel source provenance
     app.router.add_get("/panel-source", handle_get_panel_source)
     app.router.add_post("/sync-panel-source", handle_sync_panel_source)
+
+    # Clone from real panel + HA profile import
+    app.router.add_post("/clone-from-panel", handle_clone_from_panel)
+    app.router.add_post("/import-ha-profiles", handle_import_ha_profiles)
 
 
 # -- Full page --
@@ -863,3 +871,205 @@ async def handle_sync_panel_source(request: web.Request) -> web.Response:
     ctx = _panel_source_context(request)
     ctx["sync_message"] = "Updated energy seeds from source panel."
     return _render("partials/panel_source.html", request, ctx)
+
+
+# -- Clone from real panel --
+
+
+def _clone_panel_context(request: web.Request, **extra: object) -> dict[str, Any]:
+    """Build the clone panel section template context."""
+    ctx = _ctx(request)
+    store = _store(request)
+    panel_source = store.get_panel_source()
+    result: dict[str, Any] = {
+        "ha_available": ctx.ha_client is not None,
+        "clone_host": panel_source.get("host", "") if panel_source else "",
+    }
+    result.update(extra)
+    return result
+
+
+async def handle_clone_from_panel(request: web.Request) -> web.Response:
+    """Scrape a real SPAN panel via eBus and create a clone config."""
+    from span_panel_simulator.clone import (
+        translate_scraped_panel,
+        write_clone_config,
+    )
+    from span_panel_simulator.scraper import ScrapeError, register_with_panel, scrape_ebus
+
+    data = await request.post()
+    host = str(data.get("host", "")).strip()
+    passphrase = str(data.get("passphrase", "")).strip() or None
+
+    if not host:
+        return _render(
+            "partials/clone_panel.html",
+            request,
+            _clone_panel_context(request, clone_error="Panel IP or hostname is required."),
+        )
+
+    try:
+        creds, ca_pem = await register_with_panel(host, passphrase)
+        scraped = await scrape_ebus(creds, ca_pem)
+    except ScrapeError as exc:
+        return _render(
+            "partials/clone_panel.html",
+            request,
+            _clone_panel_context(
+                request,
+                clone_error=f"Clone failed: [{exc.phase}] {exc}",
+                clone_host=host,
+            ),
+        )
+
+    config = translate_scraped_panel(scraped, host=host, passphrase=passphrase)
+
+    ctx = _ctx(request)
+
+    # Apply home location from HA if available
+    if ctx.ha_client is not None:
+        try:
+            location = await ctx.ha_client.async_get_home_location()
+            if location is not None:
+                lat, lon = location
+                panel_cfg = config.get("panel_config")
+                if isinstance(panel_cfg, dict):
+                    panel_cfg["latitude"] = lat
+                    panel_cfg["longitude"] = lon
+                    _LOGGER.info("Applied HA home location: %.4f, %.4f", lat, lon)
+        except Exception:
+            _LOGGER.debug("Could not fetch HA location", exc_info=True)
+
+    clone_path = write_clone_config(config, ctx.config_dir, scraped.serial_number)
+
+    # Load the clone config into the dashboard and switch to it
+    store = _store(request)
+    store.load_from_file(clone_path)
+    ctx.set_config_filter(clone_path.name)
+    ctx.config_filter = clone_path.name
+    ctx.request_reload()
+
+    _LOGGER.info("Panel cloned from %s -> %s", host, clone_path.name)
+
+    # Redirect to refresh the full dashboard with the new config
+    return web.Response(status=200, headers={"HX-Redirect": "/"})
+
+
+# -- HA profile import --
+
+
+async def handle_import_ha_profiles(request: web.Request) -> web.Response:
+    """Discover SPAN entities in HA and import usage profiles from recorder."""
+    from span_panel_simulator.ha_api.entity_discovery import discover_span_panel
+    from span_panel_simulator.ha_api.profile_builder import build_profiles
+    from span_panel_simulator.profile_applicator import apply_usage_profiles
+
+    ctx = _ctx(request)
+    if ctx.ha_client is None:
+        return _render(
+            "partials/clone_panel.html",
+            request,
+            _clone_panel_context(request, profile_error="HA API is not connected."),
+        )
+
+    try:
+        panel_map = await discover_span_panel(ctx.ha_client)
+        if panel_map is None:
+            return _render(
+                "partials/clone_panel.html",
+                request,
+                _clone_panel_context(
+                    request,
+                    profile_error="No SPAN panel found in Home Assistant.",
+                ),
+            )
+
+        # Filter to circuits only (skip panel-level aggregates)
+        circuits = [
+            c
+            for c in panel_map.circuits
+            if c.circuit_key not in ("current", "pv", "site", "feed_through")
+        ]
+
+        profiles = await build_profiles(ctx.ha_client, circuits)
+        if not profiles:
+            return _render(
+                "partials/clone_panel.html",
+                request,
+                _clone_panel_context(
+                    request,
+                    profile_error="No recorder statistics found for SPAN circuits.",
+                ),
+            )
+
+    except Exception as exc:
+        _LOGGER.exception("HA profile import failed")
+        return _render(
+            "partials/clone_panel.html",
+            request,
+            _clone_panel_context(
+                request,
+                profile_error=f"Profile import failed: {exc}",
+            ),
+        )
+
+    # Apply profiles to the current config file
+    store = _store(request)
+    config_filter = ctx.config_filter
+    if not config_filter:
+        return _render(
+            "partials/clone_panel.html",
+            request,
+            _clone_panel_context(
+                request,
+                profile_error="No config loaded — clone a panel first.",
+            ),
+        )
+
+    config_path = ctx.config_dir / config_filter
+
+    # The profile builder keys by circuit_key (e.g. "refrigerator") but
+    # the applicator expects template names (e.g. "clone_3").  We need to
+    # match by circuit name.  Build a name→template mapping from the
+    # current config's circuits.
+    templates = store._state.get("circuit_templates", {})
+    circuit_defs = store._state.get("circuits", [])
+    if isinstance(templates, dict) and isinstance(circuit_defs, list):
+        # Build name → template_name mapping (slugified circuit name)
+        name_to_template: dict[str, str] = {}
+        for circ in circuit_defs:
+            if isinstance(circ, dict):
+                circ_name = str(circ.get("name", ""))
+                template = str(circ.get("template", ""))
+                if circ_name and template:
+                    # Slugify the circuit name to match the HA entity key
+                    slug = circ_name.lower().replace(" ", "_").replace("-", "_")
+                    # Remove non-alphanumeric chars except underscore
+                    slug = "".join(c for c in slug if c.isalnum() or c == "_")
+                    name_to_template[slug] = template
+
+        # Remap profiles from circuit_key to template_name
+        remapped: dict[str, dict[str, object]] = {}
+        for circuit_key, profile in profiles.items():
+            template_name = name_to_template.get(circuit_key)
+            if template_name:
+                remapped[template_name] = profile
+            else:
+                _LOGGER.debug("No template match for HA circuit key '%s'", circuit_key)
+
+        profiles = remapped
+
+    updated = apply_usage_profiles(config_path, profiles)
+
+    # Reload the config store from the updated file
+    store.load_from_file(config_path)
+    ctx.request_reload()
+
+    return _render(
+        "partials/clone_panel.html",
+        request,
+        _clone_panel_context(
+            request,
+            profile_message=f"Imported profiles for {updated} circuits from HA recorder.",
+        ),
+    )
