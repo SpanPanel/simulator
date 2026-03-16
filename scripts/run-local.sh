@@ -15,6 +15,7 @@ Ports bind to the host's LAN interface for full mDNS visibility.
 Prerequisites: brew install mosquitto
 
 Options:
+  --debug       Run with DEBUG log level
   --stop        Stop the running simulator and Mosquitto
   --restart     Stop then start the simulator and Mosquitto
   --status      Show running processes
@@ -200,6 +201,7 @@ ACTION="run"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --debug)   LOG_LEVEL="DEBUG"; shift ;;
         --stop)    ACTION="stop"; shift ;;
         --restart) ACTION="restart"; shift ;;
         --status)  ACTION="status"; shift ;;
