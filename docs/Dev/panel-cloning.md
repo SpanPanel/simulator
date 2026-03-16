@@ -193,7 +193,7 @@ A "Clone Panel" button in the dashboard navigation opens an HTMX dialog:
 
 ---
 
-## Feature: HA Usage Profile Import (Integration-Driven)
+## Implemented: HA Usage Profile Import (Integration-Driven)
 
 ### Problem
 
@@ -213,8 +213,8 @@ HA Integration                                 Simulator
      |-- clone_panel ---------------------------->|  (existing)
      |<-- {clone_serial, circuits, ...} ----------|
      |                                            |
-     |-- recorder/statistics_during_period ------>| (HA internal,
-     |<-- hourly stats per circuit entity --------|  not the simulator)
+     |-- recorder/statistics_during_period        |  (HA internal,
+     |   (hourly: 30 days, monthly: 12 months)    |   not the simulator)
      |                                            |
      |-- derive profiles per circuit              |
      |   (typical_power, hour_factors,            |
@@ -226,7 +226,7 @@ HA Integration                                 Simulator
      |     "clone_2": {...},                      |
      |     "clone_15": {...},                     |
      |   }}                                       |
-     |<-- {status: ok, circuits_updated: N} ------|
+     |<-- {status: ok, templates_updated: N} -----|
 ```
 
 **Why separate events**: `clone_panel` and `apply_usage_profiles` are independent operations. Profiles can be re-imported without re-cloning — the topology rarely changes, but usage patterns may be worth refreshing before a new modeling session. Both are thin Socket.IO RPC calls over the existing `/v1/panel` namespace.
@@ -237,39 +237,47 @@ HA Integration                                 Simulator
 
 #### Statistics source
 
-HA's recorder stores per-circuit sensor data published by the SPAN integration:
-
-- `sensor.span_{device}_{circuit_name}_power` — instantaneous watts
-- `sensor.span_{device}_{circuit_name}_energy_consumed` — monotonic Wh counter
-- `sensor.span_{device}_{circuit_name}_energy_produced` — monotonic Wh counter
-
-The recorder's **long-term statistics** (`recorder/statistics_during_period`) retain hourly aggregates (mean, min, max, state change sum) indefinitely. Short-term state history is purged after the configured retention period, but the hourly buckets persist. A month of data is sufficient; a year gives seasonal resolution.
+HA's recorder stores per-circuit sensor data published by the SPAN integration. The recorder's **long-term statistics** (`recorder/statistics_during_period`) retain hourly aggregates (mean, min, max) indefinitely. Short-term state history is purged after the configured retention period, but the hourly buckets persist. A month of data is sufficient; a year gives seasonal resolution.
 
 #### Entity resolution
 
-The integration knows the panel's device entry and circuit entities from its own entity registry. During profile building, it resolves each circuit's power entity by device + suffix. No fragile entity name guessing — the integration created these entities and owns their registry entries.
+The integration resolves each circuit's power sensor entity via the entity registry using the unique ID pattern `span_{serial}_{circuit_uuid}_power` (via `build_circuit_unique_id`). No fragile entity name guessing — the integration created these entities and owns their registry entries.
 
-Circuit-to-template mapping uses the clone response: the clone serial encodes the original panel serial, and circuit spaces map directly to template names (`circuit_{space}` -> `clone_{space}`).
+Circuit-to-template mapping: for each circuit in `SpanPanelSnapshot.circuits`, `min(circuit.tabs)` → `clone_{tab}` template name. This matches the clone pipeline's naming convention.
+
+**Skipped circuits**: unmapped tabs (`unmapped_tab_*`), PV circuits (`device_type == "pv"`), and BESS circuits (`device_type == "bess"`) are excluded — their power profiles are hardware-driven.
+
+#### Recorder queries
+
+Two targeted queries per clone operation:
+
+1. **Hourly stats, last 30 days** (~720 points/circuit): `statistics_during_period(hass, now-30d, now, stat_ids, "hour", None, {"mean", "min", "max"})` — derives `typical_power`, `power_variation`, `hour_factors`, `duty_cycle`
+
+2. **Monthly stats, last 12 months** (~12 points/circuit): `statistics_during_period(hass, now-365d, now, stat_ids, "month", None, {"mean"})` — derives `monthly_factors`
+
+Circuits with fewer than 24 hourly data points are skipped.
 
 #### Profile derivation
 
-From the hourly statistics, derive per-circuit profiles:
+**Typical power** — Mean of hourly means across all hours. Replaces the point-in-time `typical_power` from the clone snapshot.
 
-**Typical power** — The overall mean power across all hours replaces the point-in-time `typical_power` from the clone snapshot.
+**Power variation** — Coefficient of variation (stddev / mean) of hourly means, clamped to [0.0, 1.0]. Replaces the default 0.1 `power_variation`.
 
-**Power variation** — The coefficient of variation (stddev / mean) across hours replaces the default 0.1 `power_variation`, capturing how peaky or steady the circuit is.
+**Time-of-day factors** — Group hourly stats by hour-of-day (0–23), average each bucket, normalize so peak hour = 1.0. Maps directly to `time_of_day_profile.hour_factors`.
 
-**Time-of-day factors** — For each circuit, compute the average power per hour-of-day across the retrieval window. Normalize to produce 24 `hour_factors` values (0.0-1.0 relative to peak hour). This maps directly to the engine's existing `time_of_day_profile.hour_factors`.
+**Duty cycle** — `mean(hourly means) / mean(hourly maxes)`. Only included if < 0.8 (circuits at or above 0.8 are considered always-on).
 
-**Cycling detection** — Circuits with high max/mean ratios (e.g., refrigerator, HVAC) and bimodal distributions can have cycling parameters derived: duty cycle = mean/max, period estimated from state-change frequency if available.
+**Monthly factors** (requires 3+ distinct months) — Monthly averages normalized to peak month = 1.0. Takes precedence over latitude-based `hvac_type` model in the engine.
 
-**Monthly factors** (requires > 3 months of data) — Compare monthly averages to detect seasonal swing. Normalize to produce 12 `monthly_factors` values (1.0 = peak month). Takes precedence over latitude-based `hvac_type` model in the engine.
+#### Orchestration
 
-#### Scope (integration repo: `~/projects/HA/span`)
+`clone_and_profile()` in `simulation_utils.py` orchestrates the full sequence: clone → build profiles → send profiles. The clone is the gate — if it fails, the entire operation fails. Profile building and delivery are **best-effort**: failures are logged but do not affect the clone result. Empty profiles (no recorder data) skip delivery silently.
 
-- **New: `profile_builder.py`** — Queries `recorder/statistics_during_period` for circuit power entities over a configurable window (default 30 days). Derives `typical_power`, `power_variation`, `hour_factors`, `duty_cycle`, `monthly_factors` per circuit. Returns `dict[str, CircuitProfile]` keyed by template name.
-- **Extended: `simulation_utils.py`** — New `send_usage_profiles()` function sends `apply_usage_profiles` Socket.IO event. Orchestration function `clone_and_profile()` calls `execute_clone_via_simulator()` then `send_usage_profiles()`.
-- **Extended: `config_flow.py`** — Clone step gains an option to include usage profiles (default on if sufficient recorder history exists). Calls `clone_and_profile()` instead of bare `execute_clone_via_simulator()`.
+#### Files (integration repo: `~/projects/HA/span`)
+
+- **`simulator_profile_builder.py`** — Queries `statistics_during_period` for circuit power entities over 30-day (hourly) and 12-month (monthly) windows. Maps circuits to template names via `min(tabs)`. Derives `typical_power`, `power_variation`, `hour_factors`, `duty_cycle`, `monthly_factors` per circuit. Returns `dict[str, dict[str, object]]` keyed by template name.
+- **`simulation_utils.py`** — `ProfileResult` dataclass, `send_usage_profiles()` Socket.IO call, `clone_and_profile()` orchestrator.
+- **`config_flow.py`** — Clone step calls `clone_and_profile()` instead of bare `execute_clone_via_simulator()`. No new UI elements — profile delivery is transparent and best-effort.
 
 ### Simulator Side: Profile Application
 
@@ -298,9 +306,9 @@ From the hourly statistics, derive per-circuit profiles:
 }
 ```
 
-All profile fields are optional per circuit. The simulator merges only the fields present, preserving topology values (breaker_rating, relay_behavior, priority, mode, power_range) untouched.
+All profile fields are optional per circuit. The simulator merges only the fields present, preserving topology values (breaker_rating, relay_behavior, priority, mode, power_range) untouched. String dict keys from JSON (`"0"`, `"1"`) are converted to int keys for YAML compatibility.
 
-**Response**: `{"status": "ok", "circuits_updated": N}`
+**Response**: `{"status": "ok", "templates_updated": N}`
 
 #### Merge rules
 
@@ -308,10 +316,10 @@ Profile application is an **additive merge** into the clone config's `circuit_te
 
 | Profile field | Target YAML path | Merge behavior |
 |---|---|---|
-| `typical_power` | `energy_profile.typical_power` | Overwrite |
-| `power_variation` | `energy_profile.power_variation` | Overwrite |
+| `typical_power` | `energy_profile.typical_power` | Overwrite; skip producer/bidirectional |
+| `power_variation` | `energy_profile.power_variation` | Overwrite; skip producer/bidirectional |
 | `hour_factors` | `time_of_day_profile.hour_factors` | Overwrite; sets `enabled: true` |
-| `duty_cycle` | `cycling_pattern.duty_cycle` | Overwrite; enables cycling |
+| `duty_cycle` | `cycling_pattern.duty_cycle` | Overwrite |
 | `monthly_factors` | `monthly_factors` | Overwrite |
 
 Fields **not** touched by profile merge: `mode`, `power_range`, `relay_behavior`, `priority`, `breaker_rating`, `device_type`, `battery_behavior`, `initial_*_energy_wh`, `nameplate_capacity_w`.
@@ -325,12 +333,17 @@ The engine already supports all of these parameters — no engine changes requir
 - `monthly_factors` — applied in `_apply_seasonal_modulation()` (takes precedence over `hvac_type`)
 - `power_variation` — applied as noise in `get_circuit_power()`
 
-#### Scope (simulator repo)
+#### Files (simulator repo)
 
-- **New: `profile_applicator.py`** — Pure function: reads clone config YAML, merges incoming profile dicts into matching `circuit_templates`, writes back. No HA dependency.
-- **Extended: `sio_handler.py`** — New `on_apply_usage_profiles` handler with validation.
-- **Extended: `app.py`** — New `_apply_usage_profiles` callback in `SioContext`, wires to `profile_applicator`.
+- **`profile_applicator.py`** — Pure function: reads clone config YAML, merges incoming profile dicts into matching `circuit_templates`, writes back. Converts JSON string keys to int. Skips `typical_power`/`power_variation` overwrite for producer/bidirectional modes. Returns count of templates updated.
+- **`sio_handler.py`** — `apply_usage_profiles` callback in `SioContext`; `on_apply_usage_profiles` handler in `_PanelNamespace` with validation (non-empty serial, non-empty profiles dict).
+- **`app.py`** — `_apply_usage_profiles()` method looks up panel via `_serial_to_panel`, calls `apply_usage_profiles()`, triggers `request_reload()`.
 - **No changes to `engine.py`** — it already consumes all target parameters.
+
+### Tests
+
+- **`test_profile_applicator.py`** — 10 tests: basic merge, string key conversion, duty cycle, monthly factors, producer skip, missing template, empty profiles, multiple templates, field preservation, invalid config.
+- **`test_sio.py`** — 5 new tests for `apply_usage_profiles` event validation: valid call, missing serial, empty serial, missing profiles, empty profiles.
 
 ### Dashboard: Re-import
 
@@ -345,12 +358,7 @@ The dashboard can trigger a profile re-import for configs with `panel_source` (s
 | Clone pipeline                     | Done        | Scrape-translate-write from real panel via Socket.IO         |
 | Credential persistence + seeding   | Done        | Energy seeds from real panel; provenance + on-demand refresh |
 | Socket.IO clone channel + sim-     | Done        | HA integration clones via existing Socket.IO session         |
-| HA usage profile import            | Next        | Realistic modeling basis for infrastructure upgrade planning |
+| HA usage profile import            | Done        | Realistic modeling basis for infrastructure upgrade planning |
 | Dashboard clone UI                 | Not started | Self-contained simulator, no HA integration dependency       |
-
-The HA usage profile import is the next priority. It spans two repos:
-
-1. **Integration** (`~/projects/HA/span`): `profile_builder.py` (derivation) + `simulation_utils.py` extension (delivery)
-2. **Simulator** (`~/projects/simulator`): `profile_applicator.py` (merge) + `sio_handler.py` extension (reception)
 
 The dashboard clone UI is independent and lower priority — the integration already provides the clone trigger via Socket.IO.

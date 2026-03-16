@@ -143,7 +143,12 @@ class TestPanelNamespace:
             return_value=update_result or {"status": "ok", "time_zone": "America/New_York"}
         )
         mock_clone = AsyncMock(return_value={"status": "ok"})
-        ctx = SioContext(update_panel_location=mock_update, clone_panel=mock_clone)
+        mock_profiles = AsyncMock(return_value={"status": "ok", "templates_updated": 0})
+        ctx = SioContext(
+            update_panel_location=mock_update,
+            clone_panel=mock_clone,
+            apply_usage_profiles=mock_profiles,
+        )
         ns = _PanelNamespace("/v1/panel", ctx)
         return ns, mock_update
 
@@ -250,4 +255,72 @@ class TestPanelNamespace:
         )
 
         mock.assert_not_awaited()
+        assert result["status"] == "error"
+
+    # apply_usage_profiles event tests
+
+    @pytest.mark.asyncio
+    async def test_apply_profiles_calls_callback(self) -> None:
+        """Valid apply_usage_profiles event invokes the callback."""
+        ns, _ = self._make_namespace()
+        profiles = {"clone_1": {"typical_power": 200.0}}
+
+        result = await ns.on_apply_usage_profiles(
+            "sid-1",
+            {"clone_serial": "sim-TEST-clone", "profiles": profiles},
+        )
+
+        ns._ctx.apply_usage_profiles.assert_awaited_once_with("sim-TEST-clone", profiles)
+        assert result["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_apply_profiles_missing_serial(self) -> None:
+        """Missing clone_serial returns error."""
+        ns, _ = self._make_namespace()
+
+        result = await ns.on_apply_usage_profiles(
+            "sid-1",
+            {"profiles": {"clone_1": {"typical_power": 200.0}}},
+        )
+
+        ns._ctx.apply_usage_profiles.assert_not_awaited()
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_apply_profiles_empty_serial(self) -> None:
+        """Empty clone_serial returns error."""
+        ns, _ = self._make_namespace()
+
+        result = await ns.on_apply_usage_profiles(
+            "sid-1",
+            {"clone_serial": "", "profiles": {"clone_1": {}}},
+        )
+
+        ns._ctx.apply_usage_profiles.assert_not_awaited()
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_apply_profiles_missing_profiles(self) -> None:
+        """Missing profiles dict returns error."""
+        ns, _ = self._make_namespace()
+
+        result = await ns.on_apply_usage_profiles(
+            "sid-1",
+            {"clone_serial": "sim-TEST-clone"},
+        )
+
+        ns._ctx.apply_usage_profiles.assert_not_awaited()
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_apply_profiles_empty_profiles(self) -> None:
+        """Empty profiles dict returns error."""
+        ns, _ = self._make_namespace()
+
+        result = await ns.on_apply_usage_profiles(
+            "sid-1",
+            {"clone_serial": "sim-TEST-clone", "profiles": {}},
+        )
+
+        ns._ctx.apply_usage_profiles.assert_not_awaited()
         assert result["status"] == "error"

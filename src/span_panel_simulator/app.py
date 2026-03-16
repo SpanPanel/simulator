@@ -33,6 +33,7 @@ from span_panel_simulator.dashboard import DashboardContext, create_dashboard_ap
 from span_panel_simulator.discovery import PanelAdvertiser
 from span_panel_simulator.engine import _PANEL_SIZE_TO_MODEL
 from span_panel_simulator.panel import PanelInstance
+from span_panel_simulator.profile_applicator import apply_usage_profiles
 from span_panel_simulator.schema import HomieSchemaRegistry, load_schema
 from span_panel_simulator.sio_handler import SioContext, create_sio_server
 
@@ -369,6 +370,27 @@ class SimulatorApp:
             "time_zone": tz_name,
         }
 
+    async def _apply_usage_profiles(
+        self,
+        clone_serial: str,
+        profiles: dict[str, dict[str, object]],
+    ) -> dict[str, object]:
+        """Merge HA-derived usage profiles into a running clone's config.
+
+        Called by the Socket.IO ``apply_usage_profiles`` event handler.
+        """
+        panel = self._serial_to_panel.get(clone_serial)
+        if panel is None:
+            return {
+                "status": "error",
+                "message": f"Panel {clone_serial} not found",
+            }
+
+        updated = apply_usage_profiles(panel.config_path, profiles)
+        self.request_reload()
+
+        return {"status": "ok", "templates_updated": updated}
+
     # ------------------------------------------------------------------
     # MQTT publish callback (shared across all panels)
     # ------------------------------------------------------------------
@@ -567,6 +589,7 @@ class SimulatorApp:
         sio_ctx = SioContext(
             update_panel_location=self._update_panel_location,
             clone_panel=self._clone_panel,
+            apply_usage_profiles=self._apply_usage_profiles,
         )
         sio = create_sio_server(sio_ctx)
 

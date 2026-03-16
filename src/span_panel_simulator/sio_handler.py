@@ -7,11 +7,13 @@ be introduced without breaking existing clients.
 
 Protocol v1.0 -- namespace ``/v1/panel``::
 
-    connect      -> server emits "protocol" {"version": "1.0"}
-    set_location -> client sends {"serial", "latitude", "longitude"}
-                    server acks  {"status": "ok", "time_zone": str}
-    clone_panel  -> client sends {"host", "passphrase", "latitude", "longitude"}
-                    server acks  {"status": "ok", "clone_serial", "circuits", ...}
+    connect              -> server emits "protocol" {"version": "1.0"}
+    set_location         -> client sends {"serial", "latitude", "longitude"}
+                            server acks  {"status": "ok", "time_zone": str}
+    clone_panel          -> client sends {"host", "passphrase", "latitude", "longitude"}
+                            server acks  {"status": "ok", "clone_serial", "circuits", ...}
+    apply_usage_profiles -> client sends {"clone_serial", "profiles": {template: {…}}}
+                            server acks  {"status": "ok", "templates_updated": int}
 """
 
 from __future__ import annotations
@@ -38,6 +40,10 @@ class SioContext:
     update_panel_location: Callable[[str, float, float], Coroutine[Any, Any, dict[str, str]]]
     clone_panel: Callable[
         [str, str | None, float, float],
+        Coroutine[Any, Any, dict[str, object]],
+    ]
+    apply_usage_profiles: Callable[
+        [str, dict[str, dict[str, object]]],
         Coroutine[Any, Any, dict[str, object]],
     ]
 
@@ -138,6 +144,35 @@ class _PanelNamespace(socketio.AsyncNamespace):  # type: ignore[misc]
             "clone_panel from %s: host=%s -> %s",
             sid,
             host,
+            result.get("status"),
+        )
+        return result
+
+    async def on_apply_usage_profiles(
+        self, sid: str, data: dict[str, object]
+    ) -> dict[str, object]:
+        """Merge HA-derived usage profiles into a clone config.
+
+        Expected payload::
+
+            {"clone_serial": "<sim-...-clone>",
+             "profiles": {"clone_1": {"typical_power": …, …}, …}}
+
+        Returns an ack dict with ``status`` and ``templates_updated``.
+        """
+        clone_serial = data.get("clone_serial")
+        if not isinstance(clone_serial, str) or not clone_serial:
+            return {"status": "error", "message": "Missing or invalid 'clone_serial'"}
+
+        profiles = data.get("profiles")
+        if not isinstance(profiles, dict) or not profiles:
+            return {"status": "error", "message": "Missing or invalid 'profiles'"}
+
+        result = await self._ctx.apply_usage_profiles(clone_serial, profiles)
+        _LOGGER.info(
+            "apply_usage_profiles from %s: serial=%s -> %s",
+            sid,
+            clone_serial,
             result.get("status"),
         )
         return result
