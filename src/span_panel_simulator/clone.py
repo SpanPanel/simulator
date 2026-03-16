@@ -30,6 +30,18 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def make_clone_serial(original_serial: str) -> str:
+    """Derive the clone serial from an original panel serial.
+
+    Ensures the ``sim-`` prefix and appends ``-clone``.
+    """
+    base = original_serial
+    if not base.lower().startswith("sim-"):
+        base = f"sim-{base}"
+    return f"{base}-clone"
+
+
 _NIGHT_CHARGING_HOURS: dict[int, float] = {
     0: 1.0,
     1: 1.0,
@@ -97,10 +109,7 @@ def translate_scraped_panel(
     # Derive panel size from maximum space value across all circuits
     total_tabs = _derive_total_tabs(scraped.properties, prefix, circuit_nodes)
 
-    base = scraped.serial_number
-    if not base.lower().startswith("sim-"):
-        base = f"sim-{base}"
-    clone_serial = f"{base}-clone"
+    clone_serial = make_clone_serial(scraped.serial_number)
 
     panel_config: dict[str, object] = {
         "serial_number": clone_serial,

@@ -69,21 +69,20 @@ def apply_usage_profiles(
         if not isinstance(profile, dict) or not profile:
             continue
 
-        ep = template.get("energy_profile")
-        if not isinstance(ep, dict):
-            continue
-
-        mode = ep.get("mode", "consumer")
         changed = False
 
-        # typical_power / power_variation — skip for producer/bidirectional
-        if mode not in _SKIP_POWER_MODES:
-            if "typical_power" in profile:
-                ep["typical_power"] = profile["typical_power"]
-                changed = True
-            if "power_variation" in profile:
-                ep["power_variation"] = profile["power_variation"]
-                changed = True
+        # typical_power / power_variation — require energy_profile,
+        # skip for producer/bidirectional modes.
+        ep = template.get("energy_profile")
+        if isinstance(ep, dict):
+            mode = ep.get("mode", "consumer")
+            if mode not in _SKIP_POWER_MODES:
+                if "typical_power" in profile:
+                    ep["typical_power"] = profile["typical_power"]
+                    changed = True
+                if "power_variation" in profile:
+                    ep["power_variation"] = profile["power_variation"]
+                    changed = True
 
         # hour_factors → time_of_day_profile
         if "hour_factors" in profile:

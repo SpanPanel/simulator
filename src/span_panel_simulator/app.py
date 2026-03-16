@@ -15,11 +15,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import aiomqtt
+import yaml
 from aiohttp import web
 
 from span_panel_simulator.bootstrap import BootstrapHttpServer
 from span_panel_simulator.certs import generate_certificates
-from span_panel_simulator.clone import update_config_location
+from span_panel_simulator.clone import make_clone_serial, update_config_location
 from span_panel_simulator.const import (
     DASHBOARD_PORT,
     DEFAULT_BROKER_PASSWORD,
@@ -158,77 +159,7 @@ class SimulatorApp:
         engine = self._get_first_engine()
         if engine is None:
             return None
-        sim_time = engine.get_current_simulation_time()
-        # Access last snapshot data from circuits
-        grid = 0.0
-        pv = 0.0
-        battery = 0.0
-        total_consumption = 0.0
-        for circuit in engine._circuits.values():
-            power = circuit.instant_power_w
-            if circuit.energy_mode == "producer":
-                pv += power
-            elif circuit.energy_mode == "bidirectional":
-                battery += power
-            else:
-                total_consumption += power
-        if engine.grid_online:
-            grid = total_consumption - pv
-        else:
-            grid = 0.0
-            # Off-grid: battery covers the load deficit (consumption minus PV)
-            if engine.has_battery:
-                battery = total_consumption - pv
-
-        # Shedding info
-        shed_ids: list[str] = []
-        soc_pct: float | None = None
-        soc_threshold = 20.0
-        if engine._bsee is not None:
-            soc_pct = engine._bsee.soe_percentage
-        if engine._config is not None:
-            soc_threshold = engine._config["panel_config"].get("soc_shed_threshold", 20.0)
-        if not engine.grid_online and engine.has_battery:
-            for circuit in engine._circuits.values():
-                if circuit.energy_mode in ("producer", "bidirectional"):
-                    continue
-                if circuit._priority == "OFF_GRID" or (
-                    circuit._priority == "SOC_THRESHOLD"
-                    and soc_pct is not None
-                    and soc_pct < soc_threshold
-                ):
-                    shed_ids.append(circuit.circuit_id)
-
-        # Circuits manually opened by user (via relay override)
-        user_open_ids: list[str] = []
-        for cid, overrides in engine._dynamic_overrides.items():
-            if overrides.get("relay_state") == "OPEN" and cid not in shed_ids:
-                user_open_ids.append(cid)
-
-        # All circuits off when offline without battery
-        all_off = not engine.grid_online and not engine.has_battery
-
-        # Resolve panel timezone string
-        time_zone = "America/Los_Angeles"
-        if engine._behavior_engine is not None:
-            time_zone = str(engine._behavior_engine.panel_timezone)
-
-        return {
-            "grid_w": round(grid, 1),
-            "pv_w": round(pv, 1),
-            "battery_w": round(battery, 1),
-            "consumption_w": round(total_consumption, 1),
-            "simulation_time": sim_time,
-            "grid_online": engine.grid_online,
-            "has_battery": engine.has_battery,
-            "is_islandable": engine.is_grid_islandable,
-            "soc_pct": round(soc_pct, 1) if soc_pct is not None else None,
-            "soc_threshold": soc_threshold,
-            "shed_ids": shed_ids,
-            "user_open_ids": user_open_ids,
-            "all_off": all_off,
-            "time_zone": time_zone,
-        }
+        return engine.get_power_summary()
 
     def _set_simulation_time(self, iso_str: str) -> None:
         """Set the simulation time on the first running panel."""
@@ -240,7 +171,7 @@ class SimulatorApp:
         """Set the time acceleration on the first running panel."""
         engine = self._get_first_engine()
         if engine is not None:
-            engine._clock.time_acceleration = accel
+            engine.set_time_acceleration(accel)
 
     def _set_grid_online(self, online: bool) -> None:
         """Set the grid online/offline state on the first running panel."""
@@ -347,10 +278,7 @@ class SimulatorApp:
             for n in nodes.values()
             if isinstance(n, dict) and n.get("type") == "energy.ebus.device.circuit"
         )
-        base = scraped.serial_number
-        if not base.lower().startswith("sim-"):
-            base = f"sim-{base}"
-        clone_serial = f"{base}-clone"
+        clone_serial = make_clone_serial(scraped.serial_number)
 
         return {
             "status": "ok",
@@ -386,7 +314,12 @@ class SimulatorApp:
                 "message": f"Panel {clone_serial} not found",
             }
 
-        updated = apply_usage_profiles(panel.config_path, profiles)
+        try:
+            updated = apply_usage_profiles(panel.config_path, profiles)
+        except (yaml.YAMLError, OSError, ValueError) as exc:
+            _LOGGER.warning("Profile application failed for %s: %s", clone_serial, exc)
+            return {"status": "error", "message": str(exc)}
+
         self.request_reload()
 
         return {"status": "ok", "templates_updated": updated}
@@ -418,9 +351,8 @@ class SimulatorApp:
 
         # Derive model from panel tab count
         panel_model = "MAIN_32"
-        if panel.engine is not None and panel.engine._config is not None:
-            total_tabs = panel.engine._config["panel_config"].get("total_tabs", 32)
-            panel_model = _PANEL_SIZE_TO_MODEL.get(total_tabs, "MAIN_32")
+        if panel.engine is not None:
+            panel_model = _PANEL_SIZE_TO_MODEL.get(panel.engine.total_tabs, "MAIN_32")
 
         # Update the HTTP server and mDNS registries
         if self._http_server is not None:

@@ -805,6 +805,109 @@ class DynamicSimulationEngine:
             return self._serial_number_override
         raise ValueError("No configuration loaded - serial number not available")
 
+    @property
+    def total_tabs(self) -> int:
+        """Total panel tab count from configuration."""
+        if self._config:
+            return int(self._config["panel_config"].get("total_tabs", 32))
+        return 32
+
+    @property
+    def panel_timezone(self) -> str:
+        """IANA timezone string for the simulated panel."""
+        if self._behavior_engine is not None:
+            return str(self._behavior_engine.panel_timezone)
+        return "America/Los_Angeles"
+
+    @property
+    def soc_percentage(self) -> float | None:
+        """Battery state-of-charge percentage, or None if no BESS."""
+        if self._bsee is not None:
+            return self._bsee.soe_percentage
+        return None
+
+    @property
+    def soc_shed_threshold(self) -> float:
+        """SOC percentage below which SOC_THRESHOLD circuits are shed."""
+        if self._config is not None:
+            return float(self._config["panel_config"].get("soc_shed_threshold", 20.0))
+        return 20.0
+
+    def set_time_acceleration(self, accel: float) -> None:
+        """Set the time acceleration multiplier."""
+        self._clock.time_acceleration = accel
+
+    def get_power_summary(self) -> dict[str, object]:
+        """Aggregate current power flows and grid/battery state.
+
+        Returns a dict suitable for dashboard rendering with keys:
+        ``grid_w``, ``pv_w``, ``battery_w``, ``consumption_w``,
+        ``simulation_time``, ``grid_online``, ``has_battery``,
+        ``is_islandable``, ``soc_pct``, ``soc_threshold``, ``shed_ids``,
+        ``user_open_ids``, ``all_off``, ``time_zone``.
+        """
+        sim_time = self.get_current_simulation_time()
+
+        grid = 0.0
+        pv = 0.0
+        battery = 0.0
+        total_consumption = 0.0
+        for circuit in self._circuits.values():
+            power = circuit.instant_power_w
+            if circuit.energy_mode == "producer":
+                pv += power
+            elif circuit.energy_mode == "bidirectional":
+                battery += power
+            else:
+                total_consumption += power
+
+        if self.grid_online:
+            grid = total_consumption - pv
+        else:
+            grid = 0.0
+            if self.has_battery:
+                battery = total_consumption - pv
+
+        # Shedding info
+        shed_ids: list[str] = []
+        soc_pct = self.soc_percentage
+        soc_threshold = self.soc_shed_threshold
+        if not self.grid_online and self.has_battery:
+            for circuit in self._circuits.values():
+                if circuit.energy_mode in ("producer", "bidirectional"):
+                    continue
+                if circuit._priority == "OFF_GRID" or (
+                    circuit._priority == "SOC_THRESHOLD"
+                    and soc_pct is not None
+                    and soc_pct < soc_threshold
+                ):
+                    shed_ids.append(circuit.circuit_id)
+
+        # Circuits manually opened by user (via relay override)
+        user_open_ids: list[str] = []
+        for cid, overrides in self._dynamic_overrides.items():
+            if overrides.get("relay_state") == "OPEN" and cid not in shed_ids:
+                user_open_ids.append(cid)
+
+        all_off = not self.grid_online and not self.has_battery
+
+        return {
+            "grid_w": round(grid, 1),
+            "pv_w": round(pv, 1),
+            "battery_w": round(battery, 1),
+            "consumption_w": round(total_consumption, 1),
+            "simulation_time": sim_time,
+            "grid_online": self.grid_online,
+            "has_battery": self.has_battery,
+            "is_islandable": self.is_grid_islandable,
+            "soc_pct": round(soc_pct, 1) if soc_pct is not None else None,
+            "soc_threshold": soc_threshold,
+            "shed_ids": shed_ids,
+            "user_open_ids": user_open_ids,
+            "all_off": all_off,
+            "time_zone": self.panel_timezone,
+        }
+
     # ------------------------------------------------------------------
     # Snapshot generation
     # ------------------------------------------------------------------
