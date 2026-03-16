@@ -147,11 +147,11 @@ class TestTranslateScrapedPanel:
         assert "simulation_params" in config
 
     def test_serial_suffix(self) -> None:
-        """Clone serial gets -clone suffix."""
+        """Clone serial gets sim- prefix."""
         config = translate_scraped_panel(_make_scraped())
         panel = config["panel_config"]
         assert isinstance(panel, dict)
-        assert panel["serial_number"] == f"{_SERIAL}-clone"
+        assert panel["serial_number"] == f"sim-{_SERIAL}-clone"
 
     def test_main_breaker(self) -> None:
         """Main breaker rating is extracted from core properties."""
@@ -306,7 +306,7 @@ class TestWriteCloneConfig:
         assert output.name == f"{_SERIAL}-clone.yaml"
 
         loaded = yaml.safe_load(output.read_text())
-        assert loaded["panel_config"]["serial_number"] == f"{_SERIAL}-clone"
+        assert loaded["panel_config"]["serial_number"] == f"sim-{_SERIAL}-clone"
 
     def test_overwrites_existing(self, tmp_path: Path) -> None:
         """Re-clone overwrites existing file."""

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 def _minimal_config(
-    serial: str = "TEST-001-clone",
+    serial: str = "sim-TEST-001",
     lat: float = 37.7,
     lon: float = -122.4,
 ) -> dict[str, object]:
@@ -113,7 +113,7 @@ class TestUpdateConfigLocation:
         update_config_location(config_path, 40.7128, -74.0060)
 
         loaded = yaml.safe_load(config_path.read_text())
-        assert loaded["panel_config"]["serial_number"] == "TEST-001-clone"
+        assert loaded["panel_config"]["serial_number"] == "sim-TEST-001"
         assert loaded["panel_config"]["total_tabs"] == 32
         assert len(loaded["circuits"]) == 1
 
@@ -142,7 +142,8 @@ class TestPanelNamespace:
         mock_update = AsyncMock(
             return_value=update_result or {"status": "ok", "time_zone": "America/New_York"}
         )
-        ctx = SioContext(update_panel_location=mock_update)
+        mock_clone = AsyncMock(return_value={"status": "ok"})
+        ctx = SioContext(update_panel_location=mock_update, clone_panel=mock_clone)
         ns = _PanelNamespace("/v1/panel", ctx)
         return ns, mock_update
 

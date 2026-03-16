@@ -735,7 +735,7 @@ async def handle_import(request: web.Request) -> web.Response:
         _store(request).load_from_yaml(text)
     except (ValueError, TypeError) as exc:
         raise web.HTTPBadRequest(text=str(exc)) from exc
-    return _render("dashboard.html", request, _dashboard_context(request))
+    return web.Response(status=200, headers={"HX-Redirect": "/"})
 
 
 async def handle_load_config(request: web.Request) -> web.Response:
@@ -754,7 +754,8 @@ async def handle_load_config(request: web.Request) -> web.Response:
         _store(request).load_from_file(config_path)
     except (ValueError, TypeError) as exc:
         raise web.HTTPBadRequest(text=str(exc)) from exc
-    return _render("dashboard.html", request, _dashboard_context(request))
+    # Full page redirect so HTMX replaces the entire document
+    return web.Response(status=200, headers={"HX-Redirect": "/"})
 
 
 async def handle_clone(request: web.Request) -> web.Response:

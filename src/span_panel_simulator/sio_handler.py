@@ -1,16 +1,17 @@
-"""Socket.IO handler — versioned integration channel.
+"""Socket.IO handler -- versioned integration channel.
 
 Provides a Socket.IO namespace that allows Home Assistant integrations
-to push configuration data (location, etc.) to the simulator in real
-time.  The namespace is versioned so future protocol changes can be
-introduced without breaking existing clients.
+to push configuration data and trigger operations on the simulator in
+real time.  The namespace is versioned so future protocol changes can
+be introduced without breaking existing clients.
 
-Protocol v1.0 — namespace ``/v1/panel``::
+Protocol v1.0 -- namespace ``/v1/panel``::
 
-    connect      → server emits "protocol" {"version": "1.0"}
-    set_location → client sends {"serial": str, "latitude": float,
-                                  "longitude": float}
-                   server acks  {"status": "ok", "time_zone": str}
+    connect      -> server emits "protocol" {"version": "1.0"}
+    set_location -> client sends {"serial", "latitude", "longitude"}
+                    server acks  {"status": "ok", "time_zone": str}
+    clone_panel  -> client sends {"host", "passphrase", "latitude", "longitude"}
+                    server acks  {"status": "ok", "clone_serial", "circuits", ...}
 """
 
 from __future__ import annotations
@@ -35,6 +36,10 @@ class SioContext:
     """Callback interface injected into the Socket.IO namespace."""
 
     update_panel_location: Callable[[str, float, float], Coroutine[Any, Any, dict[str, str]]]
+    clone_panel: Callable[
+        [str, str | None, float, float],
+        Coroutine[Any, Any, dict[str, object]],
+    ]
 
 
 def create_sio_server(ctx: SioContext) -> socketio.AsyncServer:
@@ -87,11 +92,52 @@ class _PanelNamespace(socketio.AsyncNamespace):  # type: ignore[misc]
 
         result = await self._ctx.update_panel_location(serial, float(latitude), float(longitude))
         _LOGGER.info(
-            "set_location from %s: serial=%s lat=%.4f lon=%.4f → %s",
+            "set_location from %s: serial=%s lat=%.4f lon=%.4f -> %s",
             sid,
             serial,
             latitude,
             longitude,
             result.get("time_zone", "?"),
+        )
+        return result
+
+    async def on_clone_panel(self, sid: str, data: dict[str, object]) -> dict[str, object]:
+        """Clone a real panel and apply HA's location to the clone.
+
+        Expected payload::
+
+            {"host": "<panel-ip>",
+             "passphrase": "<passphrase-or-null>",
+             "latitude": <float>,
+             "longitude": <float>}
+
+        Returns a result dict with clone details and resolved timezone.
+        """
+        host = data.get("host")
+        if not isinstance(host, str) or not host:
+            return {"status": "error", "phase": "validation", "message": "Missing 'host'"}
+
+        passphrase = data.get("passphrase")
+        if passphrase is not None and not isinstance(passphrase, str):
+            return {"status": "error", "phase": "validation", "message": "Invalid 'passphrase'"}
+
+        latitude = data.get("latitude")
+        longitude = data.get("longitude")
+        if not isinstance(latitude, int | float):
+            return {"status": "error", "phase": "validation", "message": "Missing 'latitude'"}
+        if not isinstance(longitude, int | float):
+            return {"status": "error", "phase": "validation", "message": "Missing 'longitude'"}
+
+        result = await self._ctx.clone_panel(
+            str(host),
+            str(passphrase) if passphrase else None,
+            float(latitude),
+            float(longitude),
+        )
+        _LOGGER.info(
+            "clone_panel from %s: host=%s -> %s",
+            sid,
+            host,
+            result.get("status"),
         )
         return result

@@ -2,7 +2,7 @@
 # This demonstrates the new flexible simulation system
 
 panel_config:
-  serial_number: "SPAN-32-SIM-001"
+  serial_number: "sim-32t-001"
   total_tabs: 32
   main_size: 200  # Main breaker size in Amps
   latitude: 37.7

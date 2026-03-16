@@ -301,6 +301,80 @@ class SimulatorApp:
         self.request_reload()
         return {"status": "ok", "time_zone": tz_name}
 
+    async def _clone_panel(
+        self,
+        host: str,
+        passphrase: str | None,
+        latitude: float,
+        longitude: float,
+    ) -> dict[str, object]:
+        """Run the clone pipeline and apply location.
+
+        Called by the Socket.IO ``clone_panel`` event handler.
+        """
+        from span_panel_simulator.clone import translate_scraped_panel, write_clone_config
+        from span_panel_simulator.homie_const import TYPE_BESS, TYPE_EVSE, TYPE_PV
+        from span_panel_simulator.scraper import ScrapeError, register_with_panel, scrape_ebus
+
+        # Phase 1: Register
+        try:
+            creds, ca_pem = await register_with_panel(host, passphrase)
+        except ScrapeError as exc:
+            return {"status": "error", "phase": exc.phase, "message": str(exc)}
+
+        # Phase 2: Scrape
+        try:
+            scraped = await scrape_ebus(creds, ca_pem)
+        except ScrapeError as exc:
+            return {"status": "error", "phase": exc.phase, "message": str(exc)}
+
+        # Phase 3: Translate
+        try:
+            config = translate_scraped_panel(scraped, host=host, passphrase=passphrase)
+        except Exception as exc:
+            return {"status": "error", "phase": "translating", "message": str(exc)}
+
+        # Phase 4: Write
+        try:
+            output_path = write_clone_config(config, self._config_dir, scraped.serial_number)
+        except ValueError as exc:
+            return {"status": "error", "phase": "writing", "message": str(exc)}
+
+        # Phase 5: Apply location
+        tz_name = update_config_location(output_path, latitude, longitude)
+
+        self.request_reload()
+
+        # Build result summary
+        nodes = scraped.description.get("nodes", {})
+        circuit_count = sum(
+            1
+            for n in nodes.values()
+            if isinstance(n, dict) and n.get("type") == "energy.ebus.device.circuit"
+        )
+        base = scraped.serial_number
+        if not base.lower().startswith("sim-"):
+            base = f"sim-{base}"
+        clone_serial = f"{base}-clone"
+
+        return {
+            "status": "ok",
+            "serial": scraped.serial_number,
+            "clone_serial": clone_serial,
+            "filename": output_path.name,
+            "circuits": circuit_count,
+            "has_bess": any(
+                isinstance(n, dict) and n.get("type") == TYPE_BESS for n in nodes.values()
+            ),
+            "has_pv": any(
+                isinstance(n, dict) and n.get("type") == TYPE_PV for n in nodes.values()
+            ),
+            "has_evse": any(
+                isinstance(n, dict) and n.get("type") == TYPE_EVSE for n in nodes.values()
+            ),
+            "time_zone": tz_name,
+        }
+
     # ------------------------------------------------------------------
     # MQTT publish callback (shared across all panels)
     # ------------------------------------------------------------------
@@ -496,7 +570,10 @@ class SimulatorApp:
         self._schema = load_schema(schema_path)
 
         # 3. Start bootstrap HTTP server (multi-panel aware) with Socket.IO
-        sio_ctx = SioContext(update_panel_location=self._update_panel_location)
+        sio_ctx = SioContext(
+            update_panel_location=self._update_panel_location,
+            clone_panel=self._clone_panel,
+        )
         sio = create_sio_server(sio_ctx)
 
         http_server = BootstrapHttpServer(

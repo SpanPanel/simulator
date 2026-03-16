@@ -97,7 +97,10 @@ def translate_scraped_panel(
     # Derive panel size from maximum space value across all circuits
     total_tabs = _derive_total_tabs(scraped.properties, prefix, circuit_nodes)
 
-    clone_serial = f"{scraped.serial_number}-clone"
+    base = scraped.serial_number
+    if not base.lower().startswith("sim-"):
+        base = f"sim-{base}"
+    clone_serial = f"{base}-clone"
 
     panel_config: dict[str, object] = {
         "serial_number": clone_serial,

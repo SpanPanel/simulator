@@ -715,6 +715,13 @@ class DynamicSimulationEngine:
         if self._serial_number_override and self._config:
             self._config["panel_config"]["serial_number"] = self._serial_number_override
 
+        # Ensure every simulated panel has the sim- prefix so the HA
+        # integration can distinguish simulators from real hardware.
+        if self._config:
+            serial = self._config["panel_config"]["serial_number"]
+            if not serial.lower().startswith("sim-"):
+                self._config["panel_config"]["serial_number"] = f"sim-{serial}"
+
     def _load_yaml_config(self, config_path: Path) -> SimulationConfig:
         """Load YAML configuration file synchronously."""
         with config_path.open() as f:

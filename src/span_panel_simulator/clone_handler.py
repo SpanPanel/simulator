@@ -121,7 +121,10 @@ class CloneHandler:
         has_pv = any(isinstance(n, dict) and n.get("type") == TYPE_PV for n in nodes.values())
         has_evse = any(isinstance(n, dict) and n.get("type") == TYPE_EVSE for n in nodes.values())
 
-        clone_serial = f"{scraped.serial_number}-clone"
+        base = scraped.serial_number
+        if not base.lower().startswith("sim-"):
+            base = f"sim-{base}"
+        clone_serial = f"{base}-clone"
         await ws.send_json(
             {
                 "type": "result",
