@@ -1,15 +1,18 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/aarch64-base-python:3.13-alpine3.21
 FROM ${BUILD_FROM}
 
-# Install mosquitto and jq (for reading options.json)
-RUN apk add --no-cache mosquitto mosquitto-clients jq
+# Install mosquitto, jq, and build tools needed for native Python extensions
+RUN apk add --no-cache mosquitto mosquitto-clients jq \
+    && apk add --no-cache --virtual .build-deps \
+       gcc g++ musl-dev cmake make
 
 WORKDIR /app
 
-# Install Python dependencies
+# Install Python dependencies (then remove build tools to keep image small)
 COPY pyproject.toml .
 COPY src/ src/
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . \
+    && apk del .build-deps
 
 # Copy Mosquitto directory (for fallback use; run.sh generates config at runtime)
 COPY mosquitto/ mosquitto/
