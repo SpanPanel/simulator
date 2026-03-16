@@ -424,17 +424,9 @@ class TestPanelSource:
 class TestUpdateConfigFromScrape:
     """Tests for the lightweight startup refresh (update_config_from_scrape)."""
 
-    def test_typical_power_updated(self) -> None:
-        """Active power changes are reflected in typical_power."""
+    def test_typical_power_not_overwritten(self) -> None:
+        """Active power snapshot must not overwrite typical_power."""
         config = translate_scraped_panel(_make_scraped(), host="192.168.1.100", passphrase=None)
-
-        # Modify scraped data to simulate changed power
-        props = _base_properties()
-        props[f"{_PREFIX}/aaa111/active-power"] = "-250.0"
-        updated_scraped = _make_scraped(props=props)
-
-        changed = update_config_from_scrape(config, updated_scraped)
-        assert changed is True
 
         templates = config["circuit_templates"]
         assert isinstance(templates, dict)
@@ -442,7 +434,18 @@ class TestUpdateConfigFromScrape:
         assert isinstance(t, dict)
         ep = t["energy_profile"]
         assert isinstance(ep, dict)
-        assert ep["typical_power"] == 250.0
+        original_typical = ep["typical_power"]
+
+        # Modify scraped data to simulate changed active-power
+        props = _base_properties()
+        props[f"{_PREFIX}/aaa111/active-power"] = "-250.0"
+        updated_scraped = _make_scraped(props=props)
+
+        update_config_from_scrape(config, updated_scraped)
+
+        # typical_power should be unchanged — eBus active-power is an
+        # instantaneous snapshot, not a representative average.
+        assert ep["typical_power"] == original_typical
 
     def test_energy_seeds_updated(self) -> None:
         """Energy accumulators are updated from new scrape."""

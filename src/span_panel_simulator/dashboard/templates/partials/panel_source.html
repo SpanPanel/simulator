@@ -14,9 +14,8 @@
   <button class="btn btn-sm"
           hx-post="sync-panel-source"
           hx-target="#panel-source-section"
-          hx-swap="outerHTML"
-          hx-confirm="Update from source panel? This will overwrite typical_power and energy values with current readings from the real panel. Any manual customizations to those values will be lost.">
-    Update from panel
+          hx-swap="outerHTML">
+    Update eBus Energy
   </button>
 </div>
 {% elif origin_serial %}

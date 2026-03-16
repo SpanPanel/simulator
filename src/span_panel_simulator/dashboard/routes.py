@@ -861,5 +861,5 @@ async def handle_sync_panel_source(request: web.Request) -> web.Response:
     update_config_from_scrape(store._state, scraped)
 
     ctx = _panel_source_context(request)
-    ctx["sync_message"] = "Updated typical_power and energy seeds from source panel."
+    ctx["sync_message"] = "Updated energy seeds from source panel."
     return _render("partials/panel_source.html", request, ctx)

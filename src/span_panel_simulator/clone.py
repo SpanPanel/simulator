@@ -195,8 +195,14 @@ def update_config_from_scrape(
 ) -> bool:
     """Update an existing config dict with fresh values from a scrape.
 
-    Patches ``typical_power``, energy seeds, and ``panel_source.last_synced``
-    in-place.  Used by the startup refresh path.
+    Patches energy seeds and ``panel_source.last_synced`` in-place.
+    Used by the startup refresh path.
+
+    Note: typical_power is intentionally *not* updated here.  The eBus
+    ``active-power`` property is an instantaneous snapshot, not a
+    representative average.  The HA integration derives a more meaningful
+    typical_power from historical observation and pushes it via
+    ``apply_usage_profiles``.
 
     Returns True if any values were changed.
     """
@@ -223,15 +229,6 @@ def update_config_from_scrape(
         ep = template.get("energy_profile")
         if not isinstance(ep, dict):
             continue
-
-        # Update typical_power from current active-power
-        active_power = _float_prop(scraped.properties, prefix, node_uuid, "active-power")
-        if active_power is not None:
-            mode = ep.get("mode", "consumer")
-            new_typical = -abs(active_power) if mode == "producer" else abs(active_power)
-            if ep.get("typical_power") != new_typical:
-                ep["typical_power"] = new_typical
-                changed = True
 
         # Update energy seeds
         imported = _float_prop(scraped.properties, prefix, node_uuid, "imported-energy")
