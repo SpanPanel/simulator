@@ -18,7 +18,7 @@ COPY mosquitto/ mosquitto/
 RUN mkdir -p /app/certs /app/configs /mosquitto/data /data/certs
 
 # Copy add-on entry point
-COPY ha-addon/run.sh /run.sh
+COPY span_panel_simulator/run.sh /run.sh
 RUN chmod +x /run.sh
 
 EXPOSE 18883 8081 18080
