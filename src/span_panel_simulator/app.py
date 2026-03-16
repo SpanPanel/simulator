@@ -454,6 +454,13 @@ class SimulatorApp:
         """Signal the main loop to perform a reload on the next iteration."""
         self._reload_event.set()
 
+    def set_config_filter(self, config_filter: str | None) -> None:
+        """Switch the active config file.
+
+        Stops all panels outside the new filter on the next reload.
+        """
+        self._config_filter = config_filter
+
     # ------------------------------------------------------------------
     # /set message routing
     # ------------------------------------------------------------------
@@ -577,6 +584,7 @@ class SimulatorApp:
             config_filter=self._config_filter,
             get_panel_configs=self._get_panel_configs,
             request_reload=self.request_reload,
+            set_config_filter=self.set_config_filter,
             get_power_summary=self._get_power_summary,
             set_simulation_time=self._set_simulation_time,
             set_time_acceleration=self._set_time_acceleration,

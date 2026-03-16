@@ -30,6 +30,7 @@ class DashboardContext:
     config_filter: str | None
     get_panel_configs: Callable[[], dict[Path, str]]  # path -> serial
     request_reload: Callable[[], None]
+    set_config_filter: Callable[[str | None], None] = lambda _: None
     get_power_summary: Callable[[], dict[str, Any] | None] = lambda: None
     set_simulation_time: Callable[[str], None] = lambda _: None
     set_time_acceleration: Callable[[float], None] = lambda _: None

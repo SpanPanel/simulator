@@ -754,6 +754,13 @@ async def handle_load_config(request: web.Request) -> web.Response:
         _store(request).load_from_file(config_path)
     except (ValueError, TypeError) as exc:
         raise web.HTTPBadRequest(text=str(exc)) from exc
+
+    # Switch the active config so the engine loads this file and
+    # "Save & Reload" writes back to the correct path.
+    ctx.set_config_filter(filename)
+    ctx.config_filter = filename
+    ctx.request_reload()
+
     # Full page redirect so HTMX replaces the entire document
     return web.Response(status=200, headers={"HX-Redirect": "/"})
 
