@@ -22,8 +22,14 @@ brew install mosquitto uv
 # Run
 ./scripts/run-local.sh
 
+# Run with debug logging
+./scripts/run-local.sh --debug
+
 # Stop
 ./scripts/run-local.sh --stop
+
+# Restart (stop + start)
+./scripts/run-local.sh --restart
 
 # Status
 ./scripts/run-local.sh --status
@@ -152,10 +158,8 @@ panel_config:
   total_tabs: 8
   main_size: 100
 
-circuits:
-  - id: "kitchen_outlets"
-    name: "Kitchen Outlets"
-    tabs: [1, 2]
+circuit_templates:
+  kitchen:
     energy_profile:
       mode: "consumer"
       power_range: [0.0, 1800.0]
@@ -163,6 +167,17 @@ circuits:
       power_variation: 0.3
     relay_behavior: "controllable"
     priority: "NEVER"
+
+circuits:
+  - id: "kitchen_outlets"
+    name: "Kitchen Outlets"
+    template: "kitchen"
+    tabs: [1, 3]
+
+unmapped_tabs: [2, 4, 5, 6, 7, 8]
+
+simulation_params:
+  update_interval: 5
 ```
 
 ### Full Schema
@@ -174,6 +189,7 @@ panel_config:
   main_size: int            # Main breaker amps (100, 150, 200)
   latitude: float           # Degrees north (default: 37.7)
   longitude: float          # Degrees east (default: -122.4)
+  time_zone: str            # IANA timezone (default: resolved from lat/lon)
   soc_shed_threshold: float # SOC % for SOC_THRESHOLD shedding (default: 20)
 
 circuit_templates:          # Reusable template definitions
@@ -184,16 +200,24 @@ circuit_templates:          # Reusable template definitions
       typical_power: float      # Base power in watts
       power_variation: float    # Fraction (0.1 = +/-10%)
       efficiency: float         # 0.0-1.0 (optional, PV/battery)
-      nameplate_capacity_w: float  # PV nameplate rating in watts
+      nameplate_capacity_w: float        # PV nameplate rating in watts
+      initial_consumed_energy_wh: float  # Seed consumed energy (from clone)
+      initial_produced_energy_wh: float  # Seed produced energy (from clone)
     relay_behavior: str     # "controllable" | "non_controllable"
     priority: str           # "NEVER" | "SOC_THRESHOLD" | "OFF_GRID"
     device_type: str        # "circuit" | "evse" | "pv" (default: "circuit")
+    breaker_rating: int     # Amps (derived from power_range if not set)
 
     # Optional behavioral modules
     cycling_pattern:
-      on_duration: int      # Seconds on
-      off_duration: int     # Seconds off
+      on_duration: int      # Seconds on (explicit mode)
+      off_duration: int     # Seconds off (explicit mode)
+      duty_cycle: float     # 0.0-1.0 — fraction of cycle spent on (from HA stats)
+      period: int           # Total cycle length in seconds (default: 2700)
     hvac_type: str          # "central_ac" | "heat_pump" | "heat_pump_aux"
+    monthly_factors:        # Month (1-12) -> multiplier (1.0 = peak month)
+      1: 0.6                # Takes precedence over hvac_type seasonal model
+      7: 1.0
 
     time_of_day_profile:
       enabled: bool
@@ -231,6 +255,7 @@ circuits:
     name: str               # Human-readable name
     template: str           # References a circuit_templates key
     tabs: [int]             # Tab positions ([1] = 120V, [1, 3] = 240V)
+    breaker_rating: int     # Per-circuit override (optional)
     overrides:              # Override any template field
       typical_power: 500.0
 
@@ -241,6 +266,13 @@ simulation_params:
   time_acceleration: float      # 1.0 = real-time, 2.0 = double speed
   noise_factor: float           # Random noise fraction (0.02 = +/-2%)
   enable_realistic_behaviors: bool
+
+# Clone provenance (written by the clone pipeline)
+panel_source:
+  origin_serial: str        # Real panel's serial (immutable)
+  host: str                 # IP or hostname of source panel
+  passphrase: str | null    # Proximity code (null for door-bypass)
+  last_synced: str          # ISO 8601 timestamp
 ```
 
 ### Shed Priority
@@ -393,58 +425,106 @@ scraping MQTT topics, translating to a simulator config, and hot-reloading.
 
 ### Socket.IO contract
 
-**Namespace**: `/v1/panel`
+All events use the `/v1/panel` namespace. On connect, the server emits a
+`protocol` event with `{"version": "1.0"}`.
 
-**Event**: `clone_panel`
+#### `set_location`
 
-**Payload** (client sends):
-
-```json
-{
-  "host": "192.168.1.100",
-  "passphrase": "panel-passphrase",
-  "latitude": 37.78,
-  "longitude": -121.96
-}
-```
-
-**Response** (success):
+Push HA's location to a running panel. Updates lat/lon/timezone in the
+config and triggers a reload.
 
 ```json
-{
-  "status": "ok",
-  "serial": "nj-2316-XXXX",
-  "clone_serial": "sim-nj-2316-XXXX-clone",
-  "filename": "nj-2316-XXXX-clone.yaml",
-  "circuits": 16,
-  "has_bess": true,
-  "has_pv": true,
-  "has_evse": false,
-  "time_zone": "America/Los_Angeles"
-}
+// client sends
+{"serial": "sim-TEST-001", "latitude": 37.78, "longitude": -121.96}
+// server acks
+{"status": "ok", "time_zone": "America/Los_Angeles"}
 ```
 
-**Response** (error):
+#### `clone_panel`
+
+Clone a real panel's eBus into a simulator config.
 
 ```json
-{
-  "status": "error",
-  "phase": "connecting",
-  "message": "MQTTS connection refused: bad credentials"
-}
+// client sends
+{"host": "192.168.1.100", "passphrase": "panel-passphrase",
+ "latitude": 37.78, "longitude": -121.96}
+// server acks
+{"status": "ok", "serial": "nj-2316-XXXX",
+ "clone_serial": "sim-nj-2316-XXXX-clone",
+ "filename": "nj-2316-XXXX-clone.yaml", "circuits": 16,
+ "has_bess": true, "has_pv": true, "has_evse": false,
+ "time_zone": "America/Los_Angeles"}
+// server emits (after async reload completes)
+clone_ready {}
+// error ack
+{"status": "error", "phase": "connecting",
+ "message": "MQTTS connection refused: bad credentials"}
 ```
+
+The ack returns immediately after the config is written. The server
+then emits `clone_ready` to the same SID once the async reload
+completes and the clone panel is registered. Clients that intend to
+send `apply_usage_profiles` should wait for `clone_ready` rather than
+sending immediately after the ack.
+
+#### `apply_usage_profiles`
+
+Merge HA-derived per-circuit usage profiles into a clone config.
+Typically sent after `clone_ready`.
+
+```json
+// client sends
+{"clone_serial": "sim-nj-2316-XXXX-clone",
+ "profiles": {
+   "clone_2": {
+     "typical_power": 145.3,
+     "power_variation": 0.45,
+     "hour_factors": {"0": 0.15, "8": 0.65, "14": 1.0},
+     "duty_cycle": 0.4,
+     "monthly_factors": {"1": 0.6, "7": 1.0}
+   }
+ }}
+// server acks
+{"status": "ok", "templates_updated": 1}
+```
+
+All profile fields are optional per circuit. The simulator merges only
+the fields present, preserving topology values (breaker_rating,
+relay_behavior, priority, mode, power_range) untouched. String dict
+keys from JSON are converted to int keys for YAML compatibility.
+`typical_power` and `power_variation` are skipped for producer and
+bidirectional circuits whose power is hardware-driven.
 
 ### What gets cloned
 
-- Panel identity (serial + `-clone` suffix), main breaker rating, panel size
+- Panel identity (`sim-{serial}-clone`), main breaker rating, panel size
 - All circuits: name, tab position, breaker rating, relay behavior, priority
-- Energy profile mode inferred from device feeds (PV → producer, BESS → bidirectional, EVSE → bidirectional)
+- Energy profile mode inferred from device feeds (PV -> producer, BESS -> bidirectional, EVSE -> bidirectional)
+- Energy accumulators seeded from the panel's imported/exported energy values
 - Battery behavior with sensible schedule defaults
 - PV nameplate capacity and production profile
 - EVSE night-charging time-of-day profile
+- Source panel credentials stored in `panel_source` for on-demand refresh
 
-The cloned config is a faithful starting point. Behavioral tuning (cycling
-patterns, time-of-day profiles, smart behavior) can be adjusted via the
+### Usage profile import
+
+The HA SPAN integration can derive per-circuit usage profiles from the
+HA recorder's long-term statistics and deliver them to the simulator
+via `apply_usage_profiles`. This replaces the clone's point-in-time
+power readings with patterns grounded in actual household behavior:
+
+- **typical_power** -- mean of hourly means over 30 days
+- **power_variation** -- coefficient of variation (stddev/mean)
+- **hour_factors** -- 24-hour shape normalized to peak = 1.0
+- **duty_cycle** -- mean/max ratio (skipped if >= 0.8)
+- **monthly_factors** -- 12-month seasonality (requires 3+ months of data)
+
+The integration builds profiles before connecting, sends `clone_panel`,
+waits for `clone_ready`, then sends `apply_usage_profiles` on the same
+Socket.IO session.
+
+The cloned config is a faithful starting point. Behavioral tuning
+(profiles, cycling patterns, smart behavior) can be adjusted via the
 dashboard after cloning.
 
 ## Simulation Models
