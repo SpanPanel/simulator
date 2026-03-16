@@ -514,7 +514,7 @@ class HomiePublisher:
         return topics
 
     def _get_set_topics_hardcoded(self) -> list[str]:
-        """Legacy hardcoded /set topics (used when schema is unavailable)."""
+        """Hardcoded /set topics (used when schema is unavailable)."""
         topics: list[str] = []
         topics.append(self._set_topic(NODE_CORE, "dominant-power-source"))
         for node_uuid in self._circuit_uuid_map.values():

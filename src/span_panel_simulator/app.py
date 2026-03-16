@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import ssl
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,9 +20,7 @@ from aiohttp import web
 from span_panel_simulator.bootstrap import BootstrapHttpServer
 from span_panel_simulator.certs import generate_certificates
 from span_panel_simulator.clone import update_config_location
-from span_panel_simulator.clone_handler import CloneHandler
 from span_panel_simulator.const import (
-    CLONE_WSS_PORT,
     DASHBOARD_PORT,
     DEFAULT_BROKER_PASSWORD,
     DEFAULT_BROKER_USERNAME,
@@ -111,7 +108,6 @@ class SimulatorApp:
         dashboard_port: int = DASHBOARD_PORT,
         advertise_address: str | None = None,
         advertise_http_port: int | None = None,
-        clone_wss_port: int = CLONE_WSS_PORT,
     ) -> None:
         self._config_dir = config_dir
         self._config_filter = config_filter
@@ -127,7 +123,6 @@ class SimulatorApp:
         self._dashboard_port = dashboard_port
         self._advertise_address = advertise_address
         self._advertise_http_port = advertise_http_port
-        self._clone_wss_port = clone_wss_port
 
         # Tracked state
         self._panels: dict[Path, PanelInstance] = {}
@@ -135,7 +130,6 @@ class SimulatorApp:
         self._serial_to_panel: dict[str, PanelInstance] = {}
         self._http_server: BootstrapHttpServer | None = None
         self._dashboard_runner: web.AppRunner | None = None
-        self._clone_runner: web.AppRunner | None = None
         self._advertiser: PanelAdvertiser | None = None
         self._certs: CertificateBundle | None = None
         self._schema: HomieSchemaRegistry | None = None
@@ -610,34 +604,10 @@ class SimulatorApp:
         await dashboard_site.start()
         _LOGGER.info("Dashboard listening on http://0.0.0.0:%d", self._dashboard_port)
 
-        # 3c. Start clone WSS server on its own port
-        clone_handler = CloneHandler(
-            config_dir=self._config_dir,
-            reload_callback=self.request_reload,
-        )
-        clone_app = web.Application()
-        clone_app.router.add_get("/ws/clone", clone_handler.handle_websocket)
-        self._clone_runner = web.AppRunner(clone_app)
-        await self._clone_runner.setup()
-        clone_ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        clone_ssl_ctx.load_cert_chain(
-            certfile=str(certs.server_cert_path),
-            keyfile=str(certs.server_key_path),
-        )
-        clone_site = web.TCPSite(
-            self._clone_runner,
-            "0.0.0.0",
-            self._clone_wss_port,
-            ssl_context=clone_ssl_ctx,
-        )
-        await clone_site.start()
-        _LOGGER.info("Clone WSS server listening on wss://0.0.0.0:%d", self._clone_wss_port)
-
         # 4. Start mDNS advertiser
         advertiser = PanelAdvertiser(
             http_port=self._advertise_http_port or self._http_port,
             advertise_address=self._advertise_address,
-            clone_wss_port=self._clone_wss_port,
         )
         self._advertiser = advertiser
         await advertiser.start()
@@ -671,8 +641,6 @@ class SimulatorApp:
                 await self._stop_panel(path)
             if self._advertiser is not None:
                 await self._advertiser.stop()
-            if self._clone_runner is not None:
-                await self._clone_runner.cleanup()
             if self._dashboard_runner is not None:
                 await self._dashboard_runner.cleanup()
             if self._http_server is not None:

@@ -390,7 +390,7 @@ class ConfigStore:
         if hf:
             return {h: float(hf.get(h, hf.get(str(h), 0.0))) for h in range(24)}
 
-        # Legacy hourly_multipliers key
+        # Fallback: hourly_multipliers key
         multipliers = {h: 0.0 for h in range(24)}
         hourly = tod.get("hourly_multipliers", {})
         peak_hours = tod.get("peak_hours", [])

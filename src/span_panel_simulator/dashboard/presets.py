@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import random
 
-from span_panel_simulator.dashboard.solar import compute_solar_curve
+from span_panel_simulator.solar import compute_solar_curve
 
 EVENING_LIGHTING: dict[int, float] = {
     0: 0.0,

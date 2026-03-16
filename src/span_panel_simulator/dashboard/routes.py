@@ -19,7 +19,7 @@ from span_panel_simulator.dashboard.presets import (
     PRESETS_BY_TYPE,
     match_battery_preset,
 )
-from span_panel_simulator.dashboard.solar import compute_solar_curve
+from span_panel_simulator.solar import compute_solar_curve
 from span_panel_simulator.weather import fetch_historical_weather, get_cached_weather
 
 if TYPE_CHECKING:

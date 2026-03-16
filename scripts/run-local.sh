@@ -31,7 +31,6 @@ Environment variables:
   HTTP_PORT         Bootstrap HTTP port (default: 8081)
   DASHBOARD_PORT    Dashboard UI port (default: 18080)
   BROKER_PORT       MQTTS port (default: 18883)
-  CLONE_WSS_PORT    Clone WebSocket port (default: 19443)
 EOF
     exit 0
 }
@@ -46,7 +45,6 @@ HTTP_PORT="${HTTP_PORT:-8081}"
 DASHBOARD_PORT="${DASHBOARD_PORT:-18080}"
 ADVERTISE_HTTP_PORT="${ADVERTISE_HTTP_PORT:-${HTTP_PORT}}"
 BROKER_PORT="${BROKER_PORT:-18883}"
-CLONE_WSS_PORT="${CLONE_WSS_PORT:-19443}"
 
 get_host_ip() {
     ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo ""
@@ -165,7 +163,6 @@ run_simulator() {
     echo "    HTTP:       ${advertise_addr}:${HTTP_PORT}"
     echo "    Dashboard:  http://${advertise_addr:-localhost}:${DASHBOARD_PORT}"
     echo "    MQTTS:      ${advertise_addr}:${BROKER_PORT}"
-    echo "    Clone WSS: wss://${advertise_addr:-localhost}:${CLONE_WSS_PORT}"
     if [[ -n "${advertise_addr}" ]]; then
         echo "    mDNS:    ${advertise_addr}"
     fi
@@ -182,7 +179,6 @@ run_simulator() {
         --log-level "${LOG_LEVEL:-INFO}" \
         ${advertise_addr:+--advertise-address "${advertise_addr}"} \
         --advertise-http-port "${ADVERTISE_HTTP_PORT}" \
-        --clone-wss-port "${CLONE_WSS_PORT}" \
         ${CONFIG_NAME:+--config "${CONFIG_NAME}"} &
 
     local sim_pid=$!

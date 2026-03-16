@@ -53,11 +53,9 @@ class PanelAdvertiser:
         self,
         http_port: int = 443,
         advertise_address: str | None = None,
-        clone_wss_port: int | None = None,
     ) -> None:
         self._http_port = http_port
         self._advertise_address = advertise_address
-        self._clone_wss_port = clone_wss_port
         self._zeroconf: AsyncZeroconf | None = None
         self._services: dict[str, list[ServiceInfo]] = {}  # serial → [ServiceInfo]
 
@@ -107,10 +105,8 @@ class PanelAdvertiser:
         # the HA integration discovers the correct HTTP bootstrap address
         if self._http_port != 80:
             ebus_properties["httpPort"] = str(self._http_port)
-        if self._clone_wss_port is not None:
-            ebus_properties["cloneWssPort"] = str(self._clone_wss_port)
 
-        # _span._tcp keeps the legacy SPAN-specific properties
+        # _span._tcp properties
         span_properties: dict[str, str] = {
             "serialNumber": serial,
             "firmwareVersion": firmware,

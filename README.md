@@ -76,8 +76,8 @@ The simulator runs a web dashboard on port 18080 (`http://localhost:18080`).
   from the dashboard or the HA integration (via MQTT) are reflected in both
 - **Dark mode** — system, light, or dark theme with localStorage persistence
 - **File operations** — import/export YAML, load configs, clone, save & reload
-- **Panel cloning** — clone a real SPAN panel's configuration via WebSocket
-  (see [Panel Cloning](#panel-cloning) below)
+- **Panel cloning** — clone a real SPAN panel's configuration via the HA
+  integration (see [Panel Cloning](#panel-cloning) below)
 
 ### Theme
 
@@ -137,7 +137,6 @@ full list).
 | `ADVERTISE_ADDRESS` | auto-detected | IP to advertise via mDNS |
 | `ADVERTISE_HTTP_PORT` | same as `HTTP_PORT` | Port advertised via mDNS |
 | `DASHBOARD_PORT` | `18080` | Dashboard web UI port |
-| `CLONE_WSS_PORT` | `19443` | Panel clone WebSocket (WSS) port |
 
 ## Panel Configuration
 
@@ -203,7 +202,7 @@ circuit_templates:          # Reusable template definitions
         0: 1.0
         6: 0.0
         18: 1.0
-      hourly_multipliers:         # Legacy per-hour override
+      hourly_multipliers:         # Alternate per-hour override
         6: 0.1
         12: 1.0
 
@@ -378,81 +377,62 @@ in real time.
 ## Panel Cloning
 
 The simulator can clone a real SPAN panel's configuration over its eBus.
-The SPAN integration (or any WebSocket client) connects to the simulator's
-clone endpoint, provides the target panel's address and passphrase, and the
-simulator handles the rest: authenticating, scraping MQTT topics, translating
-to a simulator config, and hot-reloading.
+The HA SPAN integration triggers cloning via the Socket.IO channel
+(`/v1/panel` namespace, `clone_panel` event), providing the target panel's
+address and passphrase. The simulator handles the rest: authenticating,
+scraping MQTT topics, translating to a simulator config, and hot-reloading.
 
 ### How it works
 
-1. Client opens a WSS connection to `wss://{simulator}:{clone_wss_port}/ws/clone`
-2. Client sends a `clone_panel` request with the real panel's host and passphrase
+1. The HA integration discovers the simulator via mDNS and connects over Socket.IO
+2. Integration sends a `clone_panel` event with the panel host, passphrase, and HA location
 3. Simulator authenticates with the panel (`/api/v2/auth/register`, `/api/v2/certificate/ca`)
 4. Simulator connects to the panel's MQTTS broker and collects all retained eBus topics
 5. Simulator translates the `$description` and property values into a YAML config
-6. Config is written to `{config_dir}/{serial}-clone.yaml` and the simulator reloads
+6. Config is written to `{config_dir}/{serial}-clone.yaml`, location/timezone applied, and the simulator reloads
 
-Status updates stream back over the WebSocket as each phase completes.
+### Socket.IO contract
 
-### WebSocket contract
+**Namespace**: `/v1/panel`
 
-**Endpoint**: `wss://{host}:{clone_wss_port}/ws/clone` (default port 19443)
+**Event**: `clone_panel`
 
-The TLS certificate is the simulator's self-signed CA — the same one served
-by `GET /api/v2/certificate/ca`.
-
-**Request** (client sends):
+**Payload** (client sends):
 
 ```json
 {
-  "type": "clone_panel",
   "host": "192.168.1.100",
-  "passphrase": "panel-passphrase"
+  "passphrase": "panel-passphrase",
+  "latitude": 37.78,
+  "longitude": -121.96
 }
 ```
 
-**Status updates** (simulator sends during processing):
-
-```json
-{"type": "status", "phase": "registering", "detail": "Authenticating with panel at 192.168.1.100"}
-{"type": "status", "phase": "connecting", "detail": "MQTTS to 192.168.1.100:8883"}
-{"type": "status", "phase": "scraping", "detail": "Subscribed to ebus/5/{serial}/#, collecting retained messages"}
-{"type": "status", "phase": "translating", "detail": "Mapping eBus properties to simulator config"}
-{"type": "status", "phase": "writing", "detail": "Writing config and triggering reload"}
-```
-
-**Result** (success):
+**Response** (success):
 
 ```json
 {
-  "type": "result",
   "status": "ok",
   "serial": "nj-2316-XXXX",
-  "clone_serial": "nj-2316-XXXX-clone",
+  "clone_serial": "sim-nj-2316-XXXX-clone",
   "filename": "nj-2316-XXXX-clone.yaml",
   "circuits": 16,
   "has_bess": true,
   "has_pv": true,
-  "has_evse": false
+  "has_evse": false,
+  "time_zone": "America/Los_Angeles"
 }
 ```
 
-**Result** (error):
+**Response** (error):
 
 ```json
 {
-  "type": "result",
   "status": "error",
   "phase": "connecting",
   "message": "MQTTS connection refused: bad credentials"
 }
 ```
-
-### Discovery
-
-The clone WSS port is advertised in the `_ebus._tcp` mDNS TXT record as
-`cloneWssPort`. When this property is present, the integration knows the
-simulator supports cloning and which port to connect to.
 
 ### What gets cloned
 
