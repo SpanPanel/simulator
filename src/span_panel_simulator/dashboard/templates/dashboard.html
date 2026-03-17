@@ -1,18 +1,26 @@
 {% extends "base.html" %}
 {% block content %}
-{% include "partials/clone_panel.html" %}
+<div id="runtime-section">
+  {% include "partials/running_panels.html" %}
+  {% include "partials/clone_panel.html" %}
+  {% include "partials/runtime_controls.html" %}
+</div>
 
-<section id="panel-config-section" hx-target="this" hx-swap="innerHTML">
-  {% include "partials/panel_config.html" %}
-</section>
+<hr class="section-divider">
 
-{% include "partials/panel_source.html" %}
+<div id="editor-section">
+  <section id="panel-config-section" hx-target="this" hx-swap="innerHTML">
+    {% include "partials/panel_config.html" %}
+  </section>
 
-<section id="sim-params-section" hx-target="this" hx-swap="innerHTML">
-  {% include "partials/simulation_params.html" %}
-</section>
+  {% include "partials/panel_source.html" %}
 
-<section id="entity-list-section" hx-target="this" hx-swap="innerHTML">
-  {% include "partials/entity_list.html" %}
-</section>
+  <section id="sim-config-section" hx-target="this" hx-swap="innerHTML">
+    {% include "partials/sim_config.html" %}
+  </section>
+
+  <section id="entity-list-section" hx-target="this" hx-swap="innerHTML">
+    {% include "partials/entity_list.html" %}
+  </section>
+</div>
 {% endblock %}

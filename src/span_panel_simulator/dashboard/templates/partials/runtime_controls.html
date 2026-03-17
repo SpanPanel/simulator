@@ -1,16 +1,5 @@
-<div class="card">
-  <h2>Simulation Parameters</h2>
-  <form hx-put="sim-params" hx-target="#sim-params-section" hx-swap="innerHTML">
-    <div class="form-row">
-      <label>Interval (s):
-        <input type="number" name="update_interval" value="{{ sim_params.update_interval }}" min="1" max="60" style="width:4em">
-      </label>
-      <label>Noise:
-        <input type="number" name="noise_factor" value="{{ sim_params.noise_factor }}" min="0" max="1" step="0.01" style="width:5em">
-      </label>
-      <button type="submit" class="btn btn-sm">Update</button>
-    </div>
-  </form>
+<div class="card" id="runtime-controls">
+  <h2>Runtime Controls</h2>
 
   <div class="sim-slider-section">
     <div class="sim-slider-group">

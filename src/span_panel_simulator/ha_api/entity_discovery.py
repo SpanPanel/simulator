@@ -1,5 +1,11 @@
 """Entity discovery — map SPAN panel circuits to HA recorder entities.
 
+.. deprecated::
+    Superseded by :mod:`span_panel_simulator.ha_api.manifest`, which uses
+    the ``span_panel.export_circuit_manifest`` service instead of
+    pattern-matching entity states.  No callers remain after the routes
+    migration.  Kept for reference; will be removed in a follow-up.
+
 Queries HA's states API to find SPAN panel power and energy sensor
 entities.  Produces a mapping from circuit keys to HA entity IDs that
 the profile builder can use to query recorder statistics.

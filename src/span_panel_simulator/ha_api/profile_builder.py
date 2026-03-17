@@ -1,13 +1,12 @@
-"""Profile builder — compute usage profiles from HA recorder statistics.
+"""Profile builder — compute usage profiles from power statistics.
 
-This is the logic that previously lived in the HA integration.  The
-integration would query ``recorder/statistics_during_period``, compute
-per-circuit profiles (``typical_power``, ``hour_factors``, ``duty_cycle``,
-``monthly_factors``), and push them to the simulator via Socket.IO.
+Accepts any :class:`~span_panel_simulator.history.HistoryProvider` backend
+(HA recorder, future eBus history, or a no-op stub) and computes per-circuit
+profiles: ``typical_power``, ``hour_factors``, ``duty_cycle``,
+``monthly_factors``.
 
-Now the add-on queries the recorder directly and computes profiles itself.
 The output format matches what ``profile_applicator.py`` expects, so the
-downstream pipeline is unchanged.
+downstream pipeline is unchanged regardless of the history source.
 """
 
 from __future__ import annotations
@@ -16,10 +15,11 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
-    from span_panel_simulator.ha_api.client import HAClient
-    from span_panel_simulator.ha_api.entity_discovery import CircuitEntityMapping
+    from span_panel_simulator.ha_api.manifest import CircuitManifestEntry
+    from span_panel_simulator.history import HistoryProvider
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,16 +75,28 @@ class CircuitProfile:
 
 
 async def build_profiles(
-    client: HAClient,
-    mappings: list[CircuitEntityMapping],
+    history: HistoryProvider,
+    entries: list[CircuitManifestEntry],
+    entity_to_template: dict[str, str],
+    *,
+    time_zone: str | None = None,
 ) -> dict[str, dict[str, object]]:
-    """Build usage profiles for all mapped circuits.
+    """Build usage profiles from manifest entries.
 
-    Queries HA recorder statistics for each circuit's power entity and
-    computes the profile fields that ``profile_applicator`` consumes.
+    Queries a :class:`~span_panel_simulator.history.HistoryProvider` for
+    each circuit's power entity and computes the profile fields that
+    ``profile_applicator`` consumes.  The provider can be backed by the
+    HA recorder, a future eBus history source, or a no-op stub.
 
-    Returns a dict keyed by template name, matching the shape expected
-    by ``apply_usage_profiles``::
+    When *time_zone* is provided (IANA name like ``"America/Los_Angeles"``),
+    hourly statistics are bucketed by local hour-of-day rather than UTC.
+    This is critical for correct time-of-day profiles — without it, a
+    UTC-8 panel's 7 PM evening peak would appear at hour 3 AM.
+
+    Output is keyed by **template name** (via *entity_to_template*),
+    eliminating the fragile slug-based remapping step.
+
+    Returns a dict keyed by template name::
 
         {
             "clone_1": {
@@ -97,65 +109,76 @@ async def build_profiles(
             ...
         }
     """
-    power_ids = [m.power_entity_id for m in mappings if m.power_entity_id is not None]
+    power_ids = [e.entity_id for e in entries]
 
     if not power_ids:
         _LOGGER.warning("No power entities to query — returning empty profiles")
         return {}
 
+    local_tz: ZoneInfo | None = None
+    if time_zone:
+        try:
+            local_tz = ZoneInfo(time_zone)
+            _LOGGER.debug("Profile builder using timezone: %s", time_zone)
+        except (KeyError, ValueError):
+            _LOGGER.warning("Unknown timezone %r — falling back to UTC", time_zone)
+
     now = datetime.now(UTC)
 
-    # Fetch hourly stats (30 days) and monthly stats (12 months) in parallel
-    # by issuing both queries.  The recorder endpoint accepts ISO timestamps.
     hourly_start = (now - timedelta(days=_HOURLY_LOOKBACK_DAYS)).isoformat()
     monthly_start = (now - timedelta(days=_MONTHLY_LOOKBACK_DAYS)).isoformat()
 
-    hourly_stats = await client.async_get_statistics(
+    hourly_stats = await history.async_get_statistics(
         statistic_ids=power_ids,
         period="hour",
         start_time=hourly_start,
     )
 
-    monthly_stats = await client.async_get_statistics(
+    monthly_stats = await history.async_get_statistics(
         statistic_ids=power_ids,
         period="month",
         start_time=monthly_start,
     )
 
-    # Build a profile for each mapping
     profiles: dict[str, dict[str, object]] = {}
 
-    for mapping in mappings:
-        if mapping.power_entity_id is None:
+    for entry in entries:
+        hourly = hourly_stats.get(entry.entity_id, [])
+        monthly = monthly_stats.get(entry.entity_id, [])
+
+        profile = _compute_profile(hourly, monthly, local_tz=local_tz)
+        if profile is None:
             continue
 
-        hourly = hourly_stats.get(mapping.power_entity_id, [])
-        monthly = monthly_stats.get(mapping.power_entity_id, [])
+        template_name = entity_to_template.get(entry.entity_id)
+        if template_name is None:
+            _LOGGER.debug("No template mapping for entity %s", entry.entity_id)
+            continue
 
-        profile = _compute_profile(hourly, monthly)
-        if profile is not None:
-            profiles[mapping.circuit_key] = {
-                "typical_power": profile.typical_power,
-                "power_variation": profile.power_variation,
-                "hour_factors": profile.hour_factors,
-                "duty_cycle": profile.duty_cycle,
-                "monthly_factors": profile.monthly_factors,
-            }
-            _LOGGER.debug(
-                "Profile for %s (%s): typical=%.1fW, duty=%.2f",
-                mapping.circuit_key,
-                mapping.circuit_name,
-                profile.typical_power,
-                profile.duty_cycle,
-            )
+        profiles[template_name] = {
+            "typical_power": profile.typical_power,
+            "power_variation": profile.power_variation,
+            "hour_factors": profile.hour_factors,
+            "duty_cycle": profile.duty_cycle,
+            "monthly_factors": profile.monthly_factors,
+        }
+        _LOGGER.debug(
+            "Profile for %s (%s): typical=%.1fW, duty=%.2f",
+            template_name,
+            entry.entity_id,
+            profile.typical_power,
+            profile.duty_cycle,
+        )
 
-    _LOGGER.info("Built profiles for %d/%d circuits", len(profiles), len(mappings))
+    _LOGGER.info("Built profiles for %d/%d circuits", len(profiles), len(entries))
     return profiles
 
 
 def _compute_profile(
     hourly_stats: list[dict[str, object]],
     monthly_stats: list[dict[str, object]],
+    *,
+    local_tz: ZoneInfo | None = None,
 ) -> CircuitProfile | None:
     """Derive a circuit profile from recorder statistics.
 
@@ -164,6 +187,8 @@ def _compute_profile(
             ``min``, ``max`` fields.
         monthly_stats: Monthly statistic records with ``mean``, ``min``,
             ``max`` fields.
+        local_tz: When provided, timestamps are converted to this timezone
+            before bucketing by hour-of-day or month.
 
     Returns ``None`` if insufficient data.
     """
@@ -191,7 +216,7 @@ def _compute_profile(
     # ------------------------------------------------------------------
     # hour_factors: mean power per hour-of-day, normalised to peak = 1.0
     # ------------------------------------------------------------------
-    hour_factors = _compute_hour_factors(hourly_stats)
+    hour_factors = _compute_hour_factors(hourly_stats, local_tz=local_tz)
 
     # ------------------------------------------------------------------
     # duty_cycle: mean / max ratio across all observations
@@ -203,7 +228,7 @@ def _compute_profile(
     # ------------------------------------------------------------------
     # monthly_factors: mean power per calendar month, normalised to peak
     # ------------------------------------------------------------------
-    monthly_factors = _compute_monthly_factors(monthly_stats)
+    monthly_factors = _compute_monthly_factors(monthly_stats, local_tz=local_tz)
 
     return CircuitProfile(
         typical_power=round(typical_power, 1),
@@ -214,11 +239,18 @@ def _compute_profile(
     )
 
 
-def _compute_hour_factors(hourly_stats: list[dict[str, object]]) -> dict[int, float]:
+def _compute_hour_factors(
+    hourly_stats: list[dict[str, object]],
+    *,
+    local_tz: ZoneInfo | None = None,
+) -> dict[int, float]:
     """Compute normalised hourly load shape from hourly statistics.
 
     Groups statistic records by hour-of-day, averages the ``mean`` within
     each group, and normalises so the peak hour is 1.0.
+
+    When *local_tz* is provided, UTC timestamps are converted to local
+    time before bucketing — essential for correct time-of-day profiles.
     """
     hour_sums: dict[int, float] = {}
     hour_counts: dict[int, int] = {}
@@ -229,6 +261,8 @@ def _compute_hour_factors(hourly_stats: list[dict[str, object]]) -> dict[int, fl
         if mean_val is None or dt is None:
             continue
 
+        if local_tz is not None:
+            dt = dt.astimezone(local_tz)
         hour = dt.hour
         hour_sums[hour] = hour_sums.get(hour, 0.0) + abs(mean_val)
         hour_counts[hour] = hour_counts.get(hour, 0) + 1
@@ -249,7 +283,11 @@ def _compute_hour_factors(hourly_stats: list[dict[str, object]]) -> dict[int, fl
     return {h: round(hour_avgs.get(h, 0.0) / peak, 3) for h in range(24)}
 
 
-def _compute_monthly_factors(monthly_stats: list[dict[str, object]]) -> dict[int, float]:
+def _compute_monthly_factors(
+    monthly_stats: list[dict[str, object]],
+    *,
+    local_tz: ZoneInfo | None = None,
+) -> dict[int, float]:
     """Compute normalised monthly load shape from monthly statistics.
 
     Groups by calendar month, averages the ``mean``, and normalises so
@@ -264,6 +302,8 @@ def _compute_monthly_factors(monthly_stats: list[dict[str, object]]) -> dict[int
         if mean_val is None or dt is None:
             continue
 
+        if local_tz is not None:
+            dt = dt.astimezone(local_tz)
         month = dt.month
         month_sums[month] = month_sums.get(month, 0.0) + abs(mean_val)
         month_counts[month] = month_counts.get(month, 0) + 1

@@ -12,5 +12,15 @@ active.  All methods return the same types regardless of transport.
 from __future__ import annotations
 
 from span_panel_simulator.ha_api.client import HAClient
+from span_panel_simulator.ha_api.manifest import (
+    CircuitManifestEntry,
+    PanelManifest,
+    fetch_all_manifests,
+)
 
-__all__ = ["HAClient"]
+__all__ = [
+    "CircuitManifestEntry",
+    "HAClient",
+    "PanelManifest",
+    "fetch_all_manifests",
+]

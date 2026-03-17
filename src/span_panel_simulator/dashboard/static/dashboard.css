@@ -1104,3 +1104,85 @@ legend {
 .charge-hours-dimmed .bar-charge {
   opacity: 0.35;
 }
+
+/* Panels inventory card */
+.panels-card {
+  padding: 0.75rem 1rem;
+}
+
+.panels-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.panels-header h3 {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.running-count {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius);
+  background: var(--bg);
+  font-size: 0.85rem;
+}
+
+.panel-row:hover {
+  background: var(--row-hover);
+}
+
+.panel-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.panel-status-dot.status-running {
+  background: var(--success);
+}
+
+.panel-status-dot.status-stopped {
+  background: var(--text-muted);
+}
+
+.panel-row .panel-serial {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 10em;
+}
+
+.panel-row .panel-filename {
+  color: var(--text-muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge-editing {
+  background: var(--primary);
+  font-size: 0.65rem;
+}
+
+.active-panel {
+  border-left: 3px solid var(--primary);
+}
+
+/* Section divider between runtime and editor */
+.section-divider {
+  border: none;
+  border-top: 3px solid var(--border);
+  margin: 1.5rem 0;
+}

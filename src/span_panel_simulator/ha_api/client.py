@@ -161,15 +161,46 @@ class HAClient:
         self,
         path: str,
         json_body: dict[str, object] | None = None,
+        *,
+        extra_headers: dict[str, str] | None = None,
     ) -> dict[str, object] | list[object]:
         """POST ``{base_url}/{path}`` with a JSON body."""
         session = self._ensure_session()
         url = f"{self._config.base_url}/{path.lstrip('/')}"
-        async with session.post(url, json=json_body) as resp:
+        async with session.post(url, json=json_body, headers=extra_headers) as resp:
             if resp.status == 401:
                 raise PermissionError("HA API returned 401 — token may be invalid or expired")
             resp.raise_for_status()
             return await resp.json()  # type: ignore[no-any-return]
+
+    # ------------------------------------------------------------------
+    # HA REST API: service calls
+    # ------------------------------------------------------------------
+
+    async def async_call_service(
+        self,
+        domain: str,
+        service: str,
+        service_data: dict[str, object] | None = None,
+        *,
+        return_response: bool = False,
+    ) -> dict[str, object] | list[object]:
+        """Call a Home Assistant service.
+
+        Args:
+            domain: Service domain (e.g. ``"span_panel"``).
+            service: Service name (e.g. ``"export_circuit_manifest"``).
+            service_data: Optional data payload for the service call.
+            return_response: When ``True``, request that HA return the
+                service response data (requires HA 2023.7+).
+        """
+        path = f"services/{domain}/{service}"
+        if return_response:
+            path += "?return_response"
+        return await self._post(
+            path,
+            json_body=service_data or {},
+        )
 
     # ------------------------------------------------------------------
     # HA REST API: connectivity check

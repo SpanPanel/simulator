@@ -23,6 +23,8 @@ from span_panel_simulator.solar import compute_solar_curve
 from span_panel_simulator.weather import fetch_historical_weather, get_cached_weather
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from span_panel_simulator.dashboard import DashboardContext
     from span_panel_simulator.dashboard.config_store import ConfigStore
 
@@ -65,6 +67,32 @@ def _available_configs(request: web.Request) -> list[str]:
     return sorted(set(files))
 
 
+def _all_panels(request: web.Request) -> list[dict[str, object]]:
+    """Merge on-disk configs with running panel info.
+
+    Returns list of {filename, serial, running, active} for every YAML on disk.
+    Running panels get their serial from the engine; non-running show empty serial.
+    """
+    configs = _available_configs(request)
+    ctx = _ctx(request)
+    active_file = ctx.config_filter
+
+    # Build lookup: filename -> serial for running panels
+    running_map: dict[str, str] = {}
+    for path, serial in ctx.get_panel_configs().items():
+        running_map[path.name] = serial
+
+    return [
+        {
+            "filename": fname,
+            "serial": running_map.get(fname, ""),
+            "running": fname in running_map,
+            "active": fname == active_file,
+        }
+        for fname in configs
+    ]
+
+
 def _dashboard_context(request: web.Request) -> dict[str, Any]:
     """Build the full-page template context."""
     store = _store(request)
@@ -79,11 +107,11 @@ def _dashboard_context(request: web.Request) -> dict[str, Any]:
         "entity_types": ENTITY_TYPES,
         "preset_labels": PRESET_LABELS,
         "unmapped_tabs": store.get_unmapped_tabs(),
-        "config_files": _available_configs(request),
         "panel_source": panel_source,
         "origin_serial": store.get_origin_serial(),
         "ha_available": ctx.ha_client is not None,
         "clone_host": panel_source.get("host", "") if panel_source else "",
+        "panels": _all_panels(request),
     }
 
 
@@ -227,9 +255,19 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_get("/panel-source", handle_get_panel_source)
     app.router.add_post("/sync-panel-source", handle_sync_panel_source)
 
+    # Panels inventory (polling endpoint) and lifecycle controls
+    app.router.add_get("/panels-list", handle_panels_list)
+    app.router.add_post("/start-panel", handle_start_panel)
+    app.router.add_post("/stop-panel", handle_stop_panel)
+    app.router.add_post("/restart-panel", handle_restart_panel)
+    app.router.add_post("/delete-config", handle_delete_config)
+
     # Clone from real panel + HA profile import
     app.router.add_post("/clone-from-panel", handle_clone_from_panel)
     app.router.add_post("/import-ha-profiles", handle_import_ha_profiles)
+
+    # Panel discovery via HA manifest
+    app.router.add_get("/discovered-panels", handle_discovered_panels)
 
 
 # -- Full page --
@@ -265,7 +303,7 @@ async def handle_put_panel_config(request: web.Request) -> web.Response:
 
 async def handle_get_sim_params(request: web.Request) -> web.Response:
     return _render(
-        "partials/simulation_params.html",
+        "partials/sim_config.html",
         request,
         {"sim_params": _store(request).get_simulation_params()},
     )
@@ -275,7 +313,7 @@ async def handle_put_sim_params(request: web.Request) -> web.Response:
     data = await request.post()
     _store(request).update_simulation_params(dict(data))
     return _render(
-        "partials/simulation_params.html",
+        "partials/sim_config.html",
         request,
         {"sim_params": _store(request).get_simulation_params()},
     )
@@ -747,6 +785,7 @@ async def handle_import(request: web.Request) -> web.Response:
 
 
 async def handle_load_config(request: web.Request) -> web.Response:
+    """Load a config into the editor without affecting running engines."""
     data = await request.post()
     filename = str(data.get("config_file", ""))
     if not filename:
@@ -763,11 +802,9 @@ async def handle_load_config(request: web.Request) -> web.Response:
     except (ValueError, TypeError) as exc:
         raise web.HTTPBadRequest(text=str(exc)) from exc
 
-    # Switch the active config so the engine loads this file and
-    # "Save & Reload" writes back to the correct path.
-    ctx.set_config_filter(filename)
+    # Track which file the editor is working on.  Does NOT affect
+    # running engines — use Start/Stop/Restart in the panels list.
     ctx.config_filter = filename
-    ctx.request_reload()
 
     # Full page redirect so HTMX replaces the entire document
     return web.Response(status=200, headers={"HX-Redirect": "/"})
@@ -776,6 +813,7 @@ async def handle_load_config(request: web.Request) -> web.Response:
 async def handle_clone(request: web.Request) -> web.Response:
     data = await request.post()
     filename = str(data.get("filename", "")).strip()
+    source_file = str(data.get("source_file", "")).strip()
     if not filename:
         return web.Response(
             text='<div class="flash error">No filename provided.</div>',
@@ -790,7 +828,20 @@ async def handle_clone(request: web.Request) -> web.Response:
             text='<div class="flash error">Invalid filename.</div>',
             content_type="text/html",
         )
-    yaml_content = _store(request).export_yaml()
+
+    # When a source file is specified and differs from the active config,
+    # copy directly from disk instead of exporting in-memory state.
+    if source_file and source_file != ctx.config_filter:
+        source_path = ctx.config_dir / source_file
+        if not source_path.exists() or source_path.resolve().parent != ctx.config_dir.resolve():
+            return web.Response(
+                text='<div class="flash error">Source file not found.</div>',
+                content_type="text/html",
+            )
+        yaml_content = source_path.read_text(encoding="utf-8")
+    else:
+        yaml_content = _store(request).export_yaml()
+
     output_path.write_text(yaml_content, encoding="utf-8")
     _LOGGER.info("Config cloned to %s", output_path)
     return web.Response(
@@ -805,15 +856,15 @@ async def handle_save_reload(request: web.Request) -> web.Response:
 
     yaml_content = store.export_yaml()
 
-    if ctx.config_filter:
-        output_path = ctx.config_dir / ctx.config_filter
-    else:
-        output_path = ctx.config_dir / "default_config.yaml"
+    filename = ctx.config_filter or "default_config.yaml"
+    output_path = ctx.config_dir / filename
 
     output_path.write_text(yaml_content, encoding="utf-8")
     _LOGGER.info("Config saved to %s", output_path)
 
-    ctx.request_reload()
+    # Ensure the panel is running (removes from stopped set if needed)
+    # and trigger reload so the engine picks up the new config.
+    ctx.start_panel(filename)
 
     return web.Response(
         text='<div class="flash success">Config saved and reload triggered.</div>',
@@ -891,6 +942,116 @@ def _slugify_circuit_name(name: str) -> str:
     return slug.strip("_")
 
 
+async def handle_panels_list(request: web.Request) -> web.Response:
+    """Return the panels list rows partial for HTMX polling."""
+    return _render(
+        "partials/panels_list_rows.html",
+        request,
+        {"panels": _all_panels(request)},
+    )
+
+
+async def _read_panel_filename(request: web.Request) -> tuple[str, web.Response | None]:
+    """Read and validate the filename parameter from a POST request.
+
+    Returns (filename, None) on success or ("", error_response) on failure.
+    """
+    data = await request.post()
+    filename = str(data.get("filename", "")).strip()
+    if not filename:
+        return "", web.Response(
+            text='<div class="flash error">No panel specified.</div>',
+            content_type="text/html",
+        )
+    ctx = _ctx(request)
+    path = ctx.config_dir / filename
+    if not path.exists() or path.resolve().parent != ctx.config_dir.resolve():
+        return "", web.Response(
+            text='<div class="flash error">Config file not found.</div>',
+            content_type="text/html",
+        )
+    return filename, None
+
+
+async def handle_start_panel(request: web.Request) -> web.Response:
+    """Start the simulation engine for a specific config file."""
+    filename, err = await _read_panel_filename(request)
+    if err is not None:
+        return err
+    _ctx(request).start_panel(filename)
+    return web.Response(
+        text=f'<div class="flash success">Starting {filename}…</div>',
+        content_type="text/html",
+    )
+
+
+async def handle_stop_panel(request: web.Request) -> web.Response:
+    """Stop the simulation engine for a specific config file."""
+    filename, err = await _read_panel_filename(request)
+    if err is not None:
+        return err
+    _ctx(request).stop_panel(filename)
+    return web.Response(
+        text=f'<div class="flash success">Stopping {filename}…</div>',
+        content_type="text/html",
+    )
+
+
+async def handle_restart_panel(request: web.Request) -> web.Response:
+    """Restart the simulation engine for a specific config file."""
+    filename, err = await _read_panel_filename(request)
+    if err is not None:
+        return err
+    _ctx(request).restart_panel(filename)
+    return web.Response(
+        text=f'<div class="flash success">Restarting {filename}…</div>',
+        content_type="text/html",
+    )
+
+
+async def handle_delete_config(request: web.Request) -> web.Response:
+    """Delete a config file from disk.  Refuses if the panel is running or being edited."""
+    data = await request.post()
+    filename = str(data.get("filename", "")).strip()
+    if not filename:
+        return web.Response(
+            text='<div class="flash error">No filename specified.</div>',
+            content_type="text/html",
+        )
+
+    ctx = _ctx(request)
+    config_path = ctx.config_dir / filename
+
+    # Safety: prevent path traversal
+    if not config_path.exists() or config_path.resolve().parent != ctx.config_dir.resolve():
+        return web.Response(
+            text='<div class="flash error">Config file not found.</div>',
+            content_type="text/html",
+        )
+
+    # Refuse to delete the file currently loaded in the editor
+    if filename == ctx.config_filter:
+        return web.Response(
+            text='<div class="flash error">Cannot delete the config currently being edited.</div>',
+            content_type="text/html",
+        )
+
+    # Refuse to delete a running panel's config
+    running = {p.name for p in ctx.get_panel_configs()}
+    if filename in running:
+        return web.Response(
+            text='<div class="flash error">Cannot delete a running panel. Stop it first.</div>',
+            content_type="text/html",
+        )
+
+    config_path.unlink()
+    _LOGGER.info("Deleted config %s", filename)
+    return web.Response(
+        text=f'<div class="flash success">Deleted {filename}</div>',
+        content_type="text/html",
+    )
+
+
 def _clone_panel_context(request: web.Request, **extra: object) -> dict[str, Any]:
     """Build the clone panel section template context."""
     ctx = _ctx(request)
@@ -904,8 +1065,64 @@ def _clone_panel_context(request: web.Request, **extra: object) -> dict[str, Any
     return result
 
 
+async def _import_profiles_for_serial(
+    ha_client: Any,
+    history_provider: Any,
+    config_path: Path,
+    origin_serial: str,
+) -> int:
+    """Fetch HA manifests, build profiles, and apply them to a config file.
+
+    Uses *ha_client* for the manifest service call and *history_provider*
+    for the actual statistics queries.  They may be the same object (both
+    HAClient) or different backends.
+
+    Returns the number of circuits updated (0 if nothing matched).
+    Raises on errors so the caller can decide how to handle them.
+    """
+    import yaml
+
+    from span_panel_simulator.ha_api.manifest import fetch_all_manifests
+    from span_panel_simulator.ha_api.profile_builder import build_profiles
+    from span_panel_simulator.profile_applicator import apply_usage_profiles
+
+    manifests = await fetch_all_manifests(ha_client)
+    if not manifests:
+        return 0
+
+    matched = next((m for m in manifests if m.serial == origin_serial), None)
+    if matched is None:
+        return 0
+
+    eligible = matched.profile_circuits()
+    if not eligible:
+        return 0
+
+    # Read the panel's timezone from the config for correct hour bucketing
+    panel_tz: str | None = None
+    try:
+        raw_config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        if isinstance(raw_config, dict):
+            panel_cfg = raw_config.get("panel_config", {})
+            if isinstance(panel_cfg, dict):
+                panel_tz = panel_cfg.get("time_zone")
+    except Exception:
+        pass  # Fall back to UTC
+
+    profiles = await build_profiles(
+        history_provider,
+        eligible,
+        matched.entity_to_template(),
+        time_zone=panel_tz,
+    )
+    if not profiles:
+        return 0
+
+    return apply_usage_profiles(config_path, profiles)
+
+
 async def handle_clone_from_panel(request: web.Request) -> web.Response:
-    """Scrape a real SPAN panel via eBus and create a clone config."""
+    """Scrape a real SPAN panel via eBus, create a clone config, and import HA profiles."""
     from span_panel_simulator.clone import (
         translate_scraped_panel,
         write_clone_config,
@@ -957,14 +1174,29 @@ async def handle_clone_from_panel(request: web.Request) -> web.Response:
 
     clone_path = write_clone_config(config, ctx.config_dir, scraped.serial_number)
 
-    # Load the clone config into the dashboard and switch to it
+    # Load the clone config into the dashboard editor
     store = _store(request)
     store.load_from_file(clone_path)
-    ctx.set_config_filter(clone_path.name)
     ctx.config_filter = clone_path.name
-    ctx.request_reload()
 
     _LOGGER.info("Panel cloned from %s -> %s", host, clone_path.name)
+
+    # Automatically import HA usage profiles for the cloned panel
+    profiles_imported = 0
+    if ctx.ha_client is not None and ctx.history_provider is not None:
+        try:
+            profiles_imported = await _import_profiles_for_serial(
+                ctx.ha_client, ctx.history_provider, clone_path, scraped.serial_number
+            )
+        except Exception:
+            _LOGGER.debug("HA profile import after clone failed", exc_info=True)
+
+    # Start the clone engine (also triggers reload)
+    ctx.start_panel(clone_path.name)
+
+    if profiles_imported:
+        # Re-read config after profile application
+        store.load_from_file(clone_path)
 
     # Redirect to refresh the full dashboard with the new config
     return web.Response(status=200, headers={"HX-Redirect": "/"})
@@ -974,61 +1206,15 @@ async def handle_clone_from_panel(request: web.Request) -> web.Response:
 
 
 async def handle_import_ha_profiles(request: web.Request) -> web.Response:
-    """Discover SPAN entities in HA and import usage profiles from recorder."""
-    from span_panel_simulator.ha_api.entity_discovery import discover_span_panel
-    from span_panel_simulator.ha_api.profile_builder import build_profiles
-    from span_panel_simulator.profile_applicator import apply_usage_profiles
-
+    """Import usage profiles from HA recorder via the circuit manifest service."""
     ctx = _ctx(request)
     if ctx.ha_client is None:
         return _render(
             "partials/clone_panel.html",
             request,
-            _clone_panel_context(request, profile_error="HA API is not connected."),
+            _clone_panel_context(request, clone_error="HA API is not connected."),
         )
 
-    try:
-        panel_map = await discover_span_panel(ctx.ha_client)
-        if panel_map is None:
-            return _render(
-                "partials/clone_panel.html",
-                request,
-                _clone_panel_context(
-                    request,
-                    profile_error="No SPAN panel found in Home Assistant.",
-                ),
-            )
-
-        # Filter to circuits only (skip panel-level aggregates)
-        circuits = [
-            c
-            for c in panel_map.circuits
-            if c.circuit_key not in ("current", "pv", "site", "feed_through")
-        ]
-
-        profiles = await build_profiles(ctx.ha_client, circuits)
-        if not profiles:
-            return _render(
-                "partials/clone_panel.html",
-                request,
-                _clone_panel_context(
-                    request,
-                    profile_error="No recorder statistics found for SPAN circuits.",
-                ),
-            )
-
-    except Exception as exc:
-        _LOGGER.exception("HA profile import failed")
-        return _render(
-            "partials/clone_panel.html",
-            request,
-            _clone_panel_context(
-                request,
-                profile_error=f"Profile import failed: {exc}",
-            ),
-        )
-
-    # Apply profiles to the current config file
     store = _store(request)
     config_filter = ctx.config_filter
     if not config_filter:
@@ -1037,43 +1223,57 @@ async def handle_import_ha_profiles(request: web.Request) -> web.Response:
             request,
             _clone_panel_context(
                 request,
-                profile_error="No config loaded — clone a panel first.",
+                clone_error="No config loaded — clone a panel first.",
             ),
         )
 
     config_path = ctx.config_dir / config_filter
+    origin_serial = store.get_origin_serial()
+    if not origin_serial:
+        return _render(
+            "partials/clone_panel.html",
+            request,
+            _clone_panel_context(
+                request,
+                clone_error="Config has no origin_serial — not a clone.",
+            ),
+        )
 
-    # The profile builder keys by circuit_key (e.g. "refrigerator") but
-    # the applicator expects template names (e.g. "clone_3").  We need to
-    # match by circuit name.  Build a name→template mapping from the
-    # current config's circuits.
-    templates = store._state.get("circuit_templates", {})
-    circuit_defs = store._state.get("circuits", [])
-    if isinstance(templates, dict) and isinstance(circuit_defs, list):
-        # Build name → template_name mapping (slugified circuit name)
-        name_to_template: dict[str, str] = {}
-        for circ in circuit_defs:
-            if isinstance(circ, dict):
-                circ_name = str(circ.get("name", ""))
-                template = str(circ.get("template", ""))
-                if circ_name and template:
-                    slug = _slugify_circuit_name(circ_name)
-                    name_to_template[slug] = template
+    if ctx.history_provider is None:
+        return _render(
+            "partials/clone_panel.html",
+            request,
+            _clone_panel_context(
+                request,
+                clone_error="No history provider available.",
+            ),
+        )
 
-        # Remap profiles from circuit_key to template_name
-        remapped: dict[str, dict[str, object]] = {}
-        for circuit_key, profile in profiles.items():
-            template_name = name_to_template.get(circuit_key)
-            if template_name:
-                remapped[template_name] = profile
-            else:
-                _LOGGER.debug("No template match for HA circuit key '%s'", circuit_key)
+    try:
+        updated = await _import_profiles_for_serial(
+            ctx.ha_client, ctx.history_provider, config_path, origin_serial
+        )
+    except Exception as exc:
+        _LOGGER.exception("HA profile import failed")
+        return _render(
+            "partials/clone_panel.html",
+            request,
+            _clone_panel_context(
+                request,
+                clone_error=f"Profile import failed: {exc}",
+            ),
+        )
 
-        profiles = remapped
+    if not updated:
+        return _render(
+            "partials/clone_panel.html",
+            request,
+            _clone_panel_context(
+                request,
+                clone_error="No matching profiles found in HA recorder.",
+            ),
+        )
 
-    updated = apply_usage_profiles(config_path, profiles)
-
-    # Reload the config store from the updated file
     store.load_from_file(config_path)
     ctx.request_reload()
 
@@ -1082,6 +1282,36 @@ async def handle_import_ha_profiles(request: web.Request) -> web.Response:
         request,
         _clone_panel_context(
             request,
-            profile_message=f"Imported profiles for {updated} circuits from HA recorder.",
+            clone_message=f"Imported profiles for {updated} circuits from HA recorder.",
         ),
+    )
+
+
+# -- Panel discovery via HA manifest --
+
+
+async def handle_discovered_panels(request: web.Request) -> web.Response:
+    """Return panels discovered via the HA manifest service as JSON."""
+    from span_panel_simulator.ha_api.manifest import fetch_all_manifests
+
+    ctx = _ctx(request)
+    if ctx.ha_client is None:
+        return web.json_response([])
+
+    try:
+        manifests = await fetch_all_manifests(ctx.ha_client)
+    except Exception:
+        _LOGGER.debug("Failed to fetch panel manifests from HA", exc_info=True)
+        return web.json_response([])
+
+    return web.json_response(
+        [
+            {
+                "serial": m.serial,
+                "host": m.host,
+                "circuits": len(m.circuits),
+            }
+            for m in manifests
+            if m.host  # Only include panels with a known host
+        ]
     )

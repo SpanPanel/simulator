@@ -1,5 +1,5 @@
 <div class="card" id="clone-panel-section">
-  <h3>Clone from Real Panel</h3>
+  <h2>Clone from Panel</h2>
   {% if clone_message is defined and clone_message %}
     <div class="flash success">{{ clone_message }}</div>
   {% endif %}
@@ -7,45 +7,64 @@
     <div class="flash error">{{ clone_error }}</div>
   {% endif %}
 
+  <p class="hint">
+    Scrapes circuit configuration from a real SPAN panel{% if ha_available %} and imports
+    usage profiles from Home Assistant recorder statistics{% endif %}.
+  </p>
   <form hx-post="clone-from-panel"
         hx-target="#clone-panel-section"
         hx-swap="outerHTML"
         hx-indicator="#clone-spinner">
     <div class="form-row">
+      {% if ha_available %}
+      <label>Panel
+        <select id="panel-selector">
+          <option value="">Loading…</option>
+        </select>
+      </label>
+      {% endif %}
       <label>Panel IP / hostname
-        <input type="text" name="host" placeholder="192.168.1.100"
+        <input type="text" name="host" id="clone-host-input"
+               placeholder="192.168.1.100"
                value="{{ clone_host | default('', true) }}" required>
       </label>
       <label>Passphrase <span class="hint">(blank for door-bypass)</span>
         <input type="text" name="passphrase" placeholder="optional"
                value="{{ clone_passphrase | default('', true) }}">
       </label>
-      <button type="submit" class="btn btn-primary">
-        <span id="clone-spinner" class="htmx-indicator">⏳ </span>Clone Panel
-      </button>
+      <button type="submit" class="btn btn-sm btn-primary">Clone</button>
+      <span id="clone-spinner" class="htmx-indicator">&#x23F3;</span>
     </div>
   </form>
-
-  {% if ha_available %}
-  <hr>
-  <h3>Import Usage Profiles from HA</h3>
-  {% if profile_message is defined and profile_message %}
-    <div class="flash success">{{ profile_message }}</div>
-  {% endif %}
-  {% if profile_error is defined and profile_error %}
-    <div class="flash error">{{ profile_error }}</div>
-  {% endif %}
-  <p class="hint">
-    Discovers SPAN panel entities in Home Assistant and imports per-circuit
-    usage profiles (typical power, hourly load shape, duty cycle, monthly
-    seasonality) from recorder statistics.
-  </p>
-  <button class="btn btn-primary"
-          hx-post="import-ha-profiles"
-          hx-target="#clone-panel-section"
-          hx-swap="outerHTML"
-          hx-indicator="#profile-spinner">
-    <span id="profile-spinner" class="htmx-indicator">⏳ </span>Import Profiles
-  </button>
-  {% endif %}
 </div>
+{% if ha_available %}
+<script>
+(function() {
+  var sel = document.getElementById('panel-selector');
+  var hostInput = document.getElementById('clone-host-input');
+  if (!sel || !hostInput) return;
+  fetch('discovered-panels')
+    .then(function(r) { return r.json(); })
+    .then(function(panels) {
+      sel.innerHTML = '<option value="">— select a panel —</option>';
+      panels.forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.host;
+        opt.textContent = p.serial + ' (' + p.host + ', ' + p.circuits + ' circuits)';
+        sel.appendChild(opt);
+      });
+      if (panels.length === 0) {
+        sel.innerHTML = '<option value="">No panels found in HA</option>';
+      }
+    })
+    .catch(function() {
+      sel.innerHTML = '<option value="">Discovery unavailable</option>';
+    });
+  sel.addEventListener('change', function() {
+    if (sel.value) {
+      hostInput.value = sel.value;
+    }
+  });
+})();
+</script>
+{% endif %}

@@ -31,36 +31,6 @@
         Day:
         <input type="number" id="sim-day" name="day" value="15" min="1" max="31" style="width:3em">
       </label>
-      {% if config_files is defined and config_files %}
-      <form hx-post="load-config" hx-target="#main-content" hx-swap="innerHTML"
-            style="display:inline-flex; align-items:center; gap:0.3rem">
-        <select name="config_file" class="config-select">
-          <option value="">Load config...</option>
-          {% for f in config_files %}
-          <option value="{{ f }}">{{ f }}</option>
-          {% endfor %}
-        </select>
-        <button type="submit" class="btn btn-sm">Load</button>
-      </form>
-      {% endif %}
-      <form method="post" enctype="multipart/form-data"
-            hx-post="import" hx-target="#main-content" hx-encoding="multipart/form-data"
-            style="display:inline">
-        <label class="btn btn-secondary">
-          Import
-          <input type="file" name="file" accept=".yaml,.yml" hidden
-                 onchange="this.closest('form').dispatchEvent(new Event('submit', {bubbles:true}))">
-        </label>
-      </form>
-      <a href="export" class="btn btn-secondary">Export</a>
-      <button class="btn btn-secondary"
-              onclick="var n=prompt('Save clone as:','clone_config.yaml');if(n){htmx.ajax('POST','clone',{target:'#flash-area',swap:'innerHTML',values:{filename:n}});}">
-        Clone
-      </button>
-      <button class="btn btn-primary"
-              hx-post="save-reload" hx-target="#flash-area" hx-swap="innerHTML">
-        Save &amp; Reload
-      </button>
     </div>
   </header>
   <div id="flash-area"></div>

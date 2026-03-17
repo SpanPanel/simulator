@@ -1,0 +1,51 @@
+{% for p in panels %}
+<div class="panel-row {{ 'active-panel' if p.active else '' }}">
+  <span class="panel-status-dot {{ 'status-running' if p.running else 'status-stopped' }}"></span>
+  <span class="panel-serial">{{ p.serial }}</span>
+  <span class="panel-filename">{{ p.filename }}</span>
+  {% if p.active %}
+  <span class="badge badge-editing">editing</span>
+  {% else %}
+  <button class="btn btn-sm"
+          hx-post="load-config"
+          hx-vals='{"config_file": "{{ p.filename }}"}'
+          hx-target="#main-content"
+          hx-swap="innerHTML">
+    Edit
+  </button>
+  {% endif %}
+  <button class="btn btn-sm btn-secondary"
+          onclick="var n=prompt('Clone as:','{{ p.filename }}');if(n){htmx.ajax('POST','clone',{target:'#flash-area',swap:'innerHTML',values:{filename:n,source_file:'{{ p.filename }}'}});}">
+    Clone
+  </button>
+  {% if p.running %}
+  <button class="btn btn-sm btn-secondary"
+          hx-post="restart-panel"
+          hx-vals='{"filename": "{{ p.filename }}"}'
+          hx-target="#flash-area" hx-swap="innerHTML"
+          title="Restart engine">Restart</button>
+  <button class="btn btn-sm btn-danger"
+          hx-post="stop-panel"
+          hx-vals='{"filename": "{{ p.filename }}"}'
+          hx-target="#flash-area" hx-swap="innerHTML"
+          title="Stop engine">Stop</button>
+  {% else %}
+  <button class="btn btn-sm btn-primary"
+          hx-post="start-panel"
+          hx-vals='{"filename": "{{ p.filename }}"}'
+          hx-target="#flash-area" hx-swap="innerHTML"
+          title="Start engine">Start</button>
+  {% if not p.active %}
+  <button class="btn btn-sm btn-danger"
+          hx-post="delete-config"
+          hx-vals='{"filename": "{{ p.filename }}"}'
+          hx-target="#flash-area" hx-swap="innerHTML"
+          hx-confirm="Delete {{ p.filename }}? This cannot be undone."
+          title="Delete config file">Del</button>
+  {% endif %}
+  {% endif %}
+</div>
+{% endfor %}
+{% if not panels %}
+<p class="hint">No config files found. Import or clone a panel to get started.</p>
+{% endif %}

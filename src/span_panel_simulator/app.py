@@ -132,6 +132,7 @@ class SimulatorApp:
         self._panels: dict[Path, PanelInstance] = {}
         self._config_hashes: dict[Path, str] = {}
         self._serial_to_panel: dict[str, PanelInstance] = {}
+        self._stopped_configs: set[str] = set()
         self._http_server: BootstrapHttpServer | None = None
         self._dashboard_runner: web.AppRunner | None = None
         self._advertiser: PanelAdvertiser | None = None
@@ -412,6 +413,12 @@ class SimulatorApp:
             {"started": [...], "stopped": [...], "reloaded": [...]}
         """
         current = _discover_configs(self._config_dir, self._config_filter)
+
+        # Exclude configs the user explicitly stopped via the dashboard
+        for path in list(current):
+            if path.name in self._stopped_configs:
+                del current[path]
+
         prev = self._config_hashes
 
         to_start = set(current) - set(prev)
@@ -464,6 +471,48 @@ class SimulatorApp:
         Stops all panels outside the new filter on the next reload.
         """
         self._config_filter = config_filter
+
+    # ------------------------------------------------------------------
+    # Explicit per-panel lifecycle (called from dashboard)
+    # ------------------------------------------------------------------
+
+    def _transition_to_explicit_control(self) -> None:
+        """Move from config-filter mode to per-panel start/stop control.
+
+        Called once on the first explicit Start/Stop from the UI.
+        Preserves current running state by marking all non-running
+        configs as stopped.
+        """
+        if self._config_filter is None:
+            return
+        currently_running = {p.name for p in self._panels}
+        all_on_disk: set[str] = set()
+        for pattern in ("*.yaml", "*.yml"):
+            all_on_disk.update(p.name for p in self._config_dir.glob(pattern))
+        self._stopped_configs = all_on_disk - currently_running
+        self._config_filter = None
+
+    def request_start_panel(self, filename: str) -> None:
+        """Start (or ensure running) the engine for a specific config."""
+        self._transition_to_explicit_control()
+        self._stopped_configs.discard(filename)
+        self._reload_event.set()
+
+    def request_stop_panel(self, filename: str) -> None:
+        """Stop the engine for a specific config."""
+        self._transition_to_explicit_control()
+        self._stopped_configs.add(filename)
+        self._reload_event.set()
+
+    def request_restart_panel(self, filename: str) -> None:
+        """Force-restart the engine for a specific config."""
+        self._transition_to_explicit_control()
+        self._stopped_configs.discard(filename)
+        # Invalidate the stored hash so reload() sees a mismatch
+        path = self._config_dir / filename
+        if path in self._config_hashes:
+            self._config_hashes[path] = ""
+        self._reload_event.set()
 
     # ------------------------------------------------------------------
     # /set message routing
@@ -589,6 +638,9 @@ class SimulatorApp:
             get_panel_configs=self._get_panel_configs,
             request_reload=self.request_reload,
             set_config_filter=self.set_config_filter,
+            start_panel=self.request_start_panel,
+            stop_panel=self.request_stop_panel,
+            restart_panel=self.request_restart_panel,
             get_power_summary=self._get_power_summary,
             set_simulation_time=self._set_simulation_time,
             set_time_acceleration=self._set_time_acceleration,
@@ -604,7 +656,7 @@ class SimulatorApp:
         await dashboard_site.start()
         _LOGGER.info("Dashboard listening on http://0.0.0.0:%d", self._dashboard_port)
 
-        # 3c. Initialise HA API client (if configured)
+        # 3c. Initialise HA API client and history provider (if configured)
         if self._ha_config is not None:
             from span_panel_simulator.ha_api.client import HAClient
 
@@ -612,6 +664,8 @@ class SimulatorApp:
             if await self._ha_client.async_validate():
                 _LOGGER.info("HA API: connected and validated")
                 dashboard_ctx.ha_client = self._ha_client
+                # HAClient satisfies HistoryProvider — use it for profiles
+                dashboard_ctx.history_provider = self._ha_client
             else:
                 _LOGGER.warning("HA API: validation failed — continuing without HA")
                 await self._ha_client.close()

@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from span_panel_simulator.history import HistoryProvider
+
 import aiohttp_jinja2
 import jinja2
 from aiohttp import web
@@ -31,6 +33,9 @@ class DashboardContext:
     get_panel_configs: Callable[[], dict[Path, str]]  # path -> serial
     request_reload: Callable[[], None]
     set_config_filter: Callable[[str | None], None] = lambda _: None
+    start_panel: Callable[[str], None] = lambda _: None
+    stop_panel: Callable[[str], None] = lambda _: None
+    restart_panel: Callable[[str], None] = lambda _: None
     get_power_summary: Callable[[], dict[str, Any] | None] = lambda: None
     set_simulation_time: Callable[[str], None] = lambda _: None
     set_time_acceleration: Callable[[float], None] = lambda _: None
@@ -39,6 +44,7 @@ class DashboardContext:
     set_circuit_priority: Callable[[str, str], None] = lambda _id, _pri: None
     set_circuit_relay: Callable[[str, str], None] = lambda _id, _state: None
     ha_client: Any = None  # HAClient | None — optional, set when HA API is available
+    history_provider: HistoryProvider | None = None
 
 
 def create_dashboard_app(context: DashboardContext) -> web.Application:
