@@ -16,10 +16,8 @@ if TYPE_CHECKING:
     import multidict
 
 from span_panel_simulator.dashboard.presets import (
-    BATTERY_PRESET_LABELS,
-    EVSE_PRESET_LABELS,
-    PRESET_LABELS,
-    PRESETS_BY_TYPE,
+    PresetRegistry,
+    is_random_days_preset,
     match_battery_preset,
 )
 from span_panel_simulator.solar import compute_solar_curve
@@ -53,6 +51,11 @@ def _store(request: web.Request) -> ConfigStore:
 def _ctx(request: web.Request) -> DashboardContext:
     ctx: DashboardContext = request.app["dashboard_context"]
     return ctx
+
+
+def _presets(request: web.Request) -> PresetRegistry:
+    registry: PresetRegistry = request.app["preset_registry"]
+    return registry
 
 
 def _render(template: str, request: web.Request, context: dict[str, Any]) -> web.Response:
@@ -108,7 +111,7 @@ def _dashboard_context(request: web.Request) -> dict[str, Any]:
         "priorities": PRIORITIES,
         "relay_behaviors": RELAY_BEHAVIORS,
         "entity_types": ENTITY_TYPES,
-        "preset_labels": PRESET_LABELS,
+        "preset_labels": _presets(request).circuit_labels,
         "unmapped_tabs": store.get_unmapped_tabs(),
         "panel_source": panel_source,
         "origin_serial": store.get_origin_serial(),
@@ -118,9 +121,9 @@ def _dashboard_context(request: web.Request) -> dict[str, Any]:
     }
 
 
-def _presets_for_type(entity_type: str) -> dict[str, str]:
+def _presets_for_type(request: web.Request, entity_type: str) -> dict[str, str]:
     """Return the preset labels appropriate for the given entity type."""
-    return PRESETS_BY_TYPE.get(entity_type, {})
+    return _presets(request).presets_for_type(entity_type)
 
 
 def _entity_list_context(request: web.Request, editing_id: str | None = None) -> dict[str, Any]:
@@ -142,10 +145,10 @@ def _entity_list_context(request: web.Request, editing_id: str | None = None) ->
         ctx["editing_profile"] = store.get_entity_profile(editing_id)
         ctx["priorities"] = PRIORITIES
         ctx["relay_behaviors"] = RELAY_BEHAVIORS
-        ctx["preset_labels"] = _presets_for_type(entity.entity_type)
+        ctx["preset_labels"] = _presets_for_type(request, entity.entity_type)
         ctx["active_days"] = store.get_active_days(editing_id)
         if entity.entity_type == "battery":
-            ctx["battery_preset_labels"] = BATTERY_PRESET_LABELS
+            ctx["battery_preset_labels"] = _presets(request).battery_labels
             battery_profile = store.get_battery_profile(editing_id)
             ctx["battery_profile"] = battery_profile
             ctx["battery_charge_mode"] = store.get_battery_charge_mode(editing_id)
@@ -167,7 +170,7 @@ def _entity_list_context(request: web.Request, editing_id: str | None = None) ->
             ctx["evse_duration"] = schedule["duration"]
             ctx["evse_active_preset"] = schedule["preset"]
             ctx["evse_profile"] = schedule["profile"]
-            ctx["evse_preset_labels"] = EVSE_PRESET_LABELS
+            ctx["evse_preset_labels"] = _presets(request).evse_labels
     return ctx
 
 
@@ -178,7 +181,7 @@ def _profile_context(request: web.Request, entity_id: str) -> dict[str, Any]:
     return {
         "entity": entity,
         "profile": store.get_entity_profile(entity_id),
-        "preset_labels": _presets_for_type(entity.entity_type),
+        "preset_labels": _presets_for_type(request, entity.entity_type),
         "active_days": store.get_active_days(entity_id),
     }
 
@@ -191,7 +194,7 @@ def _battery_profile_context(request: web.Request, entity_id: str) -> dict[str, 
     return {
         "entity": entity,
         "battery_profile": battery_profile,
-        "battery_preset_labels": BATTERY_PRESET_LABELS,
+        "battery_preset_labels": _presets(request).battery_labels,
         "battery_charge_mode": store.get_battery_charge_mode(entity_id),
         "battery_active_preset": match_battery_preset(battery_profile),
         "active_days": store.get_active_days(entity_id),
@@ -451,6 +454,7 @@ async def handle_apply_preset(request: web.Request) -> web.Response:
         day,
         start_hour=start_hour,
         end_hour=end_hour,
+        random_days=is_random_days_preset(preset_name),
     )
     return _render("partials/profile_editor.html", request, _profile_context(request, entity_id))
 
@@ -532,7 +536,7 @@ def _evse_schedule_context(request: web.Request, entity_id: str) -> dict[str, An
         "evse_duration": schedule["duration"],
         "evse_active_preset": schedule["preset"],
         "evse_profile": schedule["profile"],
-        "evse_preset_labels": EVSE_PRESET_LABELS,
+        "evse_preset_labels": _presets(request).evse_labels,
         "active_days": store.get_active_days(entity_id),
     }
 

@@ -1,28 +1,22 @@
 <fieldset class="profile-editor">
   <legend>24-Hour Profile</legend>
-  <div class="preset-buttons">
-    {% for key, label in preset_labels.items() %}
-      {% if key == 'random' %}
-      <span class="random-preset-group">
-        <button type="button" class="btn btn-sm"
-                hx-post="entities/{{ entity.id }}/profile/preset"
-                hx-target="#profile-{{ entity.id }}"
-                hx-swap="innerHTML"
-                hx-include="#random-params-{{ entity.id }}"
-                hx-vals='{"preset": "random"}'>{{ label }}</button>
-        <span class="random-params" id="random-params-{{ entity.id }}">
-          <label>from <input type="number" name="start_hour" value="0" min="0" max="23" class="hour-input"></label>
-          <label>to <input type="number" name="end_hour" value="24" min="0" max="24" class="hour-input"></label>
-        </span>
-      </span>
-      {% else %}
-      <button type="button" class="btn btn-sm"
-              hx-post="entities/{{ entity.id }}/profile/preset"
-              hx-target="#profile-{{ entity.id }}"
-              hx-swap="innerHTML"
-              hx-vals='{"preset": "{{ key }}"}'>{{ label }}</button>
-      {% endif %}
-    {% endfor %}
+  <div class="preset-selector" id="preset-form-{{ entity.id }}">
+    <select name="preset" class="preset-dropdown"
+            onchange="toggleRandomParams(this, '{{ entity.id }}')">
+      <option value="">-- Select Preset --</option>
+      {% for key, label in preset_labels.items() %}
+      <option value="{{ key }}">{{ label }}</option>
+      {% endfor %}
+    </select>
+    <span class="random-params" id="random-params-{{ entity.id }}" style="display:none">
+      <label>from <input type="number" name="start_hour" value="0" min="0" max="23" class="hour-input"></label>
+      <label>to <input type="number" name="end_hour" value="24" min="0" max="24" class="hour-input"></label>
+    </span>
+    <button type="button" class="btn btn-sm"
+            hx-post="entities/{{ entity.id }}/profile/preset"
+            hx-target="#profile-{{ entity.id }}"
+            hx-swap="innerHTML"
+            hx-include="#preset-form-{{ entity.id }}">Apply</button>
   </div>
   <div class="day-picker" id="days-{{ entity.id }}">
     <span class="day-picker-label">Active Days</span>

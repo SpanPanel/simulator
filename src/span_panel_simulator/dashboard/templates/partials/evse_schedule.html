@@ -1,15 +1,17 @@
 <div class="evse-schedule" id="evse-schedule-{{ e.id }}">
   <h4>Charging Schedule</h4>
 
-  <div class="evse-presets">
-    {% for key, label in evse_preset_labels.items() %}
-    <form style="display:inline"
-          hx-post="entities/{{ e.id }}/evse-schedule/preset"
-          hx-target="#evse-schedule-{{ e.id }}" hx-swap="outerHTML">
-      <input type="hidden" name="preset" value="{{ key }}">
-      <button type="submit" class="btn btn-sm evse-preset-btn {{ 'active' if evse_active_preset == key }}">{{ label }}</button>
-    </form>
-    {% endfor %}
+  <div class="preset-selector" id="evse-preset-form-{{ e.id }}">
+    <select name="preset" class="preset-dropdown">
+      <option value="">-- Select Preset --</option>
+      {% for key, label in evse_preset_labels.items() %}
+      <option value="{{ key }}" {{ 'selected' if evse_active_preset == key }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="button" class="btn btn-sm"
+            hx-post="entities/{{ e.id }}/evse-schedule/preset"
+            hx-target="#evse-schedule-{{ e.id }}" hx-swap="outerHTML"
+            hx-include="#evse-preset-form-{{ e.id }}">Apply</button>
   </div>
 
   <div class="day-picker" id="days-{{ e.id }}">

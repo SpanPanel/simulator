@@ -35,6 +35,12 @@
       }
     });
 
+    // Toggle random preset parameters visibility
+    function toggleRandomParams(sel, entityId) {
+      var el = document.getElementById('random-params-' + entityId);
+      if (el) el.style.display = sel.value === 'random' ? 'inline-flex' : 'none';
+    }
+
     // Theme switcher
     (function() {
       var sel = document.getElementById('theme-select');

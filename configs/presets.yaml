@@ -1,0 +1,269 @@
+circuit:
+  evening_lighting:
+    label: Evening Lighting
+    profile:
+      0: 0.0
+      1: 0.0
+      2: 0.0
+      3: 0.0
+      4: 0.0
+      5: 0.0
+      6: 0.05
+      7: 0.1
+      8: 0.05
+      9: 0.0
+      10: 0.0
+      11: 0.0
+      12: 0.0
+      13: 0.0
+      14: 0.0
+      15: 0.1
+      16: 0.3
+      17: 0.6
+      18: 0.9
+      19: 1.0
+      20: 1.0
+      21: 1.0
+      22: 0.7
+      23: 0.3
+  always_on:
+    label: Always On
+    profile:
+      0: 1.0
+      1: 1.0
+      2: 1.0
+      3: 1.0
+      4: 1.0
+      5: 1.0
+      6: 1.0
+      7: 1.0
+      8: 1.0
+      9: 1.0
+      10: 1.0
+      11: 1.0
+      12: 1.0
+      13: 1.0
+      14: 1.0
+      15: 1.0
+      16: 1.0
+      17: 1.0
+      18: 1.0
+      19: 1.0
+      20: 1.0
+      21: 1.0
+      22: 1.0
+      23: 1.0
+  hvac_cycling:
+    label: HVAC Cycling
+    profile:
+      0: 0.3
+      1: 0.3
+      2: 0.3
+      3: 0.3
+      4: 0.3
+      5: 0.3
+      6: 0.4
+      7: 0.5
+      8: 0.5
+      9: 0.5
+      10: 0.6
+      11: 0.6
+      12: 0.7
+      13: 0.7
+      14: 0.8
+      15: 0.9
+      16: 1.0
+      17: 1.0
+      18: 1.0
+      19: 1.0
+      20: 1.0
+      21: 1.0
+      22: 0.7
+      23: 0.4
+  daytime_appliance:
+    label: Daytime Appliance
+    profile:
+      0: 0.0
+      1: 0.0
+      2: 0.0
+      3: 0.0
+      4: 0.0
+      5: 0.0
+      6: 0.0
+      7: 0.1
+      8: 0.3
+      9: 0.7
+      10: 1.0
+      11: 1.0
+      12: 1.0
+      13: 1.0
+      14: 1.0
+      15: 0.8
+      16: 0.5
+      17: 0.3
+      18: 0.1
+      19: 0.0
+      20: 0.0
+      21: 0.0
+      22: 0.0
+      23: 0.0
+  baseload:
+    label: Baseload
+    profile:
+      0: 0.1
+      1: 0.1
+      2: 0.1
+      3: 0.1
+      4: 0.1
+      5: 0.1
+      6: 0.1
+      7: 0.1
+      8: 0.1
+      9: 0.1
+      10: 0.1
+      11: 0.1
+      12: 0.1
+      13: 0.1
+      14: 0.1
+      15: 0.1
+      16: 0.1
+      17: 0.1
+      18: 0.1
+      19: 0.1
+      20: 0.1
+      21: 0.1
+      22: 0.1
+      23: 0.1
+  random:
+    label: Random
+    dynamic: random
+    random_days: true
+
+pv:
+  solar_curve:
+    label: Solar Curve
+    dynamic: solar_curve
+  always_on:
+    label: Always On
+    profile:
+      0: 1.0
+      1: 1.0
+      2: 1.0
+      3: 1.0
+      4: 1.0
+      5: 1.0
+      6: 1.0
+      7: 1.0
+      8: 1.0
+      9: 1.0
+      10: 1.0
+      11: 1.0
+      12: 1.0
+      13: 1.0
+      14: 1.0
+      15: 1.0
+      16: 1.0
+      17: 1.0
+      18: 1.0
+      19: 1.0
+      20: 1.0
+      21: 1.0
+      22: 1.0
+      23: 1.0
+
+battery:
+  post_solar_discharge:
+    label: Post-Solar Discharge
+    schedule:
+      0: idle
+      1: idle
+      2: idle
+      3: idle
+      4: idle
+      5: idle
+      6: idle
+      7: idle
+      8: charge
+      9: charge
+      10: charge
+      11: charge
+      12: charge
+      13: charge
+      14: charge
+      15: charge
+      16: discharge
+      17: discharge
+      18: discharge
+      19: discharge
+      20: discharge
+      21: discharge
+      22: discharge
+      23: idle
+  grid_disconnect_discharge:
+    label: Grid-Disconnect Discharge
+    schedule:
+      0: discharge
+      1: discharge
+      2: discharge
+      3: discharge
+      4: discharge
+      5: discharge
+      6: discharge
+      7: discharge
+      8: discharge
+      9: discharge
+      10: discharge
+      11: discharge
+      12: discharge
+      13: discharge
+      14: discharge
+      15: discharge
+      16: discharge
+      17: discharge
+      18: discharge
+      19: discharge
+      20: discharge
+      21: discharge
+      22: discharge
+      23: discharge
+  custom:
+    label: Custom
+    schedule:
+      0: idle
+      1: idle
+      2: idle
+      3: idle
+      4: idle
+      5: idle
+      6: idle
+      7: idle
+      8: idle
+      9: idle
+      10: idle
+      11: idle
+      12: idle
+      13: idle
+      14: idle
+      15: idle
+      16: idle
+      17: idle
+      18: idle
+      19: idle
+      20: idle
+      21: idle
+      22: idle
+      23: idle
+
+evse:
+  peak_solar:
+    label: Peak Solar
+    start_hour: 10
+    duration_hours: 6
+  evening:
+    label: Evening
+    start_hour: 18
+    duration_hours: 6
+  night:
+    label: Night
+    start_hour: 0
+    duration_hours: 6

@@ -338,11 +338,22 @@ legend {
 /* Profile editor */
 .profile-editor { margin-top: 0.75rem; }
 
-.preset-buttons {
+.preset-selector {
   display: flex;
   gap: 0.4rem;
+  align-items: center;
   flex-wrap: wrap;
   margin-bottom: 0.75rem;
+}
+
+.preset-dropdown {
+  min-width: 10em;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+  background: var(--card-bg);
+  color: var(--text);
 }
 
 .profile-grid {
@@ -1016,14 +1027,9 @@ legend {
 .evse-presets {
   display: flex;
   gap: 0.4rem;
+  align-items: center;
   flex-wrap: wrap;
   margin-bottom: 0.5rem;
-}
-
-.evse-preset-btn.active {
-  background: var(--badge-evse);
-  color: #fff;
-  border-color: var(--badge-evse);
 }
 
 .evse-timeline {

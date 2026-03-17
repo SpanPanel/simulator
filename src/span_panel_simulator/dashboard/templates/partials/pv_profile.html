@@ -44,7 +44,7 @@
                       'Jul','Aug','Sep','Oct','Nov','Dec'];
   var MONTH_NAMES = ['January','February','March','April','May','June',
                      'July','August','September','October','November','December'];
-  var currentMonth = parseInt(document.getElementById('sim-month').value) || 6;
+  var currentMonth = (window.getSimDate ? window.getSimDate().month : null) || new Date().getMonth() + 1;
   var nameplateInput = document.getElementById('pv-nameplate-{{ e.id }}');
   var nameplate = parseFloat(nameplateInput.value) || 5000;
   var chartInstance = null;

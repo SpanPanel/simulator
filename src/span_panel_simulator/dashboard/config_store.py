@@ -17,10 +17,10 @@ if TYPE_CHECKING:
 
 from span_panel_simulator.dashboard.defaults import make_defaults
 from span_panel_simulator.dashboard.presets import (
-    EVSE_PRESETS,
     evse_schedule_factors,
     get_battery_preset,
     get_evse_preset,
+    get_evse_tuples,
     get_preset,
 )
 from span_panel_simulator.solar import compute_solar_curve
@@ -481,8 +481,13 @@ class ConfigStore:
         day: int,
         start_hour: int = 0,
         end_hour: int = 24,
+        random_days: bool = False,
     ) -> dict[int, float]:
-        """Apply a named preset to an entity's profile and return the multipliers."""
+        """Apply a named preset to an entity's profile and return the multipliers.
+
+        When *random_days* is True, randomly selects 3-6 weekdays as the
+        entity's active days.
+        """
         lat = self._state.get("panel_config", {}).get("latitude", 37.7)
         multipliers = get_preset(
             preset_name,
@@ -493,6 +498,12 @@ class ConfigStore:
             latitude=lat,
         )
         self.update_entity_profile(entity_id, multipliers)
+        if random_days:
+            import random as _rng
+
+            count = _rng.randint(3, 6)
+            days = sorted(_rng.sample(range(7), count))
+            self.update_active_days(entity_id, days)
         return multipliers
 
     # -- Battery charge mode --
@@ -602,7 +613,7 @@ class ConfigStore:
 
         # Try to match a known preset
         active_preset: str | None = None
-        for name, (ps, pd) in EVSE_PRESETS.items():
+        for name, (ps, pd) in get_evse_tuples().items():
             expected = evse_schedule_factors(ps, pd)
             if all(profile.get(h, 0.0) == expected.get(h, 0.0) for h in range(24)):
                 active_preset = name

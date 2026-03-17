@@ -822,7 +822,7 @@ circuits:
     - 250.0
 unmapped_tabs: []
 simulation_params:
-  update_interval: 5
+  update_interval: 5.0
   time_acceleration: 1.0
-  noise_factor: 0.02
+  noise_factor: 0.01
   enable_realistic_behaviors: true
