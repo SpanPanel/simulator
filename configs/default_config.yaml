@@ -18,12 +18,31 @@ circuit_templates:
     breaker_rating: 15
     time_of_day_profile:
       enabled: true
-      peak_hours:
-      - 18
-      - 19
-      - 20
-      - 21
-      - 22
+      hourly_multipliers:
+        0: 0.1
+        1: 0.0
+        2: 0.0
+        3: 0.0
+        4: 0.0
+        5: 0.0
+        6: 0.1
+        7: 0.3
+        8: 0.2
+        9: 0.1
+        10: 0.1
+        11: 0.1
+        12: 0.1
+        13: 0.1
+        14: 0.1
+        15: 0.1
+        16: 0.2
+        17: 0.4
+        18: 0.8
+        19: 1.0
+        20: 1.0
+        21: 1.0
+        22: 0.7
+        23: 0.3
   exterior_lighting:
     energy_profile:
       mode: consumer
@@ -37,19 +56,31 @@ circuit_templates:
     breaker_rating: 15
     time_of_day_profile:
       enabled: true
-      peak_hours:
-      - 18
-      - 19
-      - 20
-      - 21
-      - 22
-      - 23
-      - 0
-      - 1
-      - 2
-      - 3
-      - 4
-      - 5
+      hourly_multipliers:
+        0: 0.3
+        1: 0.3
+        2: 0.3
+        3: 0.3
+        4: 0.3
+        5: 0.3
+        6: 0.1
+        7: 0.0
+        8: 0.0
+        9: 0.0
+        10: 0.0
+        11: 0.0
+        12: 0.0
+        13: 0.0
+        14: 0.0
+        15: 0.0
+        16: 0.0
+        17: 0.0
+        18: 0.3
+        19: 0.7
+        20: 1.0
+        21: 1.0
+        22: 1.0
+        23: 0.5
   outlets:
     energy_profile:
       mode: consumer
@@ -112,6 +143,42 @@ circuit_templates:
       on_duration: 1200
       off_duration: 2400
     hvac_type: central_ac
+    time_of_day_profile:
+      enabled: true
+      hourly_multipliers:
+        0: 0.3
+        1: 0.3
+        2: 0.3
+        3: 0.3
+        4: 0.3
+        5: 0.3
+        6: 0.4
+        7: 0.5
+        8: 0.5
+        9: 0.5
+        10: 0.6
+        11: 0.6
+        12: 0.7
+        13: 0.7
+        14: 0.8
+        15: 0.9
+        16: 1.0
+        17: 1.0
+        18: 1.0
+        19: 1.0
+        20: 1.0
+        21: 1.0
+        22: 0.7
+        23: 0.4
+      peak_hours:
+      - 14
+      - 15
+      - 16
+      - 17
+      - 18
+      - 19
+      - 20
+      - 21
   heat_pump:
     energy_profile:
       mode: consumer
@@ -127,6 +194,252 @@ circuit_templates:
       on_duration: 900
       off_duration: 1800
     hvac_type: heat_pump
+  dishwasher:
+    energy_profile:
+      mode: consumer
+      power_range:
+      - 0.0
+      - 1800.0
+      typical_power: 1200.0
+      power_variation: 0.15
+    relay_behavior: controllable
+    priority: OFF_GRID
+    breaker_rating: 20
+    cycling_pattern:
+      on_duration: 1200
+      off_duration: 600
+    time_of_day_profile:
+      enabled: true
+      hour_factors:
+        0: 0.0
+        1: 0.0
+        2: 0.0
+        3: 0.0
+        4: 0.0
+        5: 0.0
+        6: 0.0
+        7: 0.0
+        8: 0.0
+        9: 0.0
+        10: 0.0
+        11: 0.0
+        12: 0.0
+        13: 0.0
+        14: 0.0
+        15: 0.0
+        16: 0.0
+        17: 0.0
+        18: 0.0
+        19: 0.8
+        20: 1.0
+        21: 0.5
+        22: 0.0
+        23: 0.0
+  washing_machine:
+    energy_profile:
+      mode: consumer
+      power_range:
+      - 0.0
+      - 1500.0
+      typical_power: 500.0
+      power_variation: 0.3
+    relay_behavior: controllable
+    priority: OFF_GRID
+    breaker_rating: 20
+    cycling_pattern:
+      on_duration: 600
+      off_duration: 300
+    time_of_day_profile:
+      enabled: true
+      hour_factors:
+        0: 0.0
+        1: 0.0
+        2: 0.0
+        3: 0.0
+        4: 0.0
+        5: 0.0
+        6: 0.0
+        7: 0.0
+        8: 0.3
+        9: 0.7
+        10: 1.0
+        11: 0.8
+        12: 0.0
+        13: 0.0
+        14: 0.0
+        15: 0.5
+        16: 0.7
+        17: 0.3
+        18: 0.0
+        19: 0.0
+        20: 0.0
+        21: 0.0
+        22: 0.0
+        23: 0.0
+  microwave:
+    energy_profile:
+      mode: consumer
+      power_range:
+      - 0.0
+      - 1500.0
+      typical_power: 1000.0
+      power_variation: 0.1
+    relay_behavior: controllable
+    priority: NEVER
+    breaker_rating: 20
+    cycling_pattern:
+      on_duration: 180
+      off_duration: 3420
+    time_of_day_profile:
+      enabled: true
+      hour_factors:
+        0: 0.0
+        1: 0.0
+        2: 0.0
+        3: 0.0
+        4: 0.0
+        5: 0.0
+        6: 0.0
+        7: 0.4
+        8: 0.3
+        9: 0.0
+        10: 0.0
+        11: 0.0
+        12: 0.6
+        13: 0.4
+        14: 0.0
+        15: 0.0
+        16: 0.0
+        17: 0.3
+        18: 0.5
+        19: 0.3
+        20: 0.0
+        21: 0.0
+        22: 0.0
+        23: 0.0
+  dryer:
+    energy_profile:
+      mode: consumer
+      power_range:
+      - 0.0
+      - 5000.0
+      typical_power: 3000.0
+      power_variation: 0.1
+    relay_behavior: controllable
+    priority: OFF_GRID
+    breaker_rating: 30
+    cycling_pattern:
+      on_duration: 2400
+      off_duration: 300
+    time_of_day_profile:
+      enabled: true
+      hour_factors:
+        0: 0.0
+        1: 0.0
+        2: 0.0
+        3: 0.0
+        4: 0.0
+        5: 0.0
+        6: 0.0
+        7: 0.0
+        8: 0.0
+        9: 0.0
+        10: 0.0
+        11: 0.0
+        12: 0.0
+        13: 0.0
+        14: 0.5
+        15: 1.0
+        16: 1.0
+        17: 0.5
+        18: 0.0
+        19: 0.0
+        20: 0.0
+        21: 0.0
+        22: 0.0
+        23: 0.0
+  oven_range:
+    energy_profile:
+      mode: consumer
+      power_range:
+      - 0.0
+      - 5000.0
+      typical_power: 2000.0
+      power_variation: 0.2
+    relay_behavior: controllable
+    priority: OFF_GRID
+    breaker_rating: 40
+    cycling_pattern:
+      on_duration: 600
+      off_duration: 600
+    time_of_day_profile:
+      enabled: true
+      hour_factors:
+        0: 0.0
+        1: 0.0
+        2: 0.0
+        3: 0.0
+        4: 0.0
+        5: 0.0
+        6: 0.0
+        7: 0.2
+        8: 0.2
+        9: 0.0
+        10: 0.0
+        11: 0.0
+        12: 0.3
+        13: 0.0
+        14: 0.0
+        15: 0.0
+        16: 0.0
+        17: 0.5
+        18: 1.0
+        19: 0.8
+        20: 0.3
+        21: 0.0
+        22: 0.0
+        23: 0.0
+  water_heater:
+    energy_profile:
+      mode: consumer
+      power_range:
+      - 0.0
+      - 4500.0
+      typical_power: 4500.0
+      power_variation: 0.05
+    relay_behavior: controllable
+    priority: OFF_GRID
+    breaker_rating: 30
+    cycling_pattern:
+      on_duration: 600
+      off_duration: 2400
+    time_of_day_profile:
+      enabled: true
+      hour_factors:
+        0: 0.1
+        1: 0.1
+        2: 0.1
+        3: 0.1
+        4: 0.1
+        5: 0.2
+        6: 0.6
+        7: 1.0
+        8: 0.8
+        9: 0.4
+        10: 0.2
+        11: 0.2
+        12: 0.2
+        13: 0.2
+        14: 0.2
+        15: 0.2
+        16: 0.3
+        17: 0.5
+        18: 0.8
+        19: 1.0
+        20: 0.7
+        21: 0.4
+        22: 0.2
+        23: 0.1
   span_drive:
     energy_profile:
       mode: consumer
@@ -169,16 +482,21 @@ circuit_templates:
         21: 0.0
         22: 0.0
         23: 0.0
+      active_days:
+      - 0
+      - 2
+      - 4
+      - 6
   solar:
     energy_profile:
       mode: producer
       power_range:
-      - -5000.0
+      - -10000.0
       - 0.0
-      typical_power: -3000.0
+      typical_power: -6000.0
       power_variation: 0.25
       efficiency: 0.85
-      nameplate_capacity_w: 5000.0
+      nameplate_capacity_w: 10000.0
     relay_behavior: non_controllable
     priority: NEVER
     device_type: pv
@@ -216,6 +534,40 @@ circuit_templates:
     cycling_pattern:
       on_duration: 7200
       off_duration: 14400
+    time_of_day_profile:
+      enabled: true
+      hourly_multipliers:
+        0: 0.0
+        1: 0.0
+        2: 0.0
+        3: 0.0
+        4: 0.0
+        5: 0.0
+        6: 0.0
+        7: 0.1
+        8: 0.3
+        9: 0.7
+        10: 1.0
+        11: 1.0
+        12: 1.0
+        13: 1.0
+        14: 1.0
+        15: 0.8
+        16: 0.5
+        17: 0.3
+        18: 0.1
+        19: 0.0
+        20: 0.0
+        21: 0.0
+        22: 0.0
+        23: 0.0
+      peak_hours:
+      - 10
+      - 11
+      - 12
+      - 13
+      - 14
+      - 15
   always_on:
     energy_profile:
       mode: consumer
@@ -354,25 +706,19 @@ circuits:
   - 15
 - id: dishwasher
   name: Dishwasher
-  template: large_appliance
+  template: dishwasher
   tabs:
   - 16
-  overrides:
-    typical_power: 1200.0
 - id: washing_machine
   name: Washing Machine
-  template: large_appliance
+  template: washing_machine
   tabs:
   - 17
-  overrides:
-    typical_power: 1000.0
 - id: microwave
   name: Microwave
-  template: large_appliance
+  template: microwave
   tabs:
   - 18
-  overrides:
-    typical_power: 1000.0
 - id: freezer
   name: Chest Freezer
   template: refrigerator
@@ -395,6 +741,7 @@ circuits:
   template: pool
   tabs:
   - 39
+  breaker_rating: 20
 - id: smoke_detectors
   name: Smoke Detectors
   template: always_on
@@ -407,22 +754,19 @@ circuits:
     - 10.0
 - id: dryer
   name: Electric Dryer
-  template: large_appliance
+  template: dryer
   tabs:
   - 20
   - 22
-  breaker_rating: 30
-  overrides:
-    typical_power: 3000.0
-    power_range:
-    - 0.0
-    - 4500.0
 - id: main_hvac
   name: Main HVAC
   template: hvac
   tabs:
   - 23
   - 25
+  breaker_rating: 30
+  overrides:
+    typical_power: 1400.0
 - id: battery_storage
   name: Battery Storage
   template: battery
@@ -437,34 +781,23 @@ circuits:
   - 29
 - id: oven
   name: Electric Oven/Range
-  template: large_appliance
+  template: oven_range
   tabs:
   - 28
   - 30
-  breaker_rating: 40
-  overrides:
-    typical_power: 2500.0
-    power_range:
-    - 0.0
-    - 4000.0
 - id: water_heater
   name: Water Heater
-  template: large_appliance
+  template: water_heater
   tabs:
   - 31
   - 33
-  breaker_rating: 30
-  overrides:
-    typical_power: 4000.0
-    power_range:
-    - 0.0
-    - 4500.0
 - id: span_drive_garage
   name: SPAN Drive - Garage
   template: span_drive
   tabs:
   - 32
   - 34
+  breaker_rating: 50
 - id: span_drive_driveway
   name: SPAN Drive - Driveway
   template: span_drive
@@ -477,6 +810,7 @@ circuits:
   tabs:
   - 36
   - 38
+  breaker_rating: 30
 - id: new_circuit
   name: kitchen Lights
   template: new_circuit_tpl
