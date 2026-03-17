@@ -113,19 +113,18 @@ class BatteryStorageEquipment:
 
     @property
     def grid_state(self) -> str:
-        """``ON_GRID`` or ``OFF_GRID`` — published on ``bess-0/grid-state``."""
-        if self._forced_offline:
-            return "OFF_GRID"
-        if self._battery_state == "discharging":
-            return "OFF_GRID"
-        return "ON_GRID"
+        """``ON_GRID`` or ``OFF_GRID`` — published on ``bess-0/grid-state``.
+
+        Reflects the physical grid connection, not the battery schedule.
+        The panel is only OFF_GRID when the grid is actually disconnected
+        (forced offline via dashboard or real outage).
+        """
+        return "OFF_GRID" if self._forced_offline else "ON_GRID"
 
     @property
     def dominant_power_source(self) -> str:
         """``BATTERY`` or ``GRID`` — published on ``core/dominant-power-source``."""
         if self._forced_offline:
-            return "BATTERY"
-        if self._battery_state == "discharging":
             return "BATTERY"
         return "GRID"
 
@@ -203,7 +202,14 @@ class BatteryStorageEquipment:
     # ------------------------------------------------------------------
 
     def _resolve_battery_state(self, current_time: float) -> str:
-        """Determine battery state from charge mode or hour-based config."""
+        """Determine battery state from grid status, charge mode, or schedule.
+
+        Grid-forced-offline always overrides the schedule: the battery
+        must discharge to supply loads during an outage.
+        """
+        if self._forced_offline:
+            return "discharging"
+
         charge_mode: str = self._battery_behavior.get("charge_mode", "custom")
         if charge_mode != "custom" and self._behavior_engine is not None:
             return self._behavior_engine.last_battery_direction

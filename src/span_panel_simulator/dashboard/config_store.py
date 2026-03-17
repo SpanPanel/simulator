@@ -696,8 +696,8 @@ class ConfigStore:
                 pv_specs.append((nameplate, efficiency))
             elif entity.entity_type == "battery":
                 bb: dict[str, Any] = entity.battery_behavior or {}
-                charge_p = abs(float(bb.get("charge_power") or 3500))
-                discharge_p = abs(float(bb.get("discharge_power") or 3500))
+                charge_p = abs(float(bb.get("max_charge_power") or 3500))
+                discharge_p = abs(float(bb.get("max_discharge_power") or 3500))
                 charge_hrs: list[int] = bb.get("charge_hours") or []
                 discharge_hrs: list[int] = bb.get("discharge_hours") or []
                 battery_specs.append((charge_p, discharge_p, charge_hrs, discharge_hrs))

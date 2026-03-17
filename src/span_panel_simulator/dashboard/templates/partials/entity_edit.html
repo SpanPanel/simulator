@@ -126,8 +126,8 @@
                  min="5" max="80" step="5"
                  title="Normal discharge stops here; grid outages can draw deeper">
         </label>
-        <label>Charge Power (W): <input type="number" value="{{ e.battery_behavior.charge_power }}" disabled></label>
-        <label>Discharge Power (W): <input type="number" value="{{ e.battery_behavior.discharge_power }}" disabled></label>
+        <label>Charge Power (W): <input type="number" value="{{ e.battery_behavior.max_charge_power }}" disabled></label>
+        <label>Discharge Power (W): <input type="number" value="{{ e.battery_behavior.max_discharge_power }}" disabled></label>
       </div>
     </fieldset>
     {% endif %}

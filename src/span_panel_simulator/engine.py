@@ -79,6 +79,7 @@ class RealisticBehaviorEngine:
         self._circuit_cycle_states: dict[str, dict[str, Any]] = {}
         self._last_battery_direction: str = "idle"
         self._solar_excess_w: float = 0.0
+        self._grid_offline: bool = False
         self._tz = self._resolve_timezone(config)
 
     # ------------------------------------------------------------------
@@ -132,6 +133,10 @@ class RealisticBehaviorEngine:
     def set_solar_excess(self, excess_w: float) -> None:
         """Set the solar excess watts for solar-excess charge mode."""
         self._solar_excess_w = excess_w
+
+    def set_grid_offline(self, offline: bool) -> None:
+        """Propagate grid state so battery behaviour overrides schedules."""
+        self._grid_offline = offline
 
     def get_circuit_power(
         self,
@@ -323,13 +328,18 @@ class RealisticBehaviorEngine:
         if not battery_config.get("enabled", True):
             return base_power
 
+        current_hour = self.local_hour(current_time)
+
+        # Grid outage override: battery must discharge to supply loads
+        if self._grid_offline:
+            self._last_battery_direction = "discharging"
+            return self._get_discharge_power(battery_config, current_hour)
+
         # Skip inactive days — return idle power
         active_days: list[int] = battery_config.get("active_days", [])
         if active_days and self.local_weekday(current_time) not in active_days:
             self._last_battery_direction = "idle"
             return self._get_idle_power(battery_config)
-
-        current_hour = self.local_hour(current_time)
 
         discharge_hours: list[int] = battery_config.get("discharge_hours", [])
         idle_hours: list[int] = battery_config.get("idle_hours", [])
@@ -789,6 +799,8 @@ class DynamicSimulationEngine:
         self._forced_grid_offline = not online
         if self._bsee is not None:
             self._bsee.set_forced_offline(not online)
+        if self._behavior_engine is not None:
+            self._behavior_engine.set_grid_offline(not online)
 
     @property
     def is_grid_islandable(self) -> bool:
@@ -867,17 +879,31 @@ class DynamicSimulationEngine:
         pv = 0.0
         battery = 0.0
         total_consumption = 0.0
+        total_production = 0.0
         for circuit in self._circuits.values():
             power = circuit.instant_power_w
             if circuit.energy_mode == "producer":
                 pv += power
+                total_production += power
             elif circuit.energy_mode == "bidirectional":
-                battery += power
+                battery = power
             else:
                 total_consumption += power
 
+        # Battery sign: positive = discharging (producer), negative = charging (consumer)
+        battery_state = self._bsee.battery_state if self._bsee is not None else "idle"
+        if battery_state == "discharging":
+            # Battery is a producer — offsets grid
+            total_production += battery
+        elif battery_state == "charging":
+            # Battery is a consumer — adds to grid demand
+            total_consumption += battery
+            battery = -battery
+
+        # Grid = net energy demand: all consumers - all producers
+        # Floors at zero (can't push to grid without net metering)
         if self.grid_online:
-            grid = total_consumption - pv
+            grid = max(0.0, total_consumption - total_production)
         else:
             grid = 0.0
             if self.has_battery:
@@ -1075,9 +1101,15 @@ class DynamicSimulationEngine:
             grid_islandable = self._bsee.grid_islandable
             dsm_state = DSM_OFF_GRID if grid_state == "OFF_GRID" else DSM_ON_GRID
             current_run_config = PANEL_OFF_GRID if grid_state == "OFF_GRID" else PANEL_ON_GRID
-            # Off-grid: battery covers load deficit (consumption minus PV)
+            # Battery power flow uses SPAN panel sign convention
+            # (matches real hardware per SpanPanel/span#184):
+            #   positive = charging  (panel sending power TO battery)
+            #   negative = discharging (battery sending power TO panel)
             if self._forced_grid_offline:
-                power_flow_battery = total_consumption - total_production
+                # Off-grid: battery covers load deficit — always discharging
+                power_flow_battery = -(total_consumption - total_production)
+            elif self._bsee.battery_state == "discharging":
+                power_flow_battery = -battery_power_w
             else:
                 power_flow_battery = battery_power_w
 
@@ -1085,7 +1117,7 @@ class DynamicSimulationEngine:
             # before the BSEE update and off-grid deficit calculation, so it
             # has stale power.  Sync the circuit object then re-snapshot.
             if battery_circuit is not None:
-                battery_circuit._instant_power_w = power_flow_battery
+                battery_circuit._instant_power_w = abs(power_flow_battery)
                 cid = battery_circuit.circuit_id
                 snap = battery_circuit.to_snapshot()
                 if cid in shed_ids:
