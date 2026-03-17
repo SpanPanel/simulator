@@ -94,6 +94,20 @@ def apply_usage_profiles(
                 }
                 changed = True
 
+        # active_days → time_of_day_profile or battery_behavior
+        if "active_days" in profile:
+            raw_days = profile["active_days"]
+            if isinstance(raw_days, list) and raw_days:
+                days = [int(d) for d in raw_days if 0 <= int(d) <= 6]
+                if days:
+                    tod = template.get("time_of_day_profile")
+                    if isinstance(tod, dict):
+                        tod["active_days"] = days
+                    bb = template.get("battery_behavior")
+                    if isinstance(bb, dict) and bb.get("enabled"):
+                        bb["active_days"] = days
+                    changed = True
+
         # duty_cycle → cycling_pattern
         if "duty_cycle" in profile:
             template["cycling_pattern"] = {

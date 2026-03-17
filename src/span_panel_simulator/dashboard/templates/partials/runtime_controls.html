@@ -1,6 +1,18 @@
 <div class="card" id="runtime-controls">
   <h2>Runtime Controls</h2>
 
+  <div class="sim-date-slider-row">
+    <div class="sim-slider-group">
+      <div class="sim-slider-header">
+        <span class="sim-slider-label">Date</span>
+        <span id="sim-date-display" class="sim-slider-value"></span>
+      </div>
+      <div class="sim-slider-wrap sim-date-slider-wrap">
+        <div id="sim-date-slider"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="sim-slider-section">
     <div class="sim-slider-group">
       <div class="sim-slider-header">
@@ -99,6 +111,86 @@
     if (!modelingChart) loadProjection('month');
   });
 
+  // -- Date helpers --
+  var MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+  function doyToMonthDay(doy) {
+    var d = Math.max(1, Math.min(365, Math.round(doy)));
+    var acc = 0;
+    for (var m = 0; m < 12; m++) {
+      if (d <= acc + MONTH_DAYS[m]) return { month: m + 1, day: d - acc };
+      acc += MONTH_DAYS[m];
+    }
+    return { month: 12, day: 31 };
+  }
+
+  function monthDayToDoy(month, day) {
+    var doy = 0;
+    for (var m = 0; m < month - 1; m++) doy += MONTH_DAYS[m];
+    return doy + day;
+  }
+
+  function formatMonthDay(doy) {
+    var md = doyToMonthDay(doy);
+    return MONTH_NAMES[md.month - 1] + ' ' + md.day;
+  }
+
+  // Expose for HTMX configRequest
+  var currentSimYear = new Date().getFullYear();
+
+  window.getSimDate = function() {
+    var dateSlider = document.getElementById('sim-date-slider');
+    if (dateSlider && dateSlider.noUiSlider) {
+      var doy = Math.round(Number(dateSlider.noUiSlider.get()));
+      return doyToMonthDay(doy);
+    }
+    return { month: 3, day: 15 };
+  };
+
+  // -- Date slider --
+  var dateSlider = document.getElementById('sim-date-slider');
+  var dateDisplay = document.getElementById('sim-date-display');
+  var today = new Date();
+  var startDoy = monthDayToDoy(today.getMonth() + 1, today.getDate());
+
+  // Pip positions at start of each month
+  var monthStartDoys = [];
+  for (var mi = 0; mi < 12; mi++) {
+    var acc = 0;
+    for (var mj = 0; mj < mi; mj++) acc += MONTH_DAYS[mj];
+    monthStartDoys.push(acc + 1);
+  }
+
+  noUiSlider.create(dateSlider, {
+    start: [startDoy],
+    step: 1,
+    range: { min: 1, max: 365 },
+    pips: {
+      mode: 'values',
+      values: monthStartDoys,
+      density: 3,
+      format: {
+        to: function(v) {
+          var idx = monthStartDoys.indexOf(Math.round(v));
+          return idx >= 0 ? MONTH_NAMES[idx] : '';
+        }
+      }
+    },
+    tooltips: false
+  });
+
+  var dateUserDragging = false;
+
+  dateSlider.noUiSlider.on('start', function() { dateUserDragging = true; });
+  dateSlider.noUiSlider.on('end', function(values) {
+    sendSimDateTime();
+    dateUserDragging = false;
+  });
+  dateSlider.noUiSlider.on('update', function(values) {
+    dateDisplay.textContent = formatMonthDay(Number(values[0]));
+  });
+
   // -- Time-of-day slider --
   var timeSlider = document.getElementById('sim-time-slider');
   var timeDisplay = document.getElementById('sim-time-display');
@@ -131,24 +223,27 @@
 
   timeSlider.noUiSlider.on('start', function() { timeUserDragging = true; });
   timeSlider.noUiSlider.on('end', function(values) {
-    var mins = Math.round(Number(values[0]));
-    var hh = ('0' + Math.floor(mins / 60)).slice(-2);
-    var mm = ('0' + (mins % 60)).slice(-2);
-    var monthEl = document.getElementById('sim-month');
-    var dayEl = document.getElementById('sim-day');
-    var month = monthEl ? monthEl.value : '6';
-    var day = dayEl ? dayEl.value : '15';
-    var iso = '2025-' + ('0' + month).slice(-2) + '-' + ('0' + day).slice(-2) + 'T' + hh + ':' + mm + ':00';
-    fetch('set-sim-time', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({time: iso})
-    }).finally(function() { timeUserDragging = false; });
+    sendSimDateTime();
+    timeUserDragging = false;
   });
 
   timeSlider.noUiSlider.on('update', function(values) {
     timeDisplay.textContent = minutesToHHMM(Number(values[0]));
   });
+
+  function sendSimDateTime() {
+    var md = window.getSimDate();
+    var mins = Math.round(Number(timeSlider.noUiSlider.get()));
+    var hh = ('0' + Math.floor(mins / 60)).slice(-2);
+    var mm = ('0' + (mins % 60)).slice(-2);
+    var year = currentSimYear;
+    var iso = year + '-' + ('0' + md.month).slice(-2) + '-' + ('0' + md.day).slice(-2) + 'T' + hh + ':' + mm + ':00';
+    fetch('set-sim-time', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({time: iso})
+    });
+  }
 
   // -- Acceleration slider --
   var accelSlider = document.getElementById('sim-accel-slider');
@@ -379,6 +474,29 @@
           var hm = getPanelHourMinute(t, panelTimeZone);
           var currentMins = hm.hours * 60 + hm.minutes;
           timeSlider.noUiSlider.set([currentMins]);
+        }
+
+        // Sync date slider from engine time
+        if (!dateUserDragging) {
+          var simDate = new Date(t * 1000);
+          if (panelTimeZone) {
+            try {
+              var dp = new Intl.DateTimeFormat('en-US', {
+                timeZone: panelTimeZone, year: 'numeric', month: 'numeric', day: 'numeric'
+              }).formatToParts(simDate);
+              var sMonth = 1, sDay = 1, sYear = 2026;
+              dp.forEach(function(p) {
+                if (p.type === 'month') sMonth = parseInt(p.value, 10);
+                if (p.type === 'day') sDay = parseInt(p.value, 10);
+                if (p.type === 'year') sYear = parseInt(p.value, 10);
+              });
+              currentSimYear = sYear;
+              dateSlider.noUiSlider.set([monthDayToDoy(sMonth, sDay)]);
+            } catch(e) { /* fall through */ }
+          } else {
+            currentSimYear = simDate.getFullYear();
+            dateSlider.noUiSlider.set([monthDayToDoy(simDate.getMonth() + 1, simDate.getDate())]);
+          }
         }
 
         // Sync grid control buttons

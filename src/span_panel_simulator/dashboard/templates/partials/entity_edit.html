@@ -1,4 +1,5 @@
 {% set e = editing_entity if editing_entity is defined else entity %}
+{% set entity = e %}
 {% set profile = editing_profile if editing_profile is defined else {} %}
 <div class="entity-edit" id="entity-{{ e.id }}">
   <form hx-put="entities/{{ e.id }}" hx-target="#entity-list-section" hx-swap="innerHTML">

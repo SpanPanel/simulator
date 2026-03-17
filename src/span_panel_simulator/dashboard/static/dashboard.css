@@ -119,16 +119,6 @@ header h1 { font-size: 1.25rem; }
   flex-wrap: wrap;
 }
 
-.date-selector {
-  font-size: 0.85rem;
-}
-
-.date-selector select,
-.date-selector input {
-  padding: 0.25rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
 
 /* Buttons */
 .btn {
@@ -328,6 +318,22 @@ legend {
 }
 
 .edit-header h3 { font-size: 0.95rem; }
+
+/* Day-of-week picker */
+.day-picker { display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.75rem; }
+.day-picker-label { font-size: 0.82rem; font-weight: 600; color: var(--text-muted); margin-right: 0.3rem; }
+.day-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2.2em; height: 2.2em; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--card-bg); color: var(--text-muted); font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; user-select: none;
+}
+.day-toggle input[type="checkbox"] { display: none; }
+.day-toggle:has(input:checked) {
+  background: color-mix(in srgb, var(--primary) 15%, var(--card-bg));
+  border-color: var(--primary); color: var(--primary);
+}
+.day-toggle:hover { border-color: var(--primary); }
 
 /* Profile editor */
 .profile-editor { margin-top: 0.75rem; }
@@ -809,6 +815,19 @@ legend {
 
 .sim-slider-wrap .noUi-value {
   padding-top: 3px;
+}
+
+/* Date slider: full-width row above time/speed */
+.sim-date-slider-row {
+  margin-top: 0.8rem;
+}
+
+.sim-date-slider-wrap .noUi-connect {
+  background: #3eb489;
+}
+
+.sim-date-slider-wrap .noUi-handle {
+  background: #3eb489;
 }
 
 /* Acceleration slider: green tint */

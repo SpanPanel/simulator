@@ -59,6 +59,7 @@ class TimeOfDayProfile(TypedDict, total=False):
     production_hours: list[int]  # Hours when solar should produce
     night_hours: list[int]  # Hours when solar should not produce
     peak_factor: float  # Peak production factor
+    active_days: list[int]  # Days of week active (0=Mon..6=Sun); empty = all
 
 
 class SmartBehavior(TypedDict, total=False):
@@ -114,6 +115,7 @@ class BatteryBehavior(TypedDict, total=False):
     idle_power_range: list[float]
     solar_intensity_profile: dict[int, float]
     demand_factor_profile: dict[int, float]
+    active_days: list[int]  # Days of week active (0=Mon..6=Sun); empty = all
 
 
 class CircuitTemplateExtended(CircuitTemplate, total=False):

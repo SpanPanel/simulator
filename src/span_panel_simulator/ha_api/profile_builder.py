@@ -72,6 +72,7 @@ class CircuitProfile:
     hour_factors: dict[int, float]  # hour (0-23) -> normalised factor (peak = 1.0)
     duty_cycle: float  # mean/max ratio, 0.0-1.0
     monthly_factors: dict[int, float]  # month (1-12) -> normalised factor (peak = 1.0)
+    active_days: list[int]  # weekdays active (0=Mon..6=Sun); empty = all
 
 
 async def build_profiles(
@@ -155,13 +156,16 @@ async def build_profiles(
             _LOGGER.debug("No template mapping for entity %s", entry.entity_id)
             continue
 
-        profiles[template_name] = {
+        profile_dict: dict[str, object] = {
             "typical_power": profile.typical_power,
             "power_variation": profile.power_variation,
             "hour_factors": profile.hour_factors,
             "duty_cycle": profile.duty_cycle,
             "monthly_factors": profile.monthly_factors,
         }
+        if profile.active_days:
+            profile_dict["active_days"] = profile.active_days
+        profiles[template_name] = profile_dict
         _LOGGER.debug(
             "Profile for %s (%s): typical=%.1fW, duty=%.2f",
             template_name,
@@ -230,12 +234,18 @@ def _compute_profile(
     # ------------------------------------------------------------------
     monthly_factors = _compute_monthly_factors(monthly_stats, local_tz=local_tz)
 
+    # ------------------------------------------------------------------
+    # active_days: detect which weekdays the circuit is actually used
+    # ------------------------------------------------------------------
+    active_days = _compute_active_days(hourly_stats, local_tz=local_tz)
+
     return CircuitProfile(
         typical_power=round(typical_power, 1),
         power_variation=round(power_variation, 3),
         hour_factors=hour_factors,
         duty_cycle=round(duty_cycle, 3),
         monthly_factors=monthly_factors,
+        active_days=active_days,
     )
 
 
@@ -323,6 +333,56 @@ def _compute_monthly_factors(
         return {m: 1.0 for m in range(1, 13)}
 
     return {m: round(month_avgs.get(m, 0.0) / peak, 3) for m in range(1, 13)}
+
+
+def _compute_active_days(
+    hourly_stats: list[dict[str, object]],
+    *,
+    local_tz: ZoneInfo | None = None,
+) -> list[int]:
+    """Detect which weekdays a circuit is actively used.
+
+    Groups hourly statistics by ``weekday()`` (0=Mon..6=Sun), computes
+    mean power per weekday, and considers a day "active" if its mean
+    exceeds 10% of the peak weekday mean.
+
+    Returns an empty list when all 7 days are active or when there are
+    fewer than 14 data points (not enough to draw conclusions).
+    """
+    day_sums: dict[int, float] = {}
+    day_counts: dict[int, int] = {}
+
+    for stat in hourly_stats:
+        mean_val = _float_val(stat, "mean")
+        dt = _parse_start_timestamp(stat)
+        if mean_val is None or dt is None:
+            continue
+
+        if local_tz is not None:
+            dt = dt.astimezone(local_tz)
+        wd = dt.weekday()
+        day_sums[wd] = day_sums.get(wd, 0.0) + abs(mean_val)
+        day_counts[wd] = day_counts.get(wd, 0) + 1
+
+    total_points = sum(day_counts.values())
+    if total_points < 14:
+        return []
+
+    if not day_sums:
+        return []
+
+    day_avgs = {wd: day_sums[wd] / day_counts[wd] for wd in day_sums}
+    peak = max(day_avgs.values())
+    if peak <= 0:
+        return []
+
+    threshold = peak * 0.1
+    active = sorted(wd for wd, avg in day_avgs.items() if avg >= threshold)
+
+    if len(active) >= 7:
+        return []
+
+    return active
 
 
 def _interpolate_hourly_gaps(hour_avgs: dict[int, float]) -> dict[int, float]:

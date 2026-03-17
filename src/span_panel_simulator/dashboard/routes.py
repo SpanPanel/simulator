@@ -12,6 +12,9 @@ import aiohttp
 import aiohttp_jinja2
 from aiohttp import web
 
+if TYPE_CHECKING:
+    import multidict
+
 from span_panel_simulator.dashboard.presets import (
     BATTERY_PRESET_LABELS,
     EVSE_PRESET_LABELS,
@@ -140,6 +143,7 @@ def _entity_list_context(request: web.Request, editing_id: str | None = None) ->
         ctx["priorities"] = PRIORITIES
         ctx["relay_behaviors"] = RELAY_BEHAVIORS
         ctx["preset_labels"] = _presets_for_type(entity.entity_type)
+        ctx["active_days"] = store.get_active_days(editing_id)
         if entity.entity_type == "battery":
             ctx["battery_preset_labels"] = BATTERY_PRESET_LABELS
             battery_profile = store.get_battery_profile(editing_id)
@@ -175,6 +179,7 @@ def _profile_context(request: web.Request, entity_id: str) -> dict[str, Any]:
         "entity": entity,
         "profile": store.get_entity_profile(entity_id),
         "preset_labels": _presets_for_type(entity.entity_type),
+        "active_days": store.get_active_days(entity_id),
     }
 
 
@@ -189,6 +194,7 @@ def _battery_profile_context(request: web.Request, entity_id: str) -> dict[str, 
         "battery_preset_labels": BATTERY_PRESET_LABELS,
         "battery_charge_mode": store.get_battery_charge_mode(entity_id),
         "battery_active_preset": match_battery_preset(battery_profile),
+        "active_days": store.get_active_days(entity_id),
     }
 
 
@@ -211,6 +217,9 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_get("/entities/{id}/profile", handle_get_profile)
     app.router.add_put("/entities/{id}/profile", handle_put_profile)
     app.router.add_post("/entities/{id}/profile/preset", handle_apply_preset)
+
+    # Active days (auto-save on toggle)
+    app.router.add_put("/entities/{id}/active-days", handle_put_active_days)
 
     # Battery profile
     app.router.add_get("/entities/{id}/battery-profile", handle_get_battery_profile)
@@ -389,6 +398,28 @@ async def handle_get_profile(request: web.Request) -> web.Response:
     return _render("partials/profile_editor.html", request, _profile_context(request, entity_id))
 
 
+def _parse_active_days(data: multidict.MultiDictProxy[Any]) -> list[int] | None:
+    """Parse day-of-week checkboxes from form data.
+
+    Returns ``None`` when the day-picker wasn't part of the submitted form
+    (no ``days_submitted`` sentinel), so callers can distinguish "not sent"
+    from "all unchecked".
+    """
+    if "days_submitted" not in data:
+        return None
+    return [d for d in range(7) if data.get(f"day_{d}")]
+
+
+async def handle_put_active_days(request: web.Request) -> web.Response:
+    """Save active days on toggle — returns 204 No Content."""
+    entity_id = request.match_info["id"]
+    data = await request.post()
+    active = _parse_active_days(data)
+    if active is not None:
+        _store(request).update_active_days(entity_id, active)
+    return web.Response(status=204)
+
+
 async def handle_put_profile(request: web.Request) -> web.Response:
     entity_id = request.match_info["id"]
     data = await request.post()
@@ -397,7 +428,11 @@ async def handle_put_profile(request: web.Request) -> web.Response:
         key = f"hour_{h}"
         if key in data:
             multipliers[h] = float(str(data[key]))
-    _store(request).update_entity_profile(entity_id, multipliers)
+    store = _store(request)
+    store.update_entity_profile(entity_id, multipliers)
+    active = _parse_active_days(data)
+    if active is not None:
+        store.update_active_days(entity_id, active)
     return _render("partials/profile_editor.html", request, _profile_context(request, entity_id))
 
 
@@ -446,7 +481,11 @@ async def handle_put_battery_profile(request: web.Request) -> web.Response:
                 hour_modes[h] = "idle"
         else:
             hour_modes[h] = "idle"
-    _store(request).update_battery_profile(entity_id, hour_modes)
+    store = _store(request)
+    store.update_battery_profile(entity_id, hour_modes)
+    active = _parse_active_days(data)
+    if active is not None:
+        store.update_active_days(entity_id, active)
     return _render(
         "partials/battery_profile_editor.html",
         request,
@@ -494,6 +533,7 @@ def _evse_schedule_context(request: web.Request, entity_id: str) -> dict[str, An
         "evse_active_preset": schedule["preset"],
         "evse_profile": schedule["profile"],
         "evse_preset_labels": EVSE_PRESET_LABELS,
+        "active_days": store.get_active_days(entity_id),
     }
 
 
@@ -511,7 +551,11 @@ async def handle_put_evse_schedule(request: web.Request) -> web.Response:
     data = await request.post()
     start = int(str(data.get("charge_start", "0")))
     duration = int(str(data.get("charge_duration", "6")))
-    _store(request).update_evse_schedule(entity_id, start, duration)
+    store = _store(request)
+    store.update_evse_schedule(entity_id, start, duration)
+    active = _parse_active_days(data)
+    if active is not None:
+        store.update_active_days(entity_id, active)
     return _render(
         "partials/evse_schedule.html",
         request,

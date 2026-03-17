@@ -19,18 +19,6 @@
         <option value="light">Light</option>
         <option value="dark">Dark</option>
       </select>
-      <label class="date-selector">
-        Month:
-        <select id="sim-month" name="month">
-          {% for m in range(1, 13) %}
-          <option value="{{ m }}" {{ 'selected' if m == 3 }}>{{ m }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label class="date-selector">
-        Day:
-        <input type="number" id="sim-day" name="day" value="15" min="1" max="31" style="width:3em">
-      </label>
     </div>
   </header>
   <div id="flash-area"></div>
@@ -38,13 +26,12 @@
     {% block content %}{% endblock %}
   </main>
   <script>
-    // Make month/day available to HTMX requests
+    // Make month/day available to HTMX requests (derived from date slider)
     document.body.addEventListener('htmx:configRequest', function(evt) {
-      var month = document.getElementById('sim-month');
-      var day = document.getElementById('sim-day');
-      if (month && day) {
-        evt.detail.parameters['month'] = month.value;
-        evt.detail.parameters['day'] = day.value;
+      if (window.getSimDate) {
+        var d = window.getSimDate();
+        evt.detail.parameters['month'] = String(d.month);
+        evt.detail.parameters['day'] = String(d.day);
       }
     });
 

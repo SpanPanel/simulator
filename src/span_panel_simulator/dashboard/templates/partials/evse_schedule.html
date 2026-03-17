@@ -12,6 +12,21 @@
     {% endfor %}
   </div>
 
+  <div class="day-picker" id="days-{{ e.id }}">
+    <span class="day-picker-label">Active Days</span>
+    <input type="hidden" name="days_submitted" value="1">
+    {% for d, label in [(0,'Mo'),(1,'Tu'),(2,'We'),(3,'Th'),(4,'Fr'),(5,'Sa'),(6,'Su')] %}
+    <label class="day-toggle">
+      <input type="checkbox" name="day_{{ d }}" value="1"
+             {% if d in active_days or not active_days %}checked{% endif %}
+             hx-put="entities/{{ e.id }}/active-days"
+             hx-include="#days-{{ e.id }}"
+             hx-swap="none">
+      {{ label }}
+    </label>
+    {% endfor %}
+  </div>
+
   <form hx-put="entities/{{ e.id }}/evse-schedule"
         hx-target="#evse-schedule-{{ e.id }}" hx-swap="outerHTML">
     <div class="form-row" style="margin:0.5rem 0">

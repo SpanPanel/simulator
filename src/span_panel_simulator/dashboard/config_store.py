@@ -366,6 +366,52 @@ class ConfigStore:
         if not still_used:
             self._templates().pop(template_name, None)
 
+    # -- Active days --
+
+    def get_active_days(self, entity_id: str) -> list[int]:
+        """Return active weekdays (0=Mon..6=Sun) for an entity.
+
+        Reads from ``time_of_day_profile`` for circuits/EVSE or
+        ``battery_behavior`` for battery entities.  Empty list = all days.
+        """
+        entity = self.get_entity(entity_id)
+        if entity.entity_type == "battery":
+            bb = entity.battery_behavior or {}
+            days: list[int] = bb.get("active_days", [])
+        else:
+            tod = entity.time_of_day_profile or {}
+            days = tod.get("active_days", [])
+        return [d for d in days if isinstance(d, int) and 0 <= d <= 6]
+
+    def update_active_days(self, entity_id: str, days: list[int]) -> None:
+        """Write active weekdays into the entity's template.
+
+        Omits the key entirely when all 7 days are selected (backward compat).
+        """
+        circuit = self._find_circuit(entity_id)
+        if circuit is None:
+            raise KeyError(f"Entity not found: {entity_id}")
+
+        template_name = circuit["template"]
+        template = self._templates().get(template_name, {})
+        entity = self._merge_entity(circuit)
+
+        clean = sorted(set(d for d in days if 0 <= d <= 6))
+        store_value = clean if len(clean) < 7 else []
+
+        if entity.entity_type == "battery":
+            bb: dict[str, Any] = template.setdefault("battery_behavior", {"enabled": True})
+            if store_value:
+                bb["active_days"] = store_value
+            else:
+                bb.pop("active_days", None)
+        else:
+            tod: dict[str, Any] = template.setdefault("time_of_day_profile", {"enabled": True})
+            if store_value:
+                tod["active_days"] = store_value
+            else:
+                tod.pop("active_days", None)
+
     # -- Profile --
 
     def get_entity_profile(self, entity_id: str) -> dict[int, float]:
@@ -416,12 +462,16 @@ class ConfigStore:
         template_name = circuit["template"]
         template = self._templates().get(template_name, {})
         tod = template.setdefault("time_of_day_profile", {"enabled": True})
+        preserved_days = tod.get("active_days")
         tod["enabled"] = True
         tod["hourly_multipliers"] = {h: v for h, v in sorted(multipliers.items())}
 
         peak_hours = [h for h, v in multipliers.items() if v >= 0.8]
         if peak_hours:
             tod["peak_hours"] = sorted(peak_hours)
+
+        if preserved_days:
+            tod["active_days"] = preserved_days
 
     def apply_preset(
         self,
@@ -574,8 +624,11 @@ class ConfigStore:
         template_name = circuit["template"]
         template = self._templates().get(template_name, {})
         tod: dict[str, Any] = template.setdefault("time_of_day_profile", {"enabled": True})
+        preserved_days = tod.get("active_days")
         tod["enabled"] = True
         tod["hour_factors"] = evse_schedule_factors(start_hour, duration_hours)
+        if preserved_days:
+            tod["active_days"] = preserved_days
 
     def apply_evse_preset(self, entity_id: str, preset_name: str) -> dict[int, float]:
         """Apply an EVSE charging preset and return the schedule factors."""

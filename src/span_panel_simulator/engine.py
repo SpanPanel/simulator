@@ -116,6 +116,10 @@ class RealisticBehaviorEngine:
         """Return the hour-of-day at the panel's location."""
         return datetime.fromtimestamp(timestamp, tz=self._tz).hour
 
+    def local_weekday(self, timestamp: float) -> int:
+        """Return the day-of-week at the panel's location (0=Mon..6=Sun)."""
+        return datetime.fromtimestamp(timestamp, tz=self._tz).weekday()
+
     def local_datetime(self, timestamp: float) -> datetime:
         """Return a timezone-aware datetime at the panel's location."""
         return datetime.fromtimestamp(timestamp, tz=self._tz)
@@ -189,9 +193,14 @@ class RealisticBehaviorEngine:
         self, base_power: float, template: CircuitTemplateExtended, current_time: float
     ) -> float:
         """Apply time-of-day power modulation for consumer circuits."""
-        current_hour = self.local_hour(current_time)
-
         profile = template.get("time_of_day_profile", {})
+
+        # Skip inactive days — return 0 power
+        active_days: list[int] = profile.get("active_days", [])
+        if active_days and self.local_weekday(current_time) not in active_days:
+            return 0.0
+
+        current_hour = self.local_hour(current_time)
 
         # Use explicit hour factors when available (EVSE schedules, custom profiles)
         hour_factors = profile.get("hour_factors", {})
@@ -307,14 +316,20 @@ class RealisticBehaviorEngine:
         self, base_power: float, template: CircuitTemplateExtended, current_time: float
     ) -> float:
         """Apply battery behavior with charge mode support."""
-        current_hour = self.local_hour(current_time)
-
         battery_config = template.get("battery_behavior", {})
         if not isinstance(battery_config, dict):
             return base_power
 
         if not battery_config.get("enabled", True):
             return base_power
+
+        # Skip inactive days — return idle power
+        active_days: list[int] = battery_config.get("active_days", [])
+        if active_days and self.local_weekday(current_time) not in active_days:
+            self._last_battery_direction = "idle"
+            return self._get_idle_power(battery_config)
+
+        current_hour = self.local_hour(current_time)
 
         discharge_hours: list[int] = battery_config.get("discharge_hours", [])
         idle_hours: list[int] = battery_config.get("idle_hours", [])

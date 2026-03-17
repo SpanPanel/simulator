@@ -46,6 +46,22 @@
       {% endfor %}
     </div>
   </div>
+
+  <div class="day-picker" id="days-{{ entity.id }}">
+    <span class="day-picker-label">Active Days</span>
+    <input type="hidden" name="days_submitted" value="1">
+    {% for d, label in [(0,'Mo'),(1,'Tu'),(2,'We'),(3,'Th'),(4,'Fr'),(5,'Sa'),(6,'Su')] %}
+    <label class="day-toggle">
+      <input type="checkbox" name="day_{{ d }}" value="1"
+             {% if d in active_days or not active_days %}checked{% endif %}
+             hx-put="entities/{{ entity.id }}/active-days"
+             hx-include="#days-{{ entity.id }}"
+             hx-swap="none">
+      {{ label }}
+    </label>
+    {% endfor %}
+  </div>
+
   <form hx-put="entities/{{ entity.id }}/battery-profile"
         hx-target="#battery-profile-{{ entity.id }}" hx-swap="innerHTML">
     <div class="profile-grid{% if battery_charge_mode != 'custom' %} charge-hours-dimmed{% endif %}">
