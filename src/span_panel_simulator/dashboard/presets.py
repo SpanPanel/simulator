@@ -1,6 +1,6 @@
 """Named daily profile presets backed by YAML configuration.
 
-Presets are loaded from ``configs/presets.yaml`` when available, falling
+Presets are loaded from ``configs/presets/presets.yaml`` when available, falling
 back to built-in defaults.  The special ``solar_curve`` and ``random``
 presets are computed dynamically at apply time.
 """
@@ -100,7 +100,7 @@ class PresetRegistry:
     @classmethod
     def load(cls, config_dir: Path) -> PresetRegistry:
         """Load from ``config_dir / presets.yaml``, falling back to builtins."""
-        path = config_dir / "presets.yaml"
+        path = config_dir / "presets" / "presets.yaml"
         if path.exists():
             try:
                 raw = yaml.safe_load(path.read_text(encoding="utf-8"))
