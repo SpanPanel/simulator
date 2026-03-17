@@ -82,8 +82,13 @@ class SimulationClock:
 
     @time_acceleration.setter
     def time_acceleration(self, value: float) -> None:
-        if value != 1.0 and not self._use_simulation_time:
+        if not self._use_simulation_time:
             self._enable_simulation_time()
+        else:
+            # Re-anchor: freeze current sim time so the new multiplier
+            # only applies to real time elapsed from this moment forward.
+            self._time_offset = self.current_time - time.time()
+            self._real_start_time = time.time()
         self._time_acceleration = value
 
     @property
@@ -99,10 +104,11 @@ class SimulationClock:
         """Override the simulation start time (e.g. from dashboard controls).
 
         If called before ``initialize``, the value is stored and applied later.
-        Automatically enables simulation time mode.
+        Automatically enables simulation time mode.  Always re-anchors the
+        clock so the new time takes effect from this real-time moment.
         """
-        if not self._use_simulation_time:
-            self._enable_simulation_time()
+        self._use_simulation_time = True
+        self._real_start_time = time.time()
 
         try:
             self._apply_start_time(iso_str)

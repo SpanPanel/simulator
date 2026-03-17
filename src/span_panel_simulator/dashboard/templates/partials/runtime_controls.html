@@ -338,7 +338,9 @@
   var chartCtx = document.getElementById('power-chart-canvas');
   var chartTimeEl = document.getElementById('power-chart-time');
   var MAX_POINTS = 288;
-  var chartData = { labels: [], grid: [], pv: [], battery: [] };
+  var POLL_INTERVAL_S = 3;
+  // Chart always holds ~MAX_POINTS polls of real time, scaled by sim speed
+  var chartData = { labels: [], grid: [], pv: [], battery: [], times: [] };
 
   // Resolve theme-aware colors for charts
   function chartTextColor() {
@@ -374,14 +376,12 @@
           ticks: {
             color: chartTextColor(),
             font: { size: 10 },
-            maxTicksLimit: 12,
-            callback: function(val, idx) {
-              var lbl = this.getLabelForValue(val);
-              // Show only HH:MM, skip if same as previous displayed
-              var short = lbl.substring(0, 5);
-              if (idx === 0) return short;
-              var prev = (chartData.labels[idx - 1] || '').substring(0, 5);
-              return short !== prev ? short : '';
+            maxTicksLimit: 10,
+            maxRotation: 0,
+            autoSkip: true,
+            callback: function(val) {
+              // Show HH:MM only
+              return this.getLabelForValue(val).substring(0, 5);
             }
           }
         },
@@ -391,6 +391,8 @@
   });
 
   var lastSimDay = null;
+  var lastSimTime = null;
+  var lastAccel = null;
   var panelTimeZone = null;
 
   function formatPanelTime(epochSec, tz) {
@@ -450,54 +452,56 @@
 
         chartTimeEl.textContent = dayStr + ' ' + timeLabel;
 
-        if (lastSimDay !== null && lastSimDay !== dayStr) {
+        // Scale chart window and jump threshold with time acceleration
+        var accel = data.time_acceleration || 1;
+        var expectedStepS = POLL_INTERVAL_S * accel;
+        var chartWindowS = MAX_POINTS * expectedStepS;
+        var jumpThresholdS = expectedStepS * 3;
+
+        // Clear chart on speed change, backward jump, or large forward jump
+        var speedChanged = lastAccel !== null && lastAccel !== accel;
+        var timeDelta = lastSimTime !== null ? t - lastSimTime : 0;
+        var timeJump = lastSimTime !== null && (timeDelta < 0 || timeDelta > jumpThresholdS);
+        if (timeJump || speedChanged) {
           chartData.labels.length = 0;
+          chartData.times.length = 0;
           chartData.grid.length = 0;
           chartData.pv.length = 0;
           chartData.battery.length = 0;
         }
         lastSimDay = dayStr;
+        lastSimTime = t;
+        lastAccel = accel;
+
+        // Sync interpolation state from authoritative poll
+        interpSimTime = t;
+        interpAccel = accel;
+        interpLastReal = Date.now() / 1000;
 
         chartData.labels.push(timeLabel);
+        chartData.times.push(t);
         chartData.grid.push(Math.round(data.grid_w));
         chartData.pv.push(Math.round(data.pv_w));
         chartData.battery.push(Math.round(data.battery_w));
 
+        // Trim to time window first, then hard cap at MAX_POINTS
+        var cutoff = t - chartWindowS;
+        while (chartData.times.length > 1 && chartData.times[0] < cutoff) {
+          chartData.labels.shift();
+          chartData.times.shift();
+          chartData.grid.shift();
+          chartData.pv.shift();
+          chartData.battery.shift();
+        }
         if (chartData.labels.length > MAX_POINTS) {
           chartData.labels.shift();
+          chartData.times.shift();
           chartData.grid.shift();
           chartData.pv.shift();
           chartData.battery.shift();
         }
 
-        if (!timeUserDragging) {
-          var hm = getPanelHourMinute(t, panelTimeZone);
-          var currentMins = hm.hours * 60 + hm.minutes;
-          timeSlider.noUiSlider.set([currentMins]);
-        }
-
-        // Sync date slider from engine time
-        if (!dateUserDragging) {
-          var simDate = new Date(t * 1000);
-          if (panelTimeZone) {
-            try {
-              var dp = new Intl.DateTimeFormat('en-US', {
-                timeZone: panelTimeZone, year: 'numeric', month: 'numeric', day: 'numeric'
-              }).formatToParts(simDate);
-              var sMonth = 1, sDay = 1, sYear = 2026;
-              dp.forEach(function(p) {
-                if (p.type === 'month') sMonth = parseInt(p.value, 10);
-                if (p.type === 'day') sDay = parseInt(p.value, 10);
-                if (p.type === 'year') sYear = parseInt(p.value, 10);
-              });
-              currentSimYear = sYear;
-              dateSlider.noUiSlider.set([monthDayToDoy(sMonth, sDay)]);
-            } catch(e) { /* fall through */ }
-          } else {
-            currentSimYear = simDate.getFullYear();
-            dateSlider.noUiSlider.set([monthDayToDoy(simDate.getMonth() + 1, simDate.getDate())]);
-          }
-        }
+        // Time/date slider sync is handled by the interpolation timer
 
         // Sync grid control buttons
         if (data.grid_online !== undefined) {
@@ -557,6 +561,55 @@
 
   setInterval(pollPower, 3000);
   pollPower();
+
+  // -- Interpolate time display between polls --
+  var interpSimTime = null;
+  var interpAccel = 1;
+  var interpLastReal = null;
+
+  setInterval(function() {
+    if (interpSimTime === null) return;
+    var now = Date.now() / 1000;
+    if (interpLastReal === null) { interpLastReal = now; return; }
+    var dt = now - interpLastReal;
+    interpLastReal = now;
+    interpSimTime += dt * interpAccel;
+
+    // Update chart timestamp
+    var timeLabel = formatPanelTime(interpSimTime, panelTimeZone);
+    var dayStr = formatPanelDate(interpSimTime, panelTimeZone);
+    chartTimeEl.textContent = dayStr + ' ' + timeLabel;
+
+    // Sync time-of-day slider
+    if (!timeUserDragging) {
+      var hm = getPanelHourMinute(interpSimTime, panelTimeZone);
+      var currentMins = hm.hours * 60 + hm.minutes;
+      timeSlider.noUiSlider.set([currentMins]);
+    }
+
+    // Sync date slider
+    if (!dateUserDragging) {
+      var simDate = new Date(interpSimTime * 1000);
+      if (panelTimeZone) {
+        try {
+          var dp = new Intl.DateTimeFormat('en-US', {
+            timeZone: panelTimeZone, year: 'numeric', month: 'numeric', day: 'numeric'
+          }).formatToParts(simDate);
+          var sMonth = 1, sDay = 1, sYear = 2026;
+          dp.forEach(function(p) {
+            if (p.type === 'month') sMonth = parseInt(p.value, 10);
+            if (p.type === 'day') sDay = parseInt(p.value, 10);
+            if (p.type === 'year') sYear = parseInt(p.value, 10);
+          });
+          currentSimYear = sYear;
+          dateSlider.noUiSlider.set([monthDayToDoy(sMonth, sDay)]);
+        } catch(e) { /* fall through */ }
+      } else {
+        currentSimYear = simDate.getFullYear();
+        dateSlider.noUiSlider.set([monthDayToDoy(simDate.getMonth() + 1, simDate.getDate())]);
+      }
+    }
+  }, 250);
 
   // -- Modeling: Energy projection chart --
   var modelingChart = null;

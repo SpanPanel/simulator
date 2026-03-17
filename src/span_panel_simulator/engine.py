@@ -947,6 +947,7 @@ class DynamicSimulationEngine:
             "user_open_ids": user_open_ids,
             "all_off": all_off,
             "time_zone": self.panel_timezone,
+            "time_acceleration": self._clock.time_acceleration,
         }
 
     # ------------------------------------------------------------------
