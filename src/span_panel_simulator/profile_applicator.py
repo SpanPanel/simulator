@@ -121,6 +121,9 @@ def apply_usage_profiles(
                 changed = True
 
         if changed:
+            # Profile data is being refreshed from HA — clear user_modified
+            # so the circuit resumes recorder replay instead of synthetic.
+            template.pop("user_modified", None)
             updated += 1
 
     if updated:

@@ -248,6 +248,9 @@ legend {
 .badge-pv { background: var(--badge-pv); }
 .badge-evse { background: var(--badge-evse); }
 .badge-battery { background: var(--badge-battery); }
+.badge-data-source { font-size: 0.6rem; padding: 0.1rem 0.35rem; letter-spacing: 0.03em; }
+.badge-replay { background: #3b82f6; }
+.badge-override { background: #f97316; }
 
 /* Entity table */
 .entity-table {

@@ -139,9 +139,20 @@
   // Expose for HTMX configRequest
   var currentSimYear = new Date().getFullYear();
 
+  // Recorder replay state — null when no recorder data
+  var recorderBounds = null;  // { start: epochSec, end: epochSec }
+  var recorderConfigured = false;
+
   window.getSimDate = function() {
     var dateSlider = document.getElementById('sim-date-slider');
     if (dateSlider && dateSlider.noUiSlider) {
+      if (recorderBounds) {
+        // Slider value is day offset from recorder start
+        var dayOffset = Math.round(Number(dateSlider.noUiSlider.get()));
+        var epochSec = recorderBounds.start + dayOffset * 86400;
+        var d = new Date(epochSec * 1000);
+        return { month: d.getMonth() + 1, day: d.getDate(), year: d.getFullYear() };
+      }
       var doy = Math.round(Number(dateSlider.noUiSlider.get()));
       return doyToMonthDay(doy);
     }
@@ -188,7 +199,14 @@
     dateUserDragging = false;
   });
   dateSlider.noUiSlider.on('update', function(values) {
-    dateDisplay.textContent = formatMonthDay(Number(values[0]));
+    if (recorderBounds) {
+      var dayOffset = Math.round(Number(values[0]));
+      var epochSec = recorderBounds.start + dayOffset * 86400;
+      var d = new Date(epochSec * 1000);
+      dateDisplay.textContent = MONTH_NAMES[d.getMonth()] + ' ' + d.getDate();
+    } else {
+      dateDisplay.textContent = formatMonthDay(Number(values[0]));
+    }
   });
 
   // -- Time-of-day slider --
@@ -236,7 +254,7 @@
     var mins = Math.round(Number(timeSlider.noUiSlider.get()));
     var hh = ('0' + Math.floor(mins / 60)).slice(-2);
     var mm = ('0' + (mins % 60)).slice(-2);
-    var year = currentSimYear;
+    var year = md.year || currentSimYear;
     var iso = year + '-' + ('0' + md.month).slice(-2) + '-' + ('0' + md.day).slice(-2) + 'T' + hh + ':' + mm + ':00';
     fetch('set-sim-time', {
       method: 'POST',
@@ -447,6 +465,29 @@
         var t = data.simulation_time;
         if (data.time_zone) panelTimeZone = data.time_zone;
 
+        // Configure date slider for recorder window (once)
+        if (data.recorder_bounds && !recorderConfigured) {
+          recorderBounds = { start: data.recorder_bounds[0], end: data.recorder_bounds[1] };
+          var windowDays = Math.max(1, Math.round((recorderBounds.end - recorderBounds.start) / 86400));
+          dateSlider.noUiSlider.updateOptions({
+            range: { min: 0, max: windowDays },
+            start: [0],
+            pips: {
+              mode: 'positions',
+              values: [0, 20, 40, 60, 80, 100],
+              density: 3,
+              format: {
+                to: function(v) {
+                  var epochSec = recorderBounds.start + Math.round(v) * 86400;
+                  var d = new Date(epochSec * 1000);
+                  return MONTH_NAMES[d.getMonth()] + ' ' + d.getDate();
+                }
+              }
+            }
+          });
+          recorderConfigured = true;
+        }
+
         var timeLabel = formatPanelTime(t, panelTimeZone);
         var dayStr = formatPanelDate(t, panelTimeZone);
 
@@ -589,24 +630,37 @@
 
     // Sync date slider
     if (!dateUserDragging) {
-      var simDate = new Date(interpSimTime * 1000);
-      if (panelTimeZone) {
-        try {
-          var dp = new Intl.DateTimeFormat('en-US', {
-            timeZone: panelTimeZone, year: 'numeric', month: 'numeric', day: 'numeric'
-          }).formatToParts(simDate);
-          var sMonth = 1, sDay = 1, sYear = 2026;
-          dp.forEach(function(p) {
-            if (p.type === 'month') sMonth = parseInt(p.value, 10);
-            if (p.type === 'day') sDay = parseInt(p.value, 10);
-            if (p.type === 'year') sYear = parseInt(p.value, 10);
-          });
-          currentSimYear = sYear;
-          dateSlider.noUiSlider.set([monthDayToDoy(sMonth, sDay)]);
-        } catch(e) { /* fall through */ }
+      if (recorderBounds) {
+        // Map simulation time into recorder window via modular arithmetic
+        var windowDuration = recorderBounds.end - recorderBounds.start;
+        var mapped = recorderBounds.start + ((interpSimTime - recorderBounds.start) % windowDuration);
+        if (mapped < recorderBounds.start) mapped += windowDuration;
+        var dayOffset = Math.round((mapped - recorderBounds.start) / 86400);
+        dateSlider.noUiSlider.set([dayOffset]);
+        var epochForDisplay = recorderBounds.start + dayOffset * 86400;
+        var dForYear = new Date(epochForDisplay * 1000);
+        currentSimYear = dForYear.getFullYear();
+        dateDisplay.textContent = MONTH_NAMES[dForYear.getMonth()] + ' ' + dForYear.getDate();
       } else {
-        currentSimYear = simDate.getFullYear();
-        dateSlider.noUiSlider.set([monthDayToDoy(simDate.getMonth() + 1, simDate.getDate())]);
+        var simDate = new Date(interpSimTime * 1000);
+        if (panelTimeZone) {
+          try {
+            var dp = new Intl.DateTimeFormat('en-US', {
+              timeZone: panelTimeZone, year: 'numeric', month: 'numeric', day: 'numeric'
+            }).formatToParts(simDate);
+            var sMonth = 1, sDay = 1, sYear = 2026;
+            dp.forEach(function(p) {
+              if (p.type === 'month') sMonth = parseInt(p.value, 10);
+              if (p.type === 'day') sDay = parseInt(p.value, 10);
+              if (p.type === 'year') sYear = parseInt(p.value, 10);
+            });
+            currentSimYear = sYear;
+            dateSlider.noUiSlider.set([monthDayToDoy(sMonth, sDay)]);
+          } catch(e) { /* fall through */ }
+        } else {
+          currentSimYear = simDate.getFullYear();
+          dateSlider.noUiSlider.set([monthDayToDoy(simDate.getMonth() + 1, simDate.getDate())]);
+        }
       }
     }
   }, 250);

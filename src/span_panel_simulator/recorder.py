@@ -14,13 +14,25 @@ from __future__ import annotations
 
 import bisect
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from span_panel_simulator.history import HistoryProvider
 
 _LOGGER = logging.getLogger(__name__)
+
+# How far back to query for each statistics period.
+_HOURLY_LOOKBACK = timedelta(days=90)
+_SHORT_TERM_LOOKBACK = timedelta(days=10)
+
+# When the simulation clock overshoots the recorder window by less than
+# this many seconds, fall back to synthetic instead of wrapping.  This
+# prevents a 5-minute data lag at 1x speed from triggering a wrap to
+# the start of the window (months ago).  At accelerated speeds (e.g.
+# 360x) this threshold is exceeded in ~10 s of wall time, after which
+# looping playback engages.
+_FALLBACK_THRESHOLD_S = 3600.0
 
 
 def _parse_timestamp(value: object) -> float | None:
@@ -85,11 +97,26 @@ class RecorderDataSource:
 
         loaded = 0
 
-        # Fetch hourly stats (indefinite retention — no time bounds)
-        hourly = await history.async_get_statistics(entity_ids, period="hour")
+        # HA's recorder/statistics_during_period requires start_time.
+        # For hourly stats we request the last year (indefinite retention
+        # means all data is available, but we still need a start bound).
+        # For 5-minute stats we request the last 10 days (short-term
+        # retention window).
+        now = datetime.now(UTC)
+        hourly_start = (now - _HOURLY_LOOKBACK).isoformat()
+        short_term_start = (now - _SHORT_TERM_LOOKBACK).isoformat()
 
-        # Fetch 5-minute stats (~10-day retention)
-        short_term = await history.async_get_statistics(entity_ids, period="5minute")
+        hourly = await history.async_get_statistics(
+            entity_ids,
+            period="hour",
+            start_time=hourly_start,
+        )
+
+        short_term = await history.async_get_statistics(
+            entity_ids,
+            period="5minute",
+            start_time=short_term_start,
+        )
 
         for entity_id in entity_ids:
             points = self._merge_records(
@@ -103,12 +130,26 @@ class RecorderDataSource:
         if loaded:
             bounds = self.time_bounds()
             _LOGGER.info(
-                "Recorder loaded %d/%d entities, %s -> %s",
+                "Recorder loaded %d/%d entities (%d total points), %s -> %s",
                 loaded,
                 len(entity_ids),
+                sum(len(s) for s in self._series.values()),
                 datetime.fromtimestamp(bounds[0], tz=UTC).isoformat() if bounds else "?",
                 datetime.fromtimestamp(bounds[1], tz=UTC).isoformat() if bounds else "?",
             )
+            # Log per-entity summary at debug for troubleshooting
+            for eid, pts in self._series.items():
+                _LOGGER.debug(
+                    "  %s: %d points, %s -> %s",
+                    eid,
+                    len(pts),
+                    datetime.fromtimestamp(pts[0][0], tz=UTC).isoformat(),
+                    datetime.fromtimestamp(pts[-1][0], tz=UTC).isoformat(),
+                )
+            # Log entities that had no data
+            missing = [eid for eid in entity_ids if eid not in self._series]
+            if missing:
+                _LOGGER.warning("Recorder: no data for %d entities: %s", len(missing), missing)
         else:
             _LOGGER.warning("Recorder loaded 0/%d entities — no data available", len(entity_ids))
 
@@ -122,16 +163,50 @@ class RecorderDataSource:
         """Return recorded mean power at *timestamp*, or ``None``.
 
         Uses linear interpolation between the two nearest data points.
-        Returns ``None`` if the entity has no data or the timestamp is
-        outside the recorded window.
+
+        Boundary behaviour:
+
+        * **Within window** — direct interpolation.
+        * **Past the end by less than one window duration** — returns
+          ``None`` so the engine falls back to synthetic.  This covers
+          real-time tracking at 1x speed where the simulation clock is
+          just minutes ahead of the most recent data point.
+        * **Past the end by one full window or more** — wraps via modular
+          arithmetic for looping playback at accelerated speeds.
+        * **Before the start** — wraps via modular arithmetic.
+
+        Returns ``None`` when the entity has no data or the timestamp is
+        in the synthetic-fallback zone just past the window end.
         """
         series = self._series.get(entity_id)
         if not series:
             return None
 
-        # Outside recorded window → let caller fall back to synthetic
-        if timestamp < series[0][0] or timestamp > series[-1][0]:
-            return None
+        window_start = series[0][0]
+        window_end = series[-1][0]
+        window_duration = window_end - window_start
+        if window_duration <= 0:
+            return series[0][1]
+
+        # Timestamps just past the window end: clamp to the end rather
+        # than wrapping.  At 1x speed the simulation clock is always
+        # slightly ahead of the last recorded data point (HA writes
+        # 5-minute stats periodically).  Wrapping would jump to the
+        # start of the window — months ago — producing wildly wrong
+        # values.  Clamping returns the most recent recorded value,
+        # which is the best approximation until new data arrives.
+        #
+        # The threshold is generous (1 hour) so wrapping only engages
+        # during genuinely accelerated playback, not during real-time
+        # tracking with minor data lag.
+        overshoot = timestamp - window_end
+        if 0 < overshoot < _FALLBACK_THRESHOLD_S:
+            timestamp = window_end
+
+        # Outside the window by a full cycle or more, or before start
+        # → wrap via modular arithmetic for looping playback.
+        if timestamp < window_start or timestamp > window_end:
+            timestamp = window_start + ((timestamp - window_start) % window_duration)
 
         # Binary search for the insertion point
         idx = bisect.bisect_right(series, (timestamp, float("inf"))) - 1

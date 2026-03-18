@@ -1,6 +1,14 @@
 <div class="entity-row" id="entity-{{ entity.id }}">
   <span class="circuit-status circuit-status-toggle" data-cid="{{ entity.id }}" title="Toggle relay"></span>
   <span class="badge badge-{{ entity.entity_type }}">{{ entity.entity_type|upper }}</span>
+  {% if entity.recorder_entity %}
+  <span class="badge badge-data-source {{ 'badge-override' if entity.user_modified else 'badge-replay' }}"
+        hx-post="entities/{{ entity.id }}/toggle-replay"
+        hx-target="#entity-list-section"
+        hx-swap="innerHTML"
+        title="{{ 'Overridden — click to resume replay' if entity.user_modified else 'Replaying recorded data — click for synthetic' }}"
+        style="cursor:pointer">{{ 'SYN' if entity.user_modified else 'REC' }}</span>
+  {% endif %}
   <span class="entity-name">{{ entity.name }}</span>
   <span class="entity-tabs">tabs: {{ entity.tabs|join(', ') }}</span>
   <span class="entity-power">{{ entity.energy_profile.typical_power }}W</span>

@@ -130,6 +130,7 @@ class CircuitTemplateExtended(CircuitTemplate, total=False):
     monthly_factors: dict[int, float]  # month (1-12) -> multiplier (1.0 = peak month)
     breaker_rating: int  # Breaker rating in Amps (derived from power_range if not set)
     recorder_entity: str  # HA entity ID for recorder replay (e.g. "sensor.span_panel_..._power")
+    user_modified: bool  # True when user has edited profile → use synthetic instead of replay
 
 
 class CircuitDefinition(TypedDict):

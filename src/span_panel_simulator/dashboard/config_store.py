@@ -47,6 +47,8 @@ class EntityView:
     hvac_type: str | None = None
     breaker_rating: int | None = None
     overrides: dict[str, Any] = field(default_factory=dict)
+    recorder_entity: str | None = None
+    user_modified: bool = False
 
 
 def _detect_entity_type(template: dict[str, Any]) -> str:
@@ -166,6 +168,32 @@ class ConfigStore:
                 return circ
         return None
 
+    def _mark_user_modified(self, template_name: str) -> None:
+        """Flag a template as user-modified so recorder replay is bypassed."""
+        template = self._templates().get(template_name)
+        if template is not None and template.get("recorder_entity"):
+            template["user_modified"] = True
+
+    def toggle_user_modified(self, entity_id: str) -> bool:
+        """Toggle the user_modified flag on a template. Returns the new value.
+
+        Only meaningful for templates with ``recorder_entity`` — toggles
+        between recorder replay and synthetic simulation.  Returns
+        ``False`` (no-op) if the template has no ``recorder_entity``.
+        """
+        circuit = self._find_circuit(entity_id)
+        if circuit is None:
+            raise KeyError(f"Entity not found: {entity_id}")
+        template_name = circuit["template"]
+        template = self._templates().get(template_name)
+        if template is None:
+            raise KeyError(f"Template not found: {template_name}")
+        if not template.get("recorder_entity"):
+            return False
+        current = bool(template.get("user_modified"))
+        template["user_modified"] = not current
+        return not current
+
     def _merge_entity(self, circuit: dict[str, Any]) -> EntityView:
         """Build an EntityView by merging template + circuit overrides."""
         template_name = circuit["template"]
@@ -195,6 +223,8 @@ class ConfigStore:
             hvac_type=template.get("hvac_type"),
             breaker_rating=circuit.get("breaker_rating") or template.get("breaker_rating"),
             overrides=dict(overrides),
+            recorder_entity=template.get("recorder_entity"),
+            user_modified=bool(template.get("user_modified")),
         )
 
     def list_entities(self) -> list[EntityView]:
@@ -285,6 +315,8 @@ class ConfigStore:
             circuit["overrides"] = overrides
         else:
             circuit.pop("overrides", None)
+
+        self._mark_user_modified(template_name)
 
     def add_entity(self, entity_type: str) -> EntityView:
         """Create a new entity with type-appropriate defaults."""
@@ -412,6 +444,8 @@ class ConfigStore:
             else:
                 tod.pop("active_days", None)
 
+        self._mark_user_modified(template_name)
+
     # -- Profile --
 
     def get_entity_profile(self, entity_id: str) -> dict[int, float]:
@@ -473,6 +507,8 @@ class ConfigStore:
         if preserved_days:
             tod["active_days"] = preserved_days
 
+        self._mark_user_modified(template_name)
+
     def apply_preset(
         self,
         entity_id: str,
@@ -529,6 +565,8 @@ class ConfigStore:
         bb: dict[str, Any] = template.setdefault("battery_behavior", {"enabled": True})
         bb["charge_mode"] = mode
 
+        self._mark_user_modified(template_name)
+
     # -- Battery profile --
 
     def get_battery_profile(self, entity_id: str) -> dict[int, str]:
@@ -564,6 +602,8 @@ class ConfigStore:
         bb["charge_hours"] = sorted(h for h, m in hour_modes.items() if m == "charge")
         bb["discharge_hours"] = sorted(h for h, m in hour_modes.items() if m == "discharge")
         bb["idle_hours"] = sorted(h for h, m in hour_modes.items() if m == "idle")
+
+        self._mark_user_modified(template_name)
 
     def apply_battery_preset(self, entity_id: str, preset_name: str) -> dict[int, str]:
         """Apply a named battery preset and return the schedule."""
@@ -641,6 +681,8 @@ class ConfigStore:
         if preserved_days:
             tod["active_days"] = preserved_days
 
+        self._mark_user_modified(template_name)
+
     def apply_evse_preset(self, entity_id: str, preset_name: str) -> dict[int, float]:
         """Apply an EVSE charging preset and return the schedule factors."""
         factors = get_evse_preset(preset_name)
@@ -654,6 +696,8 @@ class ConfigStore:
         tod: dict[str, Any] = template.setdefault("time_of_day_profile", {"enabled": True})
         tod["enabled"] = True
         tod["hour_factors"] = factors
+
+        self._mark_user_modified(template_name)
         return factors
 
     # -- Energy projection --

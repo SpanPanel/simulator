@@ -428,17 +428,27 @@ class SimulatorApp:
         if not entity_ids:
             return None
 
+        _LOGGER.info(
+            "Loading recorder data for %s (%d entities)",
+            config_path.name,
+            len(entity_ids),
+        )
         recorder = RecorderDataSource()
         try:
             loaded = await recorder.load(self._ha_client, entity_ids)
         except Exception:
-            _LOGGER.debug(
+            _LOGGER.warning(
                 "Recorder data loading failed for %s — using synthetic",
                 config_path.name,
                 exc_info=True,
             )
             return None
 
+        if loaded == 0:
+            _LOGGER.warning(
+                "Recorder returned no data for %s — using synthetic",
+                config_path.name,
+            )
         return recorder if loaded > 0 else None
 
     async def _stop_panel(self, config_path: Path) -> None:

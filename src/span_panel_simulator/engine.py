@@ -158,13 +158,16 @@ class RealisticBehaviorEngine:
             return 0.0
 
         # Recorder replay: if the circuit has a recorder_entity and recorded
-        # data is available for this timestamp, return it directly instead
-        # of running the synthetic modulation chain.
+        # data is available for this timestamp, use it instead of the
+        # synthetic modulation chain.  A small measurement-noise jitter
+        # is applied so the value isn't a flat line when the recorder
+        # holds the same 5-minute mean across consecutive ticks.
         recorder_entity = template.get("recorder_entity")
-        if recorder_entity and self._recorder is not None:
+        if recorder_entity and self._recorder is not None and not template.get("user_modified"):
             recorded = self._recorder.get_power(str(recorder_entity), current_time)
             if recorded is not None:
-                return recorded
+                noise = self._config["simulation_params"].get("noise_factor", 0.02)
+                return recorded * (1.0 + random.uniform(-noise, noise))  # nosec B311
 
         energy_profile = template["energy_profile"]
         base_power = energy_profile["typical_power"]
@@ -773,6 +776,20 @@ class DynamicSimulationEngine:
                 self._config.get("simulation_params", {}),
                 panel_timezone=self._behavior_engine.panel_timezone,
             )
+
+            # When recorder data is loaded, anchor the simulation clock
+            # to the end of the recorded window.  At 1x speed this puts
+            # the simulation ~5 minutes behind real time — always within
+            # the data range so recorder replay works immediately.
+            if self._recorder is not None:
+                bounds = self._recorder.time_bounds()
+                if bounds is not None:
+                    anchor = datetime.fromtimestamp(
+                        bounds[1],
+                        tz=self._behavior_engine.panel_timezone,
+                    )
+                    self._clock.set_time(anchor.isoformat())
+
             self._build_circuits()
             self._bsee = self._create_bsee()
             self._initialized = True
@@ -1013,6 +1030,7 @@ class DynamicSimulationEngine:
             "all_off": all_off,
             "time_zone": self.panel_timezone,
             "time_acceleration": self._clock.time_acceleration,
+            "recorder_bounds": self.recorder_time_bounds,
         }
 
     # ------------------------------------------------------------------

@@ -244,6 +244,7 @@ class HAClient:
         async with session.ws_connect(
             self._ws_url,
             timeout=aiohttp.ClientWSTimeout(ws_close=_WS_TIMEOUT_S),
+            max_msg_size=0,  # Disable limit — statistics responses can be large
         ) as ws:
             # 1. Receive auth_required
             auth_req = await asyncio.wait_for(ws.receive_json(), timeout=_WS_TIMEOUT_S)

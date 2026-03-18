@@ -252,6 +252,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/set-grid-state", handle_set_grid_state)
     app.router.add_post("/set-grid-islandable", handle_set_grid_islandable)
     app.router.add_post("/entities/{id}/relay", handle_set_relay)
+    app.router.add_post("/entities/{id}/toggle-replay", handle_toggle_replay)
 
     # Energy projection
     app.router.add_get("/energy-projection", handle_energy_projection)
@@ -791,6 +792,22 @@ async def handle_set_relay(request: web.Request) -> web.Response:
     ctx = _ctx(request)
     ctx.set_circuit_relay(entity_id, relay_state)
     return web.json_response({"ok": True, "relay_state": relay_state})
+
+
+async def handle_toggle_replay(request: web.Request) -> web.Response:
+    """Toggle a circuit between recorder replay and synthetic mode.
+
+    This stages the change in the ConfigStore.  The running engine is
+    unaffected until the user clicks Save (which writes YAML to disk
+    and triggers a panel reload).
+    """
+    entity_id = request.match_info["id"]
+    store = _store(request)
+    try:
+        store.toggle_user_modified(entity_id)
+    except KeyError:
+        raise web.HTTPNotFound(text=f"Entity not found: {entity_id}") from None
+    return _render("partials/entity_list.html", request, _entity_list_context(request))
 
 
 # -- Energy projection --
