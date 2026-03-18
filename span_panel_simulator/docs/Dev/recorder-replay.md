@@ -70,58 +70,79 @@ A circuit is considered "user overridden" when its template has been
 edited in the dashboard after the initial clone/profile enrichment.
 This is tracked by a `user_modified` flag on the template.
 
-## Virtual Device Behaviour
+## Overrides & Virtual Devices
 
-### Virtual BESS — "follow-real" charge mode
+The override model is uniform across all circuit types.  Overriding
+any circuit switches it from recorded replay to synthetic simulation:
 
-When a real BESS exists in the recorded data, a virtual battery shadows
-its direction:
+- **Override a consumer** → synthetic profile replaces recorded load
+- **Override PV** → synthetic solar model replaces recorded production
+- **Override BESS** → synthetic charge mode replaces recorded battery
 
-- **Real BESS charging** → virtual battery also charges (conditions are
-  favourable — excess solar, off-peak rates, etc.)
+No special "virtual device" concept is needed when the device already
+exists on the panel.  The user simply overrides the existing circuit
+and reconfigures it.  "Virtual" only applies when adding a device
+that does not physically exist (e.g., home has no battery, user wants
+to model adding one).
+
+### Overriding the BESS
+
+Overriding the real BESS is the primary mechanism for modelling battery
+behaviour changes.  The user picks a charge mode (solar-excess, custom
+schedule, TOU, etc.) and the BSEE simulation runs against the current
+mix of recorded and synthetic circuit values.
+
+Example: "what if my battery ran in solar-excess mode?"
+
+- All consumer circuits replay recorded loads
+- Real PV replays recorded production
+- Overridden BESS charges from excess solar, discharges when grid
+  import exceeds production
+- Grid power reflects the new battery behaviour
+
+### Adding a Virtual BESS (no existing battery)
+
+When the home has no real battery, the user adds a virtual one via the
+dashboard.  Since there is no recorded BESS data, no override is
+needed — the virtual battery runs in its configured charge mode against
+recorded load and production data.
+
+A "follow-real" charge mode is available when a real BESS exists but
+is not overridden.  The virtual battery shadows the real one's
+direction:
+
+- **Real BESS charging** → virtual battery also charges
 - **Real BESS discharging AND grid still importing** → virtual battery
   discharges to offset remaining grid import
-- **Real BESS discharging but grid at zero or exporting** → virtual
-  battery stays idle (nothing to offset)
+- **Real BESS discharging but grid at zero** → virtual battery idles
 
-The virtual battery has its own SOC, capacity, and charge/discharge
-rate limits.  It borrows the real battery's timing intelligence without
-needing to know its configuration.
+This lets a user model "what if I added a second battery alongside my
+existing one" without overriding the real battery's behaviour.
 
-When no real BESS exists, the virtual battery falls back to its
-configured charge mode (solar-excess, custom schedule, etc.) operating
-against the recorded load and production data.
+### Overriding PV / Adding Virtual PV
 
-### Virtual PV
+Same pattern.  Override the existing PV circuit to change its nameplate
+capacity or production model.  Or add a virtual PV circuit for homes
+without solar.
 
-Additional PV capacity operates the same way as virtual BESS — it layers
-on top of recorded reality:
+When both BESS and PV are overridden, full interaction modelling is
+available:
 
-- The existing real PV's recorded production is replayed as-is
-- The virtual PV array uses the geographic solar model to produce power
-  at the panel's coordinates
-- Virtual PV production offsets grid import
-
-**Interaction with BESS:** adding virtual PV alone does not change the
-real BESS's recorded behaviour — the real battery is opaque and its
-decisions remain constant.  However, the user can override the BESS
-circuit to unlock full interaction modelling:
-
-- Override BESS → configure it in solar-excess mode
-- Add virtual PV → total production increases (real PV + virtual PV)
+- Override PV → increase nameplate capacity
+- Override BESS → set to solar-excess mode
 - Overridden BESS reacts to the new production total, charging from
-  excess solar that didn't exist in the original recording
+  excess solar that did not exist in the original recording
 - Grid power reflects the combined effect
+- All recorded consumer loads held constant
 
-This gives the user a complete "what if I added PV and a battery that
-used it" scenario, with all recorded consumer loads held constant.
+### Known Gap: Load Shedding
 
-**Remaining gap:** load shedding.  During real grid outages, the panel
-would have shed `OFF_GRID` circuits, reducing consumption.  The
-recorded data reflects the shed state, but if the user's virtual
-scenario would have prevented the outage (e.g., battery covers the
-gap), those circuits would have stayed on.  This is an acceptable gap
-— grid outages are infrequent and the shedding delta is bounded.
+During real grid outages, the panel sheds `OFF_GRID` circuits,
+reducing consumption.  The recorded data reflects the shed state.  If
+the user's scenario would have prevented the outage (e.g., battery
+covers the gap), those circuits would have stayed on in reality.  This
+is an acceptable gap — grid outages are infrequent and the shedding
+delta is bounded.
 
 ## Looping Playback
 
@@ -232,14 +253,18 @@ When absent or HA unavailable, the engine falls back to synthetic.
 
 7. **User override tracking** — `user_modified` flag set on template
    edit, circuit switches to synthetic
-8. **Virtual BESS follow-real mode** — shadow real BESS direction
-9. **Virtual PV** — layer additional solar on top of recorded production
+8. **Circuit override for any type** — overriding a consumer, PV, or
+   BESS circuit switches it to synthetic; uniform mechanism
+9. **Follow-real BESS mode** — for virtual (added) batteries operating
+   alongside a non-overridden real BESS
+10. **Virtual device addition** — add BESS/PV circuits that have no
+    recorded data; always synthetic
 
 ### Phase D: Dashboard Integration
 
-10. **Replay mode indicator** — show which circuits are replaying vs
+11. **Replay mode indicator** — show which circuits are replaying vs
     synthetic vs overridden
-11. **Override toggle** — let user explicitly switch a circuit between
+12. **Override toggle** — let user explicitly switch a circuit between
     replay and synthetic
 12. **Grid delta display** — show the impact of overrides on grid import
 
