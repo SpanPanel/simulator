@@ -102,18 +102,26 @@ on top of recorded reality:
   at the panel's coordinates
 - Virtual PV production offsets grid import
 
-**Known gap:** adding virtual PV would have changed the real BESS's
-decisions in practice (more excess solar → more charging).  Since the
-real BESS is opaque, its recorded behaviour remains constant.  The
-virtual PV only reduces grid import directly — it does not cause the
-real BESS to charge more.  This is an acknowledged limitation;
-documenting it is more honest than modelling it incorrectly.
+**Interaction with BESS:** adding virtual PV alone does not change the
+real BESS's recorded behaviour — the real battery is opaque and its
+decisions remain constant.  However, the user can override the BESS
+circuit to unlock full interaction modelling:
 
-If the user wants to model "more PV + battery response," they can
-override the BESS circuit (switching it to synthetic with a configured
-charge mode) so the simulated battery reacts to the additional PV.
-This trades replay fidelity for projection flexibility — an explicit
-user choice.
+- Override BESS → configure it in solar-excess mode
+- Add virtual PV → total production increases (real PV + virtual PV)
+- Overridden BESS reacts to the new production total, charging from
+  excess solar that didn't exist in the original recording
+- Grid power reflects the combined effect
+
+This gives the user a complete "what if I added PV and a battery that
+used it" scenario, with all recorded consumer loads held constant.
+
+**Remaining gap:** load shedding.  During real grid outages, the panel
+would have shed `OFF_GRID` circuits, reducing consumption.  The
+recorded data reflects the shed state, but if the user's virtual
+scenario would have prevented the outage (e.g., battery covers the
+gap), those circuits would have stayed on.  This is an acceptable gap
+— grid outages are infrequent and the shedding delta is bounded.
 
 ## Looping Playback
 
