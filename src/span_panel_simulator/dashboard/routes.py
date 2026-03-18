@@ -278,7 +278,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/clone-from-panel", handle_clone_from_panel)
     app.router.add_post("/import-ha-profiles", handle_import_ha_profiles)
 
-    # Panel discovery via HA manifest
+    # Panel discovery (mDNS + HA manifest)
     app.router.add_get("/discovered-panels", handle_discovered_panels)
 
 
@@ -1343,31 +1343,45 @@ async def handle_import_ha_profiles(request: web.Request) -> web.Response:
     )
 
 
-# -- Panel discovery via HA manifest --
+# -- Panel discovery (HA manifest + mDNS) --
 
 
 async def handle_discovered_panels(request: web.Request) -> web.Response:
-    """Return panels discovered via the HA manifest service as JSON."""
-    from span_panel_simulator.ha_api.manifest import fetch_all_manifests
+    """Return panels discovered via HA manifest and/or mDNS.
 
+    In add-on mode (HA available) the HA manifest service provides
+    panels with circuit counts.  In standalone mode, mDNS discovery
+    finds ``_span._tcp`` panels on the LAN.  Both sources are merged;
+    HA entries take precedence when a serial appears in both.
+    """
     ctx = _ctx(request)
-    if ctx.ha_client is None:
-        return web.json_response([])
+    panels: dict[str, dict[str, object]] = {}
 
-    try:
-        manifests = await fetch_all_manifests(ctx.ha_client)
-    except Exception:
-        _LOGGER.debug("Failed to fetch panel manifests from HA", exc_info=True)
-        return web.json_response([])
-
-    return web.json_response(
-        [
-            {
-                "serial": m.serial,
-                "host": m.host,
-                "circuits": len(m.circuits),
+    # mDNS-discovered panels (standalone and add-on)
+    if ctx.panel_browser is not None:
+        for p in ctx.panel_browser.panels:
+            panels[p.serial] = {
+                "serial": p.serial,
+                "host": p.host,
+                "circuits": 0,
+                "source": "mdns",
             }
-            for m in manifests
-            if m.host  # Only include panels with a known host
-        ]
-    )
+
+    # HA manifest panels (add-on mode) — override mDNS entries
+    if ctx.ha_client is not None:
+        try:
+            from span_panel_simulator.ha_api.manifest import fetch_all_manifests
+
+            manifests = await fetch_all_manifests(ctx.ha_client)
+            for m in manifests:
+                if m.host:
+                    panels[m.serial] = {
+                        "serial": m.serial,
+                        "host": m.host,
+                        "circuits": len(m.circuits),
+                        "source": "ha",
+                    }
+        except Exception:
+            _LOGGER.debug("Failed to fetch panel manifests from HA", exc_info=True)
+
+    return web.json_response(list(panels.values()))

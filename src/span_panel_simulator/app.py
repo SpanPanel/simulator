@@ -31,7 +31,7 @@ from span_panel_simulator.const import (
     MQTTS_PORT,
 )
 from span_panel_simulator.dashboard import DashboardContext, create_dashboard_app
-from span_panel_simulator.discovery import PanelAdvertiser
+from span_panel_simulator.discovery import PanelAdvertiser, PanelBrowser
 from span_panel_simulator.engine import _PANEL_SIZE_TO_MODEL
 from span_panel_simulator.panel import PanelInstance
 from span_panel_simulator.profile_applicator import apply_usage_profiles
@@ -136,6 +136,7 @@ class SimulatorApp:
         self._http_server: BootstrapHttpServer | None = None
         self._dashboard_runner: web.AppRunner | None = None
         self._advertiser: PanelAdvertiser | None = None
+        self._panel_browser: PanelBrowser | None = None
         self._certs: CertificateBundle | None = None
         self._schema: HomieSchemaRegistry | None = None
         self._running = False
@@ -671,13 +672,18 @@ class SimulatorApp:
                 await self._ha_client.close()
                 self._ha_client = None
 
-        # 4. Start mDNS advertiser
+        # 4. Start mDNS advertiser and panel browser
         advertiser = PanelAdvertiser(
             http_port=self._advertise_http_port or self._http_port,
             advertise_address=self._advertise_address,
         )
         self._advertiser = advertiser
         await advertiser.start()
+
+        browser = PanelBrowser()
+        self._panel_browser = browser
+        dashboard_ctx.panel_browser = browser
+        await browser.start()
 
         # 5. Connect to MQTT broker and run
         self._running = True
@@ -706,6 +712,8 @@ class SimulatorApp:
             # Stop all panels
             for path in list(self._panels):
                 await self._stop_panel(path)
+            if self._panel_browser is not None:
+                await self._panel_browser.stop()
             if self._advertiser is not None:
                 await self._advertiser.stop()
             if self._dashboard_runner is not None:

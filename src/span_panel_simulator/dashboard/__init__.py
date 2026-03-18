@@ -46,6 +46,7 @@ class DashboardContext:
     set_circuit_relay: Callable[[str, str], None] = lambda _id, _state: None
     ha_client: Any = None  # HAClient | None — optional, set when HA API is available
     history_provider: HistoryProvider | None = None
+    panel_browser: Any = None  # PanelBrowser | None — mDNS discovery for standalone mode
 
 
 def create_dashboard_app(context: DashboardContext) -> web.Application:

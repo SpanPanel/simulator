@@ -1,16 +1,24 @@
-"""mDNS advertisement for simulated SPAN panels.
+"""mDNS advertisement and discovery for SPAN panels.
 
-Each panel is advertised as ``_ebus._tcp.local.`` so that the HA
-integration (and other eBus clients) discover it via zeroconf, just
-like real hardware.
+Advertisement
+    Each simulated panel is advertised as ``_ebus._tcp.local.`` so that
+    the HA integration (and other eBus clients) discover it via
+    zeroconf, just like real hardware.
+
+Discovery
+    ``PanelBrowser`` listens for ``_span._tcp.local.`` on the LAN and
+    maintains a list of discovered real panels.  Used by the dashboard
+    clone form when Home Assistant is not available (standalone mode).
 """
 
 from __future__ import annotations
 
 import logging
 import socket
+from dataclasses import dataclass
+from threading import Lock
 
-from zeroconf import IPVersion, ServiceInfo
+from zeroconf import IPVersion, ServiceBrowser, ServiceInfo, ServiceStateChange, Zeroconf
 from zeroconf.asyncio import AsyncZeroconf
 
 _LOGGER = logging.getLogger(__name__)
@@ -160,3 +168,104 @@ class PanelAdvertiser:
 
         if services:
             _LOGGER.info("Removed mDNS advertisement for panel %s", serial)
+
+
+# ------------------------------------------------------------------
+# Panel discovery (browser)
+# ------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveredPanel:
+    """A SPAN panel found via mDNS."""
+
+    serial: str
+    host: str
+    model: str
+    firmware: str
+
+
+class PanelBrowser:
+    """Listens for ``_span._tcp.local.`` on the LAN.
+
+    Maintains a thread-safe set of discovered panels that the dashboard
+    can query at any time.  Simulated panels (serial starting with
+    ``sim-``) are excluded so the clone form only shows real hardware.
+    """
+
+    def __init__(self) -> None:
+        self._zeroconf: AsyncZeroconf | None = None
+        self._browser: ServiceBrowser | None = None
+        self._panels: dict[str, DiscoveredPanel] = {}
+        self._lock = Lock()
+
+    async def start(self) -> None:
+        """Start the zeroconf browser."""
+        self._zeroconf = AsyncZeroconf(ip_version=IPVersion.V4Only)
+        self._browser = ServiceBrowser(
+            self._zeroconf.zeroconf,
+            SERVICE_TYPE_SPAN,
+            handlers=[self._on_state_change],
+        )
+        _LOGGER.info("mDNS panel browser started (listening for %s)", SERVICE_TYPE_SPAN)
+
+    async def stop(self) -> None:
+        """Shut down the browser."""
+        if self._browser is not None:
+            self._browser.cancel()
+            self._browser = None
+        if self._zeroconf is not None:
+            await self._zeroconf.async_close()
+            self._zeroconf = None
+        with self._lock:
+            self._panels.clear()
+        _LOGGER.info("mDNS panel browser stopped")
+
+    @property
+    def panels(self) -> list[DiscoveredPanel]:
+        """Return a snapshot of currently discovered panels."""
+        with self._lock:
+            return list(self._panels.values())
+
+    def _on_state_change(
+        self,
+        zeroconf: Zeroconf,
+        service_type: str,
+        name: str,
+        state_change: ServiceStateChange,
+    ) -> None:
+        """Callback invoked by the ServiceBrowser on the zeroconf thread."""
+        if state_change == ServiceStateChange.Removed:
+            with self._lock:
+                self._panels.pop(name, None)
+            _LOGGER.debug("mDNS: panel removed %s", name)
+            return
+
+        info = zeroconf.get_service_info(service_type, name)
+        if info is None:
+            return
+
+        props = {
+            k.decode() if isinstance(k, bytes) else k: v.decode() if isinstance(v, bytes) else v
+            for k, v in (info.properties or {}).items()
+        }
+
+        serial = props.get("serialNumber", "")
+        if not serial or serial.lower().startswith("sim-"):
+            return  # skip simulated panels
+
+        addresses = info.parsed_scoped_addresses()
+        host = addresses[0] if addresses else ""
+        if not host:
+            return
+
+        panel = DiscoveredPanel(
+            serial=serial,
+            host=host,
+            model=str(props.get("model", "")),
+            firmware=str(props.get("firmwareVersion", "")),
+        )
+
+        with self._lock:
+            self._panels[name] = panel
+        _LOGGER.info("mDNS: discovered panel %s at %s", serial, host)

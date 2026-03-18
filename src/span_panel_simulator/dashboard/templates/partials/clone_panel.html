@@ -16,13 +16,11 @@
         hx-swap="outerHTML"
         hx-indicator="#clone-spinner">
     <div class="form-row">
-      {% if ha_available %}
       <label>Panel
         <select id="panel-selector">
-          <option value="">Loading…</option>
+          <option value="">Scanning…</option>
         </select>
       </label>
-      {% endif %}
       <label>Panel IP / hostname
         <input type="text" name="host" id="clone-host-input"
                placeholder="192.168.1.100"
@@ -37,7 +35,6 @@
     </div>
   </form>
 </div>
-{% if ha_available %}
 <script>
 (function() {
   var sel = document.getElementById('panel-selector');
@@ -50,11 +47,14 @@
       panels.forEach(function(p) {
         var opt = document.createElement('option');
         opt.value = p.host;
-        opt.textContent = p.serial + ' (' + p.host + ', ' + p.circuits + ' circuits)';
+        var label = p.serial + ' (' + p.host;
+        if (p.circuits > 0) label += ', ' + p.circuits + ' circuits';
+        label += ')';
+        opt.textContent = label;
         sel.appendChild(opt);
       });
       if (panels.length === 0) {
-        sel.innerHTML = '<option value="">No panels found in HA</option>';
+        sel.innerHTML = '<option value="">No panels found</option>';
       }
     })
     .catch(function() {
@@ -67,4 +67,3 @@
   });
 })();
 </script>
-{% endif %}
