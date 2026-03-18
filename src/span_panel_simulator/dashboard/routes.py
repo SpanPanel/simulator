@@ -1216,7 +1216,15 @@ async def handle_clone_from_panel(request: web.Request) -> web.Response:
                 if isinstance(panel_cfg, dict):
                     panel_cfg["latitude"] = lat
                     panel_cfg["longitude"] = lon
-                    _LOGGER.info("Applied HA home location: %.4f, %.4f", lat, lon)
+
+                    # Derive IANA timezone from coordinates so profile
+                    # builder can bucket hour_factors in local time.
+                    from timezonefinder import TimezoneFinder
+
+                    tz_result = TimezoneFinder().timezone_at(lat=lat, lng=lon)
+                    tz_name = str(tz_result) if tz_result else "America/Los_Angeles"
+                    panel_cfg["time_zone"] = tz_name
+                    _LOGGER.info("Applied HA home location: %.4f, %.4f → %s", lat, lon, tz_name)
         except Exception:
             _LOGGER.debug("Could not fetch HA location", exc_info=True)
 

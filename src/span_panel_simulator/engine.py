@@ -176,10 +176,14 @@ class RealisticBehaviorEngine:
         if template.get("smart_behavior", {}).get("responds_to_grid", False):
             base_power = self._apply_smart_behavior(base_power, template, current_time)
 
-        # Add random variation
+        # Add random variation.  Cap total noise so that HA-derived profiles
+        # with high coefficient-of-variation (bursty loads like EV/spa where
+        # std ≫ mean) don't produce ±100 % swings every tick.  The hourly
+        # profile already captures the macro pattern; this jitter is just
+        # tick-to-tick measurement noise.
         variation = energy_profile.get("power_variation", 0.1)
         noise_factor = self._config["simulation_params"].get("noise_factor", 0.02)
-        total_variation = variation + noise_factor
+        total_variation = min(variation + noise_factor, 0.15)
 
         power_multiplier = 1.0 + random.uniform(-total_variation, total_variation)  # nosec B311
         final_power = base_power * power_multiplier
@@ -210,7 +214,15 @@ class RealisticBehaviorEngine:
         # Use explicit hour factors when available (EVSE schedules, custom profiles)
         hour_factors = profile.get("hour_factors", {})
         if hour_factors:
-            return base_power * float(hour_factors.get(current_hour, 0.0))
+            factor = float(hour_factors.get(current_hour, 0.0))
+            # Normalise so the average across all hours equals base_power.
+            # hour_factors are peak-normalised (peak = 1.0), so their mean
+            # is always < 1.  Without this correction, typical_power * 1.0
+            # at the peak hour gives only the overall mean, not the peak.
+            mean_hf = sum(float(v) for v in hour_factors.values()) / max(len(hour_factors), 1)
+            if mean_hf > 0:
+                return base_power / mean_hf * factor
+            return 0.0
 
         # Check hourly_multipliers (used by profile editor)
         hourly_mult = profile.get("hourly_multipliers", {})
@@ -256,7 +268,14 @@ class RealisticBehaviorEngine:
         monthly = template.get("monthly_factors")
         if monthly:
             month = self.local_datetime(current_time).month
-            return base_power * float(monthly.get(month, 1.0))
+            factor = float(monthly.get(month, 1.0))
+            # Same normalisation as hour_factors: the mean of the monthly
+            # factors is < 1.0, so multiplying directly under-represents
+            # power.  Dividing by the mean preserves the correct average.
+            mean_mf = sum(float(v) for v in monthly.values()) / max(len(monthly), 1)
+            if mean_mf > 0:
+                return base_power / mean_mf * factor
+            return base_power
 
         hvac_type = template.get("hvac_type")
         if not hvac_type:
@@ -277,11 +296,24 @@ class RealisticBehaviorEngine:
         statistical ``duty_cycle`` (0.0-1.0).  When ``duty_cycle`` is
         present it takes precedence -- the engine derives on/off from it
         and an optional ``period`` (default 2700 s / 45 min).
+
+        When HA-derived ``hour_factors`` are present alongside a
+        ``duty_cycle``, cycling is skipped because the hour_factors
+        already incorporate the on/off behaviour from historical
+        observations.  Applying duty_cycle on top would double-count.
         """
         cycling = template.get("cycling_pattern", {})
 
         dc = cycling.get("duty_cycle")
         if dc is not None:
+            # When HA-derived hour_factors are present, the hourly means
+            # already include cycling effects (a 3800 W EV charger running
+            # 20 % of an hour shows up as an 800 W hourly mean).  Applying
+            # binary duty-cycle gating on top would double-count, so skip.
+            profile = template.get("time_of_day_profile", {})
+            if profile.get("hour_factors"):
+                return base_power
+
             period = cycling.get("period", 2700)
             on_duration = int(float(dc) * period)
             off_duration = period - on_duration
