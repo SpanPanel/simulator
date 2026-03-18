@@ -534,6 +534,18 @@ class SimulatorApp:
         Stops all panels outside the new filter on the next reload.
         """
         self._config_filter = config_filter
+        self._persist_last_config(config_filter)
+
+    def _persist_last_config(self, config_name: str | None) -> None:
+        """Save the active config name so it resumes on next startup."""
+        state_file = self._config_dir / ".last_config"
+        try:
+            if config_name:
+                state_file.write_text(config_name, encoding="utf-8")
+            elif state_file.exists():
+                state_file.unlink()
+        except OSError:
+            pass  # Best-effort; don't break the simulator
 
     # ------------------------------------------------------------------
     # Explicit per-panel lifecycle (called from dashboard)
@@ -559,6 +571,7 @@ class SimulatorApp:
         """Start (or ensure running) the engine for a specific config."""
         self._transition_to_explicit_control()
         self._stopped_configs.discard(filename)
+        self._persist_last_config(filename)
         self._reload_event.set()
 
     def request_stop_panel(self, filename: str) -> None:

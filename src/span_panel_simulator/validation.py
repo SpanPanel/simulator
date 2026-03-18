@@ -94,7 +94,17 @@ def validate_single_circuit(index: int, circuit: Any, circuit_templates: dict[st
         raise ValueError(f"Circuit {index} references unknown template '{template_name}'")
 
     tabs = circuit["tabs"]
-    if not isinstance(tabs, list) or not tabs:
+    if not isinstance(tabs, list):
+        raise ValueError(f"Circuit {index} ('tabs') must be a list")
+
+    # Infrastructure entities (battery, PV, EVSE) may have empty tabs
+    # when added as virtual devices for "what-if" modeling.
+    template = circuit_templates.get(template_name, {})
+    is_infrastructure = template.get("device_type") in ("pv", "evse", "battery") or (
+        isinstance(template.get("battery_behavior"), dict)
+        and template["battery_behavior"].get("enabled")
+    )
+    if not tabs and not is_infrastructure:
         raise ValueError(f"Circuit {index} ('tabs') must be a non-empty list")
 
     if len(tabs) == 2:

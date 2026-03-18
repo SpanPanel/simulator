@@ -146,18 +146,27 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
         logging.info("Using config: %s", config_path.name)
     else:
-        # No --config: use default_config.yaml if it exists
-        default_path = config_dir / "default_config.yaml"
-        if default_path.exists():
-            config_filter = "default_config.yaml"
-            logging.info("Using default config: %s", default_path.name)
-        else:
-            # Fall back to all configs
-            yamls = list(config_dir.glob("*.yaml")) + list(config_dir.glob("*.yml"))
-            if not yamls:
-                logging.error("No YAML configs found in %s", config_dir)
-                sys.exit(1)
-            logging.info("Found %d config(s) in %s", len(yamls), config_dir)
+        # No --config: resume the last-used config if saved, otherwise
+        # fall back to default_config.yaml.
+        last_config_file = config_dir / ".last_config"
+        if last_config_file.exists():
+            last_name = last_config_file.read_text(encoding="utf-8").strip()
+            if last_name and (config_dir / last_name).exists():
+                config_filter = last_name
+                logging.info("Resuming last config: %s", last_name)
+
+        if config_filter is None:
+            default_path = config_dir / "default_config.yaml"
+            if default_path.exists():
+                config_filter = "default_config.yaml"
+                logging.info("Using default config: %s", default_path.name)
+            else:
+                # Fall back to all configs
+                yamls = list(config_dir.glob("*.yaml")) + list(config_dir.glob("*.yml"))
+                if not yamls:
+                    logging.error("No YAML configs found in %s", config_dir)
+                    sys.exit(1)
+                logging.info("Found %d config(s) in %s", len(yamls), config_dir)
 
     # Resolve HA API connection (add-on mode auto-detects via env var)
     from span_panel_simulator.ha_api.client import HAConnectionConfig
