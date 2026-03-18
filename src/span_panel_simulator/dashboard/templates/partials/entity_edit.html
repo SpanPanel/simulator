@@ -12,9 +12,11 @@
       <label>Name:
         <input type="text" name="name" value="{{ e.name }}">
       </label>
+      {% if e.entity_type != 'battery' %}
       <label>Tabs (comma-separated):
         <input type="text" name="tabs" value="{{ e.tabs|join(', ') }}">
       </label>
+      {% endif %}
       <label>Priority:
         <select name="priority">
           {% for p in priorities %}
@@ -29,12 +31,14 @@
           {% endfor %}
         </select>
       </label>
+      {% if e.entity_type != 'battery' %}
       <label>Breaker (A):
         <input type="number" name="breaker_rating"
                value="{{ e.breaker_rating or '' }}"
                min="15" max="200" step="5" style="width:5em"
                placeholder="auto">
       </label>
+      {% endif %}
     </div>
 
     {% if e.entity_type == 'pv' %}

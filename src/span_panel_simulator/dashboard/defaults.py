@@ -114,7 +114,6 @@ ENTITY_TYPE_DEFAULTS: dict[str, dict[str, Any]] = {
             },
             "relay_behavior": "controllable",
             "priority": "NEVER",
-            "breaker_rating": 40,
             "battery_behavior": {
                 "enabled": True,
                 "charge_mode": "custom",
