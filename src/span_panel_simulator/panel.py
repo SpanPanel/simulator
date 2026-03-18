@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from pathlib import Path
     from typing import Any
 
+    from span_panel_simulator.recorder import RecorderDataSource
     from span_panel_simulator.schema import HomieSchemaRegistry
 
 _LOGGER = logging.getLogger(__name__)
@@ -36,11 +37,13 @@ class PanelInstance:
         *,
         tick_interval: float = 1.0,
         schema: HomieSchemaRegistry | None = None,
+        recorder: RecorderDataSource | None = None,
     ) -> None:
         self._config_path = config_path
         self._publish_fn = publish_fn
         self._tick_interval = tick_interval
         self._schema = schema
+        self._recorder = recorder
 
         self._engine: DynamicSimulationEngine | None = None
         self._publisher: HomiePublisher | None = None
@@ -75,7 +78,10 @@ class PanelInstance:
 
         Returns the panel's serial number.
         """
-        engine = DynamicSimulationEngine(config_path=self._config_path)
+        engine = DynamicSimulationEngine(
+            config_path=self._config_path,
+            recorder=self._recorder,
+        )
         await engine.initialize_async()
         self._engine = engine
 

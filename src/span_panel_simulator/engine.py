@@ -33,6 +33,8 @@ if TYPE_CHECKING:
         SimulationConfig,
         TabSynchronization,
     )
+    from span_panel_simulator.recorder import RecorderDataSource
+
 from span_panel_simulator.hvac import hvac_seasonal_factor
 from span_panel_simulator.models import (
     SpanBatterySnapshot,
@@ -73,9 +75,15 @@ class RealisticBehaviorEngine:
 
     _DEFAULT_TZ = "America/Los_Angeles"
 
-    def __init__(self, simulation_start_time: float, config: SimulationConfig) -> None:
+    def __init__(
+        self,
+        simulation_start_time: float,
+        config: SimulationConfig,
+        recorder: RecorderDataSource | None = None,
+    ) -> None:
         self._start_time = simulation_start_time
         self._config = config
+        self._recorder = recorder
         self._circuit_cycle_states: dict[str, dict[str, Any]] = {}
         self._last_battery_direction: str = "idle"
         self._solar_excess_w: float = 0.0
@@ -148,6 +156,15 @@ class RealisticBehaviorEngine:
         """Get realistic power for a circuit based on its template and current conditions."""
         if relay_state == "OPEN":
             return 0.0
+
+        # Recorder replay: if the circuit has a recorder_entity and recorded
+        # data is available for this timestamp, return it directly instead
+        # of running the synthetic modulation chain.
+        recorder_entity = template.get("recorder_entity")
+        if recorder_entity and self._recorder is not None:
+            recorded = self._recorder.get_power(str(recorder_entity), current_time)
+            if recorded is not None:
+                return recorded
 
         energy_profile = template["energy_profile"]
         base_power = energy_profile["typical_power"]
@@ -694,11 +711,13 @@ class DynamicSimulationEngine:
         serial_number: str | None = None,
         config_path: Path | str | None = None,
         config_data: SimulationConfig | None = None,
+        recorder: RecorderDataSource | None = None,
     ) -> None:
         self._config: SimulationConfig | None = None
         self._config_path = Path(config_path) if config_path else None
         self._config_data = config_data
         self._serial_number_override = serial_number
+        self._recorder = recorder
         self._fixture_loading_lock: asyncio.Lock | None = None
         self._lock_init_lock = threading.Lock()
 
@@ -746,7 +765,9 @@ class DynamicSimulationEngine:
 
             self._initialize_tab_synchronizations()
             self._behavior_engine = RealisticBehaviorEngine(
-                self._clock.real_start_time, self._config
+                self._clock.real_start_time,
+                self._config,
+                recorder=self._recorder,
             )
             self._clock.initialize(
                 self._config.get("simulation_params", {}),
@@ -891,6 +912,18 @@ class DynamicSimulationEngine:
         if self._config is not None:
             return float(self._config["panel_config"].get("soc_shed_threshold", 20.0))
         return 20.0
+
+    @property
+    def recorder_time_bounds(self) -> tuple[float, float] | None:
+        """Earliest/latest epoch seconds of loaded recorder data, or None."""
+        if self._recorder is not None:
+            return self._recorder.time_bounds()
+        return None
+
+    @property
+    def has_recorder_data(self) -> bool:
+        """Whether recorder replay data is loaded."""
+        return self._recorder is not None and self._recorder.is_loaded
 
     def set_time_acceleration(self, accel: float) -> None:
         """Set the time acceleration multiplier."""

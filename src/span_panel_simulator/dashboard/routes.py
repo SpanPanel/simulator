@@ -1132,7 +1132,10 @@ async def _import_profiles_for_serial(
 
     from span_panel_simulator.ha_api.manifest import fetch_all_manifests
     from span_panel_simulator.ha_api.profile_builder import build_profiles
-    from span_panel_simulator.profile_applicator import apply_usage_profiles
+    from span_panel_simulator.profile_applicator import (
+        apply_usage_profiles,
+        store_recorder_entities,
+    )
 
     manifests = await fetch_all_manifests(ha_client)
     if not manifests:
@@ -1141,6 +1144,11 @@ async def _import_profiles_for_serial(
     matched = next((m for m in manifests if m.serial == origin_serial), None)
     if matched is None:
         return 0
+
+    # Store recorder_entity on ALL circuit templates (including PV/BESS)
+    # so the engine can replay recorded data for any circuit.
+    template_to_entity = {c.template: c.entity_id for c in matched.circuits}
+    store_recorder_entities(config_path, template_to_entity)
 
     eligible = matched.profile_circuits()
     if not eligible:

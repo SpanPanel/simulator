@@ -129,6 +129,7 @@ class CircuitTemplateExtended(CircuitTemplate, total=False):
     hvac_type: str  # "central_ac", "heat_pump", "heat_pump_aux"
     monthly_factors: dict[int, float]  # month (1-12) -> multiplier (1.0 = peak month)
     breaker_rating: int  # Breaker rating in Amps (derived from power_range if not set)
+    recorder_entity: str  # HA entity ID for recorder replay (e.g. "sensor.span_panel_..._power")
 
 
 class CircuitDefinition(TypedDict):

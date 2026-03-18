@@ -1,10 +1,8 @@
 """Usage profile applicator -- merges HA-derived profiles into clone YAML.
 
-Pure function: reads a clone config file, overlays per-circuit usage
-profiles into the corresponding ``circuit_templates`` entries, and writes
-the result back.  The simulator engine already consumes all target
-parameters (``hour_factors``, ``monthly_factors``, ``duty_cycle``, etc.)
-so no engine changes are required.
+Pure functions: reads a clone config file, overlays per-circuit usage
+profiles and recorder entity mappings into the corresponding
+``circuit_templates`` entries, and writes the result back.
 """
 
 from __future__ import annotations
@@ -134,6 +132,52 @@ def apply_usage_profiles(
             "Applied usage profiles to %d/%d templates in %s",
             updated,
             len(profiles),
+            config_path.name,
+        )
+
+    return updated
+
+
+def store_recorder_entities(
+    config_path: Path,
+    entity_map: dict[str, str],
+) -> int:
+    """Store ``recorder_entity`` on circuit templates in a clone YAML config.
+
+    Args:
+        config_path: Path to the YAML config file.
+        entity_map: Mapping of template_name -> HA entity_id.
+
+    Returns the number of templates updated.
+    """
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        _LOGGER.warning("Invalid config format in %s", config_path)
+        return 0
+
+    templates = raw.get("circuit_templates")
+    if not isinstance(templates, dict):
+        _LOGGER.warning("No circuit_templates in %s", config_path)
+        return 0
+
+    updated = 0
+    for template_name, entity_id in entity_map.items():
+        template = templates.get(template_name)
+        if not isinstance(template, dict):
+            continue
+        if template.get("recorder_entity") != entity_id:
+            template["recorder_entity"] = entity_id
+            updated += 1
+
+    if updated:
+        config_path.write_text(
+            yaml.dump(raw, default_flow_style=False, sort_keys=False),
+            encoding="utf-8",
+        )
+        _LOGGER.info(
+            "Stored recorder_entity on %d/%d templates in %s",
+            updated,
+            len(entity_map),
             config_path.name,
         )
 

@@ -35,6 +35,7 @@ from span_panel_simulator.discovery import PanelAdvertiser, PanelBrowser
 from span_panel_simulator.engine import _PANEL_SIZE_TO_MODEL
 from span_panel_simulator.panel import PanelInstance
 from span_panel_simulator.profile_applicator import apply_usage_profiles
+from span_panel_simulator.recorder import RecorderDataSource
 from span_panel_simulator.schema import HomieSchemaRegistry, load_schema
 from span_panel_simulator.sio_handler import SioContext, create_sio_server
 
@@ -364,11 +365,17 @@ class SimulatorApp:
 
     async def _start_panel(self, config_path: Path) -> PanelInstance:
         """Create, initialise, and register a panel from a config file."""
+        # Load recorder replay data if HA is connected and config has
+        # recorder_entity mappings.  The RecorderDataSource is populated
+        # here (outside the engine) so the engine stays backend-agnostic.
+        recorder = await self._load_recorder_data(config_path)
+
         panel = PanelInstance(
             config_path=config_path,
             publish_fn=self._publish,
             tick_interval=self._tick_interval,
             schema=self._schema,
+            recorder=recorder,
         )
         serial = await panel.start()
 
@@ -388,6 +395,51 @@ class SimulatorApp:
 
         _LOGGER.info("Registered panel %s from %s", serial, config_path.name)
         return panel
+
+    async def _load_recorder_data(self, config_path: Path) -> RecorderDataSource | None:
+        """Create and populate a RecorderDataSource from config + HA history.
+
+        Returns ``None`` if HA is unavailable or the config has no
+        ``recorder_entity`` mappings.  Failures are logged and swallowed
+        so the panel still starts in synthetic mode.
+        """
+        if self._ha_client is None:
+            return None
+
+        try:
+            raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+        if not isinstance(raw, dict):
+            return None
+
+        templates = raw.get("circuit_templates")
+        if not isinstance(templates, dict):
+            return None
+
+        entity_ids: list[str] = []
+        for tmpl in templates.values():
+            if isinstance(tmpl, dict):
+                entity_id = tmpl.get("recorder_entity")
+                if isinstance(entity_id, str) and entity_id:
+                    entity_ids.append(entity_id)
+
+        if not entity_ids:
+            return None
+
+        recorder = RecorderDataSource()
+        try:
+            loaded = await recorder.load(self._ha_client, entity_ids)
+        except Exception:
+            _LOGGER.debug(
+                "Recorder data loading failed for %s — using synthetic",
+                config_path.name,
+                exc_info=True,
+            )
+            return None
+
+        return recorder if loaded > 0 else None
 
     async def _stop_panel(self, config_path: Path) -> None:
         """Stop and unregister a panel."""
