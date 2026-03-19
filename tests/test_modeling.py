@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
 
 import pytest
 
+from span_panel_simulator.dashboard import DashboardContext, create_dashboard_app
 from span_panel_simulator.engine import DynamicSimulationEngine
 from span_panel_simulator.recorder import RecorderDataSource
 
@@ -278,3 +279,57 @@ async def test_compute_modeling_does_not_mutate_runtime_state(
     assert be._last_battery_direction == direction_before
     assert be._solar_excess_w == excess_before
     assert set(be._circuit_cycle_states.keys()) == cycle_keys_before
+
+
+async def test_modeling_data_route_no_engine(tmp_path: Path) -> None:
+    """Route returns 503 when no engine is running."""
+    ctx = DashboardContext(
+        config_dir=tmp_path,
+        config_filter=None,
+        get_panel_configs=lambda: {},
+        request_reload=lambda: None,
+    )
+    app = create_dashboard_app(ctx)
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/modeling-data?horizon=1mo")
+        assert resp.status == 503
+        data = await resp.json()
+        assert "error" in data
+
+
+async def test_modeling_data_route_returns_data(
+    tmp_path: Path,
+    simple_config: Path,
+    recorder_for_engine: RecorderDataSource,
+) -> None:
+    """Route returns 200 with valid modeling data when engine is running."""
+    engine = DynamicSimulationEngine(
+        config_path=simple_config,
+        recorder=recorder_for_engine,
+    )
+    await engine.initialize_async()
+
+    async def mock_get_modeling_data(horizon_hours: int) -> dict[str, Any] | None:
+        return await engine.compute_modeling_data(horizon_hours)
+
+    ctx = DashboardContext(
+        config_dir=tmp_path,
+        config_filter=None,
+        get_panel_configs=lambda: {},
+        request_reload=lambda: None,
+        get_modeling_data=mock_get_modeling_data,
+    )
+    app = create_dashboard_app(ctx)
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/modeling-data?horizon=1mo")
+        assert resp.status == 200
+        data = await resp.json()
+        assert "timestamps" in data
+        assert "site_power" in data
+        assert "grid_power" in data

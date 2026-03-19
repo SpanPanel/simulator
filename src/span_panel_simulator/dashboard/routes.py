@@ -257,6 +257,9 @@ def setup_routes(app: web.Application) -> None:
     # Energy projection
     app.router.add_get("/energy-projection", handle_energy_projection)
 
+    # Modeling data (Before/After comparison)
+    app.router.add_get("/modeling-data", handle_modeling_data)
+
     # File operations
     app.router.add_get("/export", handle_export)
     app.router.add_post("/import", handle_import)
@@ -821,6 +824,31 @@ async def handle_energy_projection(request: web.Request) -> web.Response:
     store = _store(request)
     projection = store.compute_energy_projection(period)
     return web.json_response({"period": period, "days": projection})
+
+
+# -- Modeling data --
+
+
+_HORIZON_MAP: dict[str, int] = {
+    "1mo": 730,
+    "3mo": 2190,
+    "6mo": 4380,
+    "1yr": 8760,
+}
+
+
+async def handle_modeling_data(request: web.Request) -> web.Response:
+    """Return time-series for Before/After energy comparison."""
+    ctx = _ctx(request)
+    horizon_key = request.query.get("horizon", "1mo")
+    horizon_hours = _HORIZON_MAP.get(horizon_key, 730)
+
+    result = await ctx.get_modeling_data(horizon_hours)
+    if result is None:
+        return web.json_response({"error": "No running simulation"}, status=503)
+    if "error" in result:
+        return web.json_response(result, status=400)
+    return web.json_response(result)
 
 
 # -- File operations --

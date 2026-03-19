@@ -12,7 +12,7 @@ import asyncio
 import hashlib
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import aiomqtt
 import yaml
@@ -202,6 +202,13 @@ class SimulatorApp:
             engine.set_dynamic_overrides(
                 circuit_overrides={circuit_id: {"relay_state": relay_state}}
             )
+
+    async def _get_modeling_data(self, horizon_hours: int) -> dict[str, Any] | None:
+        """Compute modeling data from the first running engine."""
+        engine = self._get_first_engine()
+        if engine is None:
+            return None
+        return await engine.compute_modeling_data(horizon_hours)
 
     # ------------------------------------------------------------------
     # MQTT publish callback (shared across all panels)
@@ -555,6 +562,7 @@ class SimulatorApp:
             set_grid_islandable=self._set_grid_islandable,
             set_circuit_priority=self._set_circuit_priority,
             set_circuit_relay=self._set_circuit_relay,
+            get_modeling_data=self._get_modeling_data,
         )
         dashboard_app = create_dashboard_app(dashboard_ctx)
         self._dashboard_runner = web.AppRunner(dashboard_app)

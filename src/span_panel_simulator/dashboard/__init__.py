@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     from span_panel_simulator.history import HistoryProvider
 
@@ -23,6 +23,10 @@ from aiohttp import web
 from span_panel_simulator.dashboard.config_store import ConfigStore
 from span_panel_simulator.dashboard.presets import init_presets
 from span_panel_simulator.dashboard.routes import setup_routes
+
+
+async def _noop_modeling_data(_hours: int) -> dict[str, Any] | None:
+    return None
 
 
 @dataclass
@@ -44,6 +48,7 @@ class DashboardContext:
     set_grid_islandable: Callable[[bool], None] = lambda _: None
     set_circuit_priority: Callable[[str, str], None] = lambda _id, _pri: None
     set_circuit_relay: Callable[[str, str], None] = lambda _id, _state: None
+    get_modeling_data: Callable[[int], Awaitable[dict[str, Any] | None]] = _noop_modeling_data
     ha_client: Any = None  # HAClient | None — optional, set when HA API is available
     history_provider: HistoryProvider | None = None
     panel_browser: Any = None  # PanelBrowser | None — mDNS discovery for standalone mode
