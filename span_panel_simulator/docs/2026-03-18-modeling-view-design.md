@@ -13,6 +13,9 @@ Users need to evaluate the economic impact of adding BESS or changing PV on thei
 - **Zippy**: Full dataset cached client-side after one fetch. All zoom/pan is instant JS array slicing — no round-trips.
 - **Static analysis**: Clock does not tick in modeling mode. This is historical replay, not live simulation.
 - **Future-proof**: Endpoint shape supports scenario overrides and optimization without redesign.
+- **Focused view**: Modeling is a dedicated mode for a single panel. It replaces the runtime dashboard (panel list, runtime controls, live chart) with the modeling UI (charts, range slider, circuit list). The user enters modeling from a "Model" action on a specific panel and exits back to the runtime view.
+- **Modular / HA-abstracted**: The modeling engine operates on a `HistoryProvider` protocol, not HA-specific APIs. The recorder, history provider, and data source are abstracted behind interfaces that the eBus layer can implement independently when panel-side history becomes available. HA is one provider; future eBus history endpoints would be another. The frontend and modeling computation are provider-agnostic — they consume the same `ModelingData` response regardless of source.
+- **TypeScript-ready**: Frontend JS is written in a modular style amenable to future TypeScript migration — named functions, clear data contracts, no inline anonymous callbacks for core logic.
 
 ---
 
@@ -135,6 +138,16 @@ Neither is built now. The point is nothing in the current design precludes them.
 
 ## Frontend
 
+### View Mode Transition
+
+Modeling is a full-view replacement, not a tab within the runtime view. Entry point: a **Model** button on each panel row in the simulator list (alongside Edit, Clone, Start, Stop). Clicking it:
+
+1. Hides the runtime dashboard sections (panel list, clone panel, runtime controls, live chart, panel config).
+2. Shows the modeling view for that specific panel: header identifying the panel, charts, range slider, and circuit list.
+3. A **Back to Runtime** button returns to the normal dashboard.
+
+This scoping means the modeling view owns the full viewport below the header — no competing sections. The circuit list remains visible (and gains the overlay checkboxes) because it's essential for understanding what's being modeled.
+
 ### Layout (top to bottom)
 
 1. **Horizon dropdown** — Last Month / Last 3 Months / Last 6 Months / Last Year. Changing triggers a new fetch.
@@ -214,6 +227,15 @@ Neither is built now. The point is nothing in the current design precludes them.
 | `app.py` | Wire `get_modeling_data` callback from engine to dashboard context |
 | `dashboard/templates/partials/runtime_controls.html` | Replace modeling section with dual-chart layout, range slider, adaptive ticks, circuit checkbox wiring. Remove existing energy projection JS (lines 668-775). |
 | `dashboard/static/dashboard.css` | Range slider styling, circuit checkbox appearance, modeling-specific layout rules |
+
+### History Provider Abstraction
+
+The modeling computation depends on historical per-circuit power data. Today this comes from the HA recorder via `HistoryProvider` → `RecorderDataSource`. The design keeps this abstraction intact:
+
+- `compute_modeling_data()` reads from `self._recorder: RecorderDataSource`, which is backend-agnostic after loading.
+- `RecorderDataSource.load()` accepts any `HistoryProvider` (the protocol defined in `history.py`).
+- A future eBus history provider would implement the same `async_get_statistics()` protocol and plug in without changing the modeling engine or frontend.
+- When no `HistoryProvider` is available (standalone eBus mode without HA), the modeling endpoint returns the "no recorder data" error. The Model button can be hidden or disabled in the panel list when `has_recorder_data` is false.
 
 ### No New Dependencies
 
