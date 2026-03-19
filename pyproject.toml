@@ -16,7 +16,6 @@ dependencies = [
     "pyyaml>=6.0",
     "zeroconf>=0.131.0",
     "timezonefinder>=6.0",
-    "python-socketio>=5.0",
 ]
 
 [dependency-groups]
@@ -57,12 +56,4 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = "timezonefinder"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "socketio.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "engineio.*"
 ignore_missing_imports = true

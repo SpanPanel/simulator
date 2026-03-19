@@ -31,15 +31,12 @@ from span_panel_simulator.const import (
     PATH_HOMIE_SCHEMA,
     PATH_REGISTER,
     PATH_STATUS,
-    SIO_NAMESPACE,
     WS_PORT,
     WSS_PORT,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    import socketio
 
     from span_panel_simulator.certs import CertificateBundle
     from span_panel_simulator.schema import HomieSchemaRegistry
@@ -61,7 +58,6 @@ class BootstrapHttpServer:
         host: str = "0.0.0.0",
         port: int = 443,
         reload_callback: Callable[[], None] | None = None,
-        sio_server: socketio.AsyncServer | None = None,
     ) -> None:
         self._certs = certs
         self._broker_username = broker_username
@@ -70,15 +66,10 @@ class BootstrapHttpServer:
         self._host = host
         self._port = port
         self._reload_callback = reload_callback
-        self._has_sio = sio_server is not None
 
         self._homie_schema = schema.raw_json
         self._app = web.Application()
         self._runner: web.AppRunner | None = None
-
-        # Attach Socket.IO server (adds /socket.io/ routes to the app)
-        if sio_server is not None:
-            sio_server.attach(self._app)
 
         # Panel registry: serial → firmware version
         self._panels: dict[str, str] = {}
@@ -190,8 +181,6 @@ class BootstrapHttpServer:
             "serialNumber": serial,
             "hopPassphrase": passphrase,
         }
-        if self._has_sio:
-            payload["sioNamespace"] = SIO_NAMESPACE
 
         return web.json_response(payload)
 

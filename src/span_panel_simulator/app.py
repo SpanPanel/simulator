@@ -20,7 +20,6 @@ from aiohttp import web
 
 from span_panel_simulator.bootstrap import BootstrapHttpServer
 from span_panel_simulator.certs import generate_certificates
-from span_panel_simulator.clone import make_clone_serial, update_config_location
 from span_panel_simulator.const import (
     DASHBOARD_PORT,
     DEFAULT_BROKER_PASSWORD,
@@ -34,10 +33,8 @@ from span_panel_simulator.dashboard import DashboardContext, create_dashboard_ap
 from span_panel_simulator.discovery import PanelAdvertiser, PanelBrowser
 from span_panel_simulator.engine import _PANEL_SIZE_TO_MODEL
 from span_panel_simulator.panel import PanelInstance
-from span_panel_simulator.profile_applicator import apply_usage_profiles
 from span_panel_simulator.recorder import RecorderDataSource
 from span_panel_simulator.schema import HomieSchemaRegistry, load_schema
-from span_panel_simulator.sio_handler import SioContext, create_sio_server
 
 if TYPE_CHECKING:
     from span_panel_simulator.certs import CertificateBundle
@@ -143,7 +140,6 @@ class SimulatorApp:
         self._running = False
         self._mqtt_client: aiomqtt.Client | None = None
         self._reload_event: asyncio.Event = asyncio.Event()
-        self._pending_clone_ready: dict[str, asyncio.Event] = {}
         self._ha_config = ha_config
         self._ha_client: HAClient | None = None
 
@@ -206,150 +202,6 @@ class SimulatorApp:
             engine.set_dynamic_overrides(
                 circuit_overrides={circuit_id: {"relay_state": relay_state}}
             )
-
-    # ------------------------------------------------------------------
-    # Socket.IO callbacks
-    # ------------------------------------------------------------------
-
-    async def _update_panel_location(
-        self, serial: str, latitude: float, longitude: float
-    ) -> dict[str, str]:
-        """Update a panel's config file with new coordinates and trigger reload.
-
-        Called by the Socket.IO ``set_location`` event handler.
-        """
-        config_path: Path | None = None
-        for path, panel in self._panels.items():
-            if panel.is_running and panel.serial_number == serial:
-                config_path = path
-                break
-
-        if config_path is None:
-            return {"status": "error", "message": f"Panel {serial} not found"}
-
-        try:
-            tz_name = update_config_location(config_path, latitude, longitude)
-        except (ValueError, OSError) as exc:
-            return {"status": "error", "message": str(exc)}
-
-        self.request_reload()
-        return {"status": "ok", "time_zone": tz_name}
-
-    async def _clone_panel(
-        self,
-        host: str,
-        passphrase: str | None,
-        latitude: float,
-        longitude: float,
-    ) -> tuple[dict[str, object], asyncio.Event | None]:
-        """Run the clone pipeline and apply location.
-
-        Called by the Socket.IO ``clone_panel`` event handler.
-        Returns ``(result_dict, ready_event)`` where *ready_event* is set
-        once the clone panel has been registered after reload, or ``None``
-        on error.
-        """
-        from span_panel_simulator.clone import translate_scraped_panel, write_clone_config
-        from span_panel_simulator.homie_const import TYPE_BESS, TYPE_EVSE, TYPE_PV
-        from span_panel_simulator.scraper import ScrapeError, register_with_panel, scrape_ebus
-
-        # Phase 1: Register
-        try:
-            creds, ca_pem = await register_with_panel(host, passphrase)
-        except ScrapeError as exc:
-            return {"status": "error", "phase": exc.phase, "message": str(exc)}, None
-
-        # Phase 2: Scrape
-        try:
-            scraped = await scrape_ebus(creds, ca_pem)
-        except ScrapeError as exc:
-            return {"status": "error", "phase": exc.phase, "message": str(exc)}, None
-
-        # Phase 3: Translate
-        try:
-            config = translate_scraped_panel(scraped, host=host, passphrase=passphrase)
-        except Exception as exc:
-            return {"status": "error", "phase": "translating", "message": str(exc)}, None
-
-        # Phase 4: Write
-        try:
-            output_path = write_clone_config(config, self._config_dir, scraped.serial_number)
-        except ValueError as exc:
-            return {"status": "error", "phase": "writing", "message": str(exc)}, None
-
-        # Phase 5: Apply location
-        tz_name = update_config_location(output_path, latitude, longitude)
-
-        # Build result summary before triggering reload
-        nodes = scraped.description.get("nodes", {})
-        circuit_count = sum(
-            1
-            for n in nodes.values()
-            if isinstance(n, dict) and n.get("type") == "energy.ebus.device.circuit"
-        )
-        clone_serial = make_clone_serial(scraped.serial_number)
-
-        result: dict[str, object] = {
-            "status": "ok",
-            "serial": scraped.serial_number,
-            "clone_serial": clone_serial,
-            "filename": output_path.name,
-            "circuits": circuit_count,
-            "has_bess": any(
-                isinstance(n, dict) and n.get("type") == TYPE_BESS for n in nodes.values()
-            ),
-            "has_pv": any(
-                isinstance(n, dict) and n.get("type") == TYPE_PV for n in nodes.values()
-            ),
-            "has_evse": any(
-                isinstance(n, dict) and n.get("type") == TYPE_EVSE for n in nodes.values()
-            ),
-            "time_zone": tz_name,
-        }
-
-        # A clone creates a new config file outside the filter scope —
-        # clear the filter so reload() discovers it.
-        if self._config_filter is not None:
-            _LOGGER.info(
-                "Clearing config filter '%s' to include clone %s",
-                self._config_filter,
-                output_path.name,
-            )
-            self._config_filter = None
-
-        # Trigger reload and provide a future the caller can await
-        # to know when the clone panel is fully registered.
-        ready_event = asyncio.Event()
-        self._pending_clone_ready[clone_serial] = ready_event
-        self.request_reload()
-
-        return result, ready_event
-
-    async def _apply_usage_profiles(
-        self,
-        clone_serial: str,
-        profiles: dict[str, dict[str, object]],
-    ) -> dict[str, object]:
-        """Merge HA-derived usage profiles into a running clone's config.
-
-        Called by the Socket.IO ``apply_usage_profiles`` event handler.
-        """
-        panel = self._serial_to_panel.get(clone_serial)
-        if panel is None:
-            return {
-                "status": "error",
-                "message": f"Panel {clone_serial} not found",
-            }
-
-        try:
-            updated = apply_usage_profiles(panel.config_path, profiles)
-        except (yaml.YAMLError, OSError, ValueError) as exc:
-            _LOGGER.warning("Profile application failed for %s: %s", clone_serial, exc)
-            return {"status": "error", "message": str(exc)}
-
-        self.request_reload()
-
-        return {"status": "ok", "templates_updated": updated}
 
     # ------------------------------------------------------------------
     # MQTT publish callback (shared across all panels)
@@ -649,26 +501,13 @@ class SimulatorApp:
             await self._reload_event.wait()
             self._reload_event.clear()
             try:
-                result = await self.reload()
+                await self.reload()
                 # Re-subscribe for any new panels' /set topics
                 if self._mqtt_client is not None:
                     for panel in self._panels.values():
                         if panel.publisher is not None:
                             for topic in panel.publisher.get_set_topics():
                                 await self._mqtt_client.subscribe(topic)
-                # Signal any pending clone_ready events for started or reloaded panels
-                ready_serials = result["started"] + result["reloaded"]
-                _LOGGER.debug(
-                    "Reload complete: started=%s reloaded=%s pending_keys=%s",
-                    result["started"],
-                    result["reloaded"],
-                    list(self._pending_clone_ready.keys()),
-                )
-                for serial in ready_serials:
-                    event = self._pending_clone_ready.pop(serial, None)
-                    if event is not None:
-                        _LOGGER.info("Setting clone_ready event for %s", serial)
-                        event.set()
             except Exception:
                 _LOGGER.exception("Reload failed")
 
@@ -686,14 +525,7 @@ class SimulatorApp:
         schema_path = self._homie_schema_path or _find_homie_schema()
         self._schema = load_schema(schema_path)
 
-        # 3. Start bootstrap HTTP server (multi-panel aware) with Socket.IO
-        sio_ctx = SioContext(
-            update_panel_location=self._update_panel_location,
-            clone_panel=self._clone_panel,
-            apply_usage_profiles=self._apply_usage_profiles,
-        )
-        sio = create_sio_server(sio_ctx)
-
+        # 3. Start bootstrap HTTP server (multi-panel aware)
         http_server = BootstrapHttpServer(
             certs=certs,
             schema=self._schema,
@@ -702,7 +534,6 @@ class SimulatorApp:
             broker_host=self._broker_host,
             port=self._http_port,
             reload_callback=self.request_reload,
-            sio_server=sio,
         )
         self._http_server = http_server
         await http_server.start()

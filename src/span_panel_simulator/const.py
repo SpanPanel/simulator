@@ -27,7 +27,3 @@ DEFAULT_FIRMWARE_VERSION = "spanos2/sim/01"
 # Default MQTT credentials (returned by /register)
 DEFAULT_BROKER_USERNAME = "span"
 DEFAULT_BROKER_PASSWORD = "sim-password"
-
-# Socket.IO integration channel
-SIO_NAMESPACE = "/v1/panel"
-SIO_PROTOCOL_VERSION = "1.0"
