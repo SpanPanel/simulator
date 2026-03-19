@@ -891,6 +891,15 @@ legend {
   align-items: center;
   gap: 0.3rem;
 }
+.legend-toggle {
+  cursor: pointer;
+}
+.legend-toggle input[type="checkbox"] {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: var(--primary);
+}
 
 .legend-dot {
   display: inline-block;

@@ -41,6 +41,17 @@ PRIORITIES = [
 ]
 RELAY_BEHAVIORS = ["controllable", "non_controllable"]
 ENTITY_TYPES = ["circuit", "pv", "evse", "battery"]
+# Infrastructure types that should only appear once in a panel config.
+_SINGLETON_TYPES = {"pv", "battery"}
+
+
+def _available_entity_types(store: ConfigStore) -> list[str]:
+    """Return entity types available for adding.
+
+    Singleton types (pv, battery) are excluded when one already exists.
+    """
+    existing = {e.entity_type for e in store.list_entities()}
+    return [t for t in ENTITY_TYPES if t not in _SINGLETON_TYPES or t not in existing]
 
 
 def _store(request: web.Request) -> ConfigStore:
@@ -110,7 +121,7 @@ def _dashboard_context(request: web.Request) -> dict[str, Any]:
         "entities": store.list_entities(),
         "priorities": PRIORITIES,
         "relay_behaviors": RELAY_BEHAVIORS,
-        "entity_types": ENTITY_TYPES,
+        "entity_types": _available_entity_types(store),
         "preset_labels": _presets(request).circuit_labels,
         "unmapped_tabs": store.get_unmapped_tabs(),
         "panel_source": panel_source,
@@ -135,7 +146,7 @@ def _entity_list_context(request: web.Request, editing_id: str | None = None) ->
     store = _store(request)
     ctx: dict[str, Any] = {
         "entities": store.list_entities(),
-        "entity_types": ENTITY_TYPES,
+        "entity_types": _available_entity_types(store),
         "editing_id": editing_id,
         "unmapped_tabs": store.get_unmapped_tabs(),
     }

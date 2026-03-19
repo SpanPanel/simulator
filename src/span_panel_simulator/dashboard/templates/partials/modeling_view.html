@@ -59,11 +59,17 @@
       </div>
     </div>
 
-    <!-- Shared legend -->
+    <!-- Shared legend with toggles -->
     <div class="power-chart-legend" id="modeling-legend">
       <span class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> Grid</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Solar</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#10b981"></span> Battery</span>
+      <label class="legend-item legend-toggle">
+        <input type="checkbox" id="modeling-show-pv" checked autocomplete="off">
+        <span class="legend-dot" style="background:#f59e0b"></span> Solar
+      </label>
+      <label class="legend-item legend-toggle">
+        <input type="checkbox" id="modeling-show-battery" checked autocomplete="off">
+        <span class="legend-dot" style="background:#10b981"></span> Battery
+      </label>
     </div>
   </div>
 </div>
@@ -96,6 +102,8 @@
   var rangeEndEl = document.getElementById('modeling-range-end');
   var horizonDatesEl = document.getElementById('modeling-horizon-dates');
   var sliderEl = document.getElementById('modeling-range-slider');
+  var pvCheckbox = document.getElementById('modeling-show-pv');
+  var batteryCheckbox = document.getElementById('modeling-show-battery');
 
   // ---------------------------------------------------------------
   // Entry / Exit
@@ -105,6 +113,8 @@
     document.getElementById('modeling-panel-name').textContent = panelSerial || panelFilename;
     overlayCircuits = {};
     colorIndex = 0;
+    pvCheckbox.checked = true;
+    batteryCheckbox.checked = true;
     document.querySelectorAll('.modeling-overlay-cb').forEach(function(cb) {
       cb.checked = false;
       cb.closest('.entity-row').classList.remove('overlay-active');
@@ -261,17 +271,22 @@
     }
 
     // Before chart datasets
+    var pvDs = { label: 'Solar', data: pvPower, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(245,158,11,0.08)' }, tension: 0.3 };
+    var battDs = { label: 'Battery', data: batteryPower, borderColor: '#10b981', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(16,185,129,0.08)' }, tension: 0.3 };
+
     var beforeDatasets = [
       { label: 'Site Power', data: sitePower, borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(239,68,68,0.08)' }, tension: 0.3 },
-      { label: 'Solar', data: pvPower, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(245,158,11,0.08)' }, tension: 0.3 },
-    ].concat(overlayBefore);
+    ];
+    if (pvCheckbox.checked) beforeDatasets.push(Object.assign({}, pvDs));
+    beforeDatasets = beforeDatasets.concat(overlayBefore);
 
     // After chart datasets
     var afterDatasets = [
       { label: 'Grid Power', data: gridPower, borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(239,68,68,0.08)' }, tension: 0.3 },
-      { label: 'Solar', data: pvPower, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(245,158,11,0.08)' }, tension: 0.3 },
-      { label: 'Battery', data: batteryPower, borderColor: '#10b981', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(16,185,129,0.08)' }, tension: 0.3 },
-    ].concat(overlayAfter);
+    ];
+    if (pvCheckbox.checked) afterDatasets.push(Object.assign({}, pvDs));
+    if (batteryCheckbox.checked) afterDatasets.push(Object.assign({}, battDs));
+    afterDatasets = afterDatasets.concat(overlayAfter);
 
     // Tick configuration
     var tickCfg = getTickConfig(ts);
@@ -283,7 +298,16 @@
 
   function renderOrUpdateChart(chart, canvasId, datasets, labels, yMax, tickCfg) {
     var canvas = document.getElementById(canvasId);
-    if (chart) { chart.destroy(); }
+
+    if (chart) {
+      chart.data.labels = labels;
+      chart.data.datasets = datasets;
+      chart.options.scales.y.max = yMax;
+      chart.options.scales.x.grid.display = tickCfg.showGrid;
+      chart.options.scales.x.ticks.maxTicksLimit = tickCfg.maxTicks;
+      chart.update('none');
+      return chart;
+    }
 
     return new Chart(canvas, {
       type: 'line',
@@ -419,6 +443,9 @@
   });
 
   document.getElementById('btn-back-to-runtime').addEventListener('click', exitModelingMode);
+
+  pvCheckbox.addEventListener('change', function() { renderCharts(); });
+  batteryCheckbox.addEventListener('change', function() { renderCharts(); });
 
   // ---------------------------------------------------------------
   // Auto-refresh on config changes
