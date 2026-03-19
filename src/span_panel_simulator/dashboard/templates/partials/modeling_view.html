@@ -206,13 +206,13 @@
     var savingsKwh = beforeNet - afterNet;
     var savingsPct = beforeNet > 0 ? (savingsKwh / beforeNet * 100) : 0;
 
-    beforeKwhEl.textContent = formatKwh(beforeEnergy.imported) + ' kWh';
+    beforeKwhEl.textContent = formatKwh(beforeNet) + ' kWh';
     if (beforeEnergy.exported > 0.5) {
-      beforeKwhEl.textContent += '  \u2212' + formatKwh(beforeEnergy.exported) + ' exported';
+      beforeKwhEl.textContent += '  (' + formatKwh(beforeEnergy.imported) + ' imported, ' + formatKwh(beforeEnergy.exported) + ' exported)';
     }
-    afterKwhEl.textContent = formatKwh(afterEnergy.imported) + ' kWh';
+    afterKwhEl.textContent = formatKwh(afterNet) + ' kWh';
     if (afterEnergy.exported > 0.5) {
-      afterKwhEl.textContent += '  \u2212' + formatKwh(afterEnergy.exported) + ' exported';
+      afterKwhEl.textContent += '  (' + formatKwh(afterEnergy.imported) + ' imported, ' + formatKwh(afterEnergy.exported) + ' exported)';
     }
     if (savingsKwh > 0) {
       savingsEl.textContent = 'Savings: ' + formatKwh(savingsKwh) + ' kWh (' + savingsPct.toFixed(1) + '%)';
