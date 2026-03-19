@@ -198,14 +198,22 @@
     var pvPower = d.pv_power.slice(visibleStart, visibleEnd + 1);
     var batteryPower = d.battery_power.slice(visibleStart, visibleEnd + 1);
 
-    // Energy summaries (W * s -> kWh)
-    var beforeKwh = computeKwh(sitePower, d.resolution_s);
-    var afterKwh = computeKwh(gridPower, d.resolution_s);
-    var savingsKwh = beforeKwh - afterKwh;
-    var savingsPct = beforeKwh > 0 ? (savingsKwh / beforeKwh * 100) : 0;
+    // Energy summaries — split import/export for distinct cost treatment
+    var beforeEnergy = computeEnergy(sitePower, d.resolution_s);
+    var afterEnergy = computeEnergy(gridPower, d.resolution_s);
+    var beforeNet = beforeEnergy.imported - beforeEnergy.exported;
+    var afterNet = afterEnergy.imported - afterEnergy.exported;
+    var savingsKwh = beforeNet - afterNet;
+    var savingsPct = beforeNet > 0 ? (savingsKwh / beforeNet * 100) : 0;
 
-    beforeKwhEl.textContent = formatKwh(beforeKwh) + ' kWh';
-    afterKwhEl.textContent = formatKwh(afterKwh) + ' kWh';
+    beforeKwhEl.textContent = formatKwh(beforeEnergy.imported) + ' kWh';
+    if (beforeEnergy.exported > 0.5) {
+      beforeKwhEl.textContent += '  \u2212' + formatKwh(beforeEnergy.exported) + ' exported';
+    }
+    afterKwhEl.textContent = formatKwh(afterEnergy.imported) + ' kWh';
+    if (afterEnergy.exported > 0.5) {
+      afterKwhEl.textContent += '  \u2212' + formatKwh(afterEnergy.exported) + ' exported';
+    }
     if (savingsKwh > 0) {
       savingsEl.textContent = 'Savings: ' + formatKwh(savingsKwh) + ' kWh (' + savingsPct.toFixed(1) + '%)';
       savingsEl.style.display = '';
@@ -317,15 +325,22 @@
   // ---------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------
-  function computeKwh(powerArr, resolutionS) {
-    // Sum only positive (import) values — this represents energy
-    // bought from the grid.  Negative values are export (solar excess
-    // fed back) and don't cost the user anything.
-    var sum = 0;
+  function computeEnergy(powerArr, resolutionS) {
+    // Split import (positive power = buying from grid) and
+    // export (negative power = selling/crediting to grid).
+    // These have distinct costs: import at retail, export at
+    // wholesale/net-metering rate.
+    var imported = 0;
+    var exported = 0;
     for (var i = 0; i < powerArr.length; i++) {
-      if (powerArr[i] > 0) sum += powerArr[i] * resolutionS / 3600000;
+      var wh = powerArr[i] * resolutionS / 3600000;
+      if (wh > 0) {
+        imported += wh;
+      } else {
+        exported -= wh;  // make positive
+      }
     }
-    return sum;
+    return { imported: imported, exported: exported };
   }
 
   function formatKwh(kwh) {
