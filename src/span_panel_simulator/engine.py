@@ -1374,8 +1374,23 @@ class DynamicSimulationEngine:
         if not timestamps:
             return {"error": "No recorder data available"}
 
-        # Clone behaviour engine for read-only pass
-        cloned_behavior = copy.deepcopy(self._behavior_engine)
+        # Clone behaviour engine for read-only pass.
+        # Cannot deepcopy the entire object because _recorder holds a
+        # HistoryProvider reference that contains unpicklable sockets.
+        # Instead, construct a fresh engine sharing the read-only fields
+        # (config, recorder, timezone) and deepcopy only the mutable state.
+        cloned_behavior: RealisticBehaviorEngine | None = None
+        if self._behavior_engine is not None:
+            be = self._behavior_engine
+            cloned_behavior = RealisticBehaviorEngine(
+                simulation_start_time=be._start_time,
+                config=be._config,
+                recorder=be._recorder,
+            )
+            cloned_behavior._circuit_cycle_states = copy.deepcopy(be._circuit_cycle_states)
+            cloned_behavior._last_battery_direction = be._last_battery_direction
+            cloned_behavior._solar_excess_w = be._solar_excess_w
+            cloned_behavior._grid_offline = be._grid_offline
 
         # Identify solar-excess battery circuits
         solar_excess_ids: set[str] = set()
