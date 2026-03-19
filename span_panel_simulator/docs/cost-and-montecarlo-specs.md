@@ -63,6 +63,62 @@ The resolver is stateless — it does not track cumulative usage. That is the co
 
 ---
 
+## Energy Baseline & Grid Power Derivation
+
+### Power Flow Identity
+
+The SPAN panel measures power at the feedthrough lugs. The relationship between the panel's measurements and the utility meter depends on whether a BESS is present:
+
+```
+site_power = loads - PV_production        (measured at panel lugs)
+grid_power = site_power - battery_power   (what the utility meter registers)
+```
+
+Where `battery_power` is positive for discharge (reduces grid import) and negative for charge (increases grid import). Without a BESS, `battery_power = 0` and `site_power = grid_power`.
+
+### Historical Current Power as Cost Baseline
+
+The SPAN integration's `current_power` sensor has historically reported the net power at the panel lugs. For a system without BESS, this value is identical to the utility meter reading:
+
+```
+Pre-BESS:   current_power = site_power = grid_power   (all equivalent)
+Post-BESS:  current_power = site_power ≠ grid_power   (battery offsets grid)
+```
+
+This means the full history of `current_power` in the HA recorder is a valid **cost baseline** — it represents what the user was paying the utility before any BESS modification. No separate historical Grid Power sensor is needed for the projection.
+
+### Deriving Grid Power for Scenarios
+
+The baseline energy model is sourced from recorder replay (per-circuit `recorder_entity` mappings) or synthetic profiles. In either case:
+
+1. **Baseline scenario** (no BESS): `grid_power = site_power = loads - PV`. Cost is computed directly from this value. This matches what `current_power` was recording historically.
+
+2. **BESS scenario**: The simulator overlays a virtual battery on the same load/PV baseline. `grid_power = site_power - battery_power`. The battery displaces grid import during discharge and adds to it during charge.
+
+3. **Modified PV scenario**: Changing PV capacity alters `site_power` (more production → lower site demand), which flows through to lower `grid_power` regardless of BESS presence.
+
+The cost accumulator always operates on `grid_power` because that is the billable quantity — it is what flows through the utility meter.
+
+### Savings Calculation
+
+```
+baseline_cost    = accumulate(site_power × rate × time)     # no BESS
+scenario_cost    = accumulate(grid_power × rate × time)      # with BESS/PV changes
+savings          = baseline_cost - scenario_cost
+                 = accumulate(battery_power × rate × time)   # battery displacement value
+```
+
+With TOU rates, the savings are time-dependent: a battery discharging during peak hours at $0.49/kWh displaces more cost than the same discharge during off-peak at $0.38/kWh. The cost accumulator captures this by resolving the rate at each interval.
+
+### Post-BESS Validation
+
+Once the Grid Power sensor (added to the SPAN HA integration) accumulates sufficient history, it provides ground truth for the actual utility meter reading. This enables:
+
+- **Model validation**: Compare the simulator's computed `grid_power` against the recorded Grid Power sensor to verify the BESS model accuracy.
+- **Calibration**: Any systematic delta between `sum(circuits)` and the Grid Power sensor reveals unmetered loads (hardwired circuits, sub-panels) that the panel doesn't see. This offset can be applied to improve projection accuracy.
+
+---
+
 ## Cost Accumulator
 
 ### CostLedger
