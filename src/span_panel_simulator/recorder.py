@@ -111,7 +111,9 @@ class RecorderDataSource:
         # For 5-minute stats we request the last 10 days (short-term
         # retention window).
         now = datetime.now(UTC)
-        hourly_lookback = timedelta(days=lookback_days) if lookback_days else _HOURLY_LOOKBACK
+        hourly_lookback = (
+            timedelta(days=lookback_days) if lookback_days is not None else _HOURLY_LOOKBACK
+        )
         hourly_start = (now - hourly_lookback).isoformat()
         short_term_start = (now - _SHORT_TERM_LOOKBACK).isoformat()
 
