@@ -1133,23 +1133,29 @@ class DynamicSimulationEngine:
         total_production = 0.0
         total_produced_energy = 0.0
         total_consumed_energy = 0.0
+        battery_circuit_power = 0.0
 
         for circuit in self._circuits.values():
             power = circuit.instant_power_w
             if circuit.energy_mode == "producer":
                 total_production += power
             elif circuit.energy_mode == "bidirectional":
-                battery_dir = circuit._resolve_battery_direction(current_time)
-                if battery_dir == "discharging":
-                    total_production += power
-                else:
-                    total_consumption += power
+                battery_circuit_power = power
             else:
                 total_consumption += power
             total_produced_energy += circuit.produced_energy_wh
             total_consumed_energy += circuit.consumed_energy_wh
 
-        grid_power = total_consumption - total_production
+        # Site power = net demand at the panel lugs (loads - solar).
+        # This is what the SPAN panel's feedthrough CTs measure and is
+        # independent of any upstream BESS.
+        # See https://github.com/spanio/SPAN-API-Client-Docs
+        site_power = total_consumption - total_production
+
+        # Grid power = what the utility meter sees.  When a BESS is
+        # present upstream, battery discharge offsets grid import and
+        # battery charge increases it.
+        grid_power = site_power - battery_circuit_power
 
         # Disconnected from grid → no grid power flow
         if self._forced_grid_offline:
@@ -1162,11 +1168,13 @@ class DynamicSimulationEngine:
             self._bsee.update(current_time, battery_power_w)
 
             # Reflect effective power back — BSEE may have zeroed it
-            # (e.g. SOE hit backup reserve or full charge)
+            # (e.g. SOE hit backup reserve or full charge).
+            # Recompute grid_power since the battery contribution changed.
             effective_power = self._bsee.battery_power_w
             if battery_circuit is not None and effective_power != battery_power_w:
                 battery_circuit._instant_power_w = effective_power
                 battery_power_w = effective_power
+                grid_power = site_power - battery_power_w
 
             battery_snapshot = SpanBatterySnapshot(
                 soe_percentage=self._bsee.soe_percentage,
@@ -1309,7 +1317,7 @@ class DynamicSimulationEngine:
             panel_model=panel_model,
             panel_size=total_tabs,
             power_flow_battery=power_flow_battery,
-            power_flow_site=grid_power,
+            power_flow_site=site_power,
             power_flow_grid=grid_power,
             power_flow_pv=pv_power,
             upstream_l1_current_a=abs(grid_power / 240.0),
