@@ -1,4 +1,8 @@
 <div class="entity-row" id="entity-{{ entity.id }}">
+  <input type="checkbox" class="modeling-overlay-cb"
+         data-circuit-id="{{ entity.id }}"
+         onchange="if(window.toggleCircuitOverlay){window.toggleCircuitOverlay('{{ entity.id }}', this.checked)}"
+         title="Overlay on modeling charts">
   <span class="circuit-status circuit-status-toggle" data-cid="{{ entity.id }}" title="Toggle relay"></span>
   <span class="badge badge-{{ entity.entity_type }}">{{ entity.entity_type|upper }}</span>
   {% if entity.recorder_entity %}

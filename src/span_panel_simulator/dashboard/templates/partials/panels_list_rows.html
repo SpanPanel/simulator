@@ -20,6 +20,11 @@
   </button>
   {% if p.running %}
   <button class="btn btn-sm btn-secondary"
+          onclick="window.enterModelingMode('{{ p.filename }}', '{{ p.serial }}')"
+          title="Open modeling view">Model</button>
+  {% endif %}
+  {% if p.running %}
+  <button class="btn btn-sm btn-secondary"
           hx-post="restart-panel"
           hx-vals='{"filename": "{{ p.filename }}"}'
           hx-target="#flash-area" hx-swap="innerHTML"

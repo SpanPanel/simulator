@@ -1214,3 +1214,92 @@ legend {
   border-top: 3px solid var(--border);
   margin: 1.5rem 0;
 }
+
+/* ---------------------------------------------------------------
+   Modeling Mode — full-view replacement
+   --------------------------------------------------------------- */
+
+/* Hide runtime sections when in modeling mode */
+body.modeling-mode #runtime-section { display: none; }
+body.modeling-mode #panel-config-section { display: none; }
+body.modeling-mode .section-divider { display: none; }
+body.modeling-mode #sim-config-section { display: none; }
+
+/* Show modeling section */
+body.modeling-mode #modeling-section { display: block !important; }
+
+/* Panel source section */
+body.modeling-mode #panel-source-section { display: none; }
+
+/* Modeling header */
+.modeling-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.modeling-header h2 { margin: 0; }
+
+/* Horizon row */
+.modeling-horizon-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.modeling-horizon-select {
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+/* Range slider section */
+.modeling-slider-section { margin-bottom: 1rem; }
+.modeling-slider-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+.modeling-range-wrap {
+  margin-bottom: 0.25rem;
+}
+
+/* Chart blocks */
+.modeling-chart-block { margin-bottom: 0.5rem; }
+.modeling-chart-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+  flex-wrap: wrap;
+}
+.modeling-chart-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.modeling-kwh {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-left: 0.5rem;
+}
+.modeling-savings {
+  font-size: 0.82rem;
+  color: var(--primary);
+  margin-left: 1rem;
+}
+.modeling-chart-wrap { height: 160px; }
+
+/* Overlay checkboxes — hidden by default, shown in modeling mode */
+.modeling-overlay-cb {
+  display: none;
+  width: 14px;
+  height: 14px;
+  margin-right: 0.25rem;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+body.modeling-mode .modeling-overlay-cb { display: inline-block; }

@@ -63,52 +63,27 @@
       </div>
     </div>
   </div>
-
-  <!-- Modeling view -->
-  <div id="modeling-view" style="display:none">
-    <div class="power-chart-section">
-      <div class="power-chart-header">
-        <h3>Energy Projection</h3>
-        <div class="period-buttons">
-          <button type="button" class="btn btn-sm period-btn" data-period="week">Week</button>
-          <button type="button" class="btn btn-sm period-btn active" data-period="month">Month</button>
-          <button type="button" class="btn btn-sm period-btn" data-period="year">Year</button>
-        </div>
-      </div>
-      <div class="modeling-summary" id="modeling-summary"></div>
-      <div class="power-chart-wrap" style="height:240px">
-        <canvas id="modeling-chart-canvas" height="240"></canvas>
-      </div>
-      <div class="power-chart-legend">
-        <span class="legend-item"><span class="legend-dot" style="background:#dc2626"></span> Grid</span>
-        <span class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Solar</span>
-        <span class="legend-item"><span class="legend-dot" style="background:#10b981"></span> Battery</span>
-        <span class="legend-item"><span class="legend-dot" style="background:#6b7280"></span> Consumption</span>
-      </div>
-    </div>
-  </div>
 </div>
 
 <script>
 (function() {
   // -- View toggle --
-  var runtimeView = document.getElementById('runtime-view');
-  var modelingView = document.getElementById('modeling-view');
   var btnRuntime = document.getElementById('btn-runtime');
   var btnModeling = document.getElementById('btn-modeling');
 
   btnRuntime.addEventListener('click', function() {
-    runtimeView.style.display = '';
-    modelingView.style.display = 'none';
-    btnRuntime.classList.add('active');
-    btnModeling.classList.remove('active');
+    if (window.exitModelingMode) {
+      window.exitModelingMode();
+    }
   });
   btnModeling.addEventListener('click', function() {
-    runtimeView.style.display = 'none';
-    modelingView.style.display = '';
-    btnModeling.classList.add('active');
-    btnRuntime.classList.remove('active');
-    if (!modelingChart) loadProjection('month');
+    var firstPanel = document.querySelector('.panel-row.active-panel .panel-serial');
+    var serial = firstPanel ? firstPanel.textContent : '';
+    var firstFilename = document.querySelector('.panel-row.active-panel .panel-filename');
+    var filename = firstFilename ? firstFilename.textContent : '';
+    if (window.enterModelingMode) {
+      window.enterModelingMode(filename, serial);
+    }
   });
 
   // -- Date helpers --
@@ -367,6 +342,8 @@
   function chartGridColor() {
     return getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#ddd';
   }
+  window.chartTextColor = chartTextColor;
+  window.chartGridColor = chartGridColor;
 
   var powerChart = new Chart(chartCtx, {
     type: 'line',
@@ -665,112 +642,5 @@
     }
   }, 250);
 
-  // -- Modeling: Energy projection chart --
-  var modelingChart = null;
-  var summaryEl = document.getElementById('modeling-summary');
-
-  document.querySelectorAll('.period-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      document.querySelectorAll('.period-btn').forEach(function(b) { b.classList.remove('active'); });
-      btn.classList.add('active');
-      loadProjection(btn.dataset.period);
-    });
-  });
-
-  function loadProjection(period) {
-    fetch('energy-projection?period=' + period)
-      .then(function(r) { return r.json(); })
-      .then(function(resp) {
-        var days = resp.days;
-        var labels = [];
-        var grid = [], pv = [], battery = [], consumption = [];
-        var totGrid = 0, totPv = 0, totBat = 0, totCons = 0;
-
-        for (var i = 0; i < days.length; i++) {
-          var d = days[i];
-          // Format label based on period
-          if (period === 'year') {
-            // Show month labels
-            var parts = d.date.split('-');
-            var mo = parseInt(parts[1]);
-            var dy = parseInt(parts[2]);
-            labels.push(dy === 1 || dy === 15 ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][mo-1] + (dy === 15 ? '' : '') : '');
-          } else {
-            labels.push(d.date.substring(5)); // MM-DD
-          }
-          grid.push(d.grid_kwh);
-          pv.push(d.pv_kwh);
-          battery.push(d.battery_kwh);
-          consumption.push(d.consumption_kwh);
-          totGrid += d.grid_kwh;
-          totPv += d.pv_kwh;
-          totBat += d.battery_kwh;
-          totCons += d.consumption_kwh;
-        }
-
-        var selfConsumption = totCons > 0 ? Math.round((1 - totGrid / totCons) * 100) : 0;
-        var periodLabel = period === 'year' ? 'Annual' : period === 'month' ? 'Monthly' : 'Weekly';
-        summaryEl.innerHTML =
-          '<span>' + periodLabel + ': </span>' +
-          '<span class="summary-stat">Consumption <b>' + totCons.toFixed(0) + '</b> kWh</span>' +
-          '<span class="summary-stat" style="color:#f59e0b">Solar <b>' + totPv.toFixed(0) + '</b> kWh</span>' +
-          '<span class="summary-stat" style="color:#dc2626">Grid <b>' + totGrid.toFixed(0) + '</b> kWh</span>' +
-          '<span class="summary-stat" style="color:var(--primary)">Self-use <b>' + selfConsumption + '</b>%</span>';
-
-        renderModelingChart(labels, grid, pv, battery, consumption, period);
-      });
-  }
-
-  function renderModelingChart(labels, grid, pv, battery, consumption, period) {
-    var ctx = document.getElementById('modeling-chart-canvas');
-    var yLabel = 'kWh / day';
-
-    if (modelingChart) {
-      modelingChart.destroy();
-      modelingChart = null;
-    }
-
-    modelingChart = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: labels,
-        datasets: [
-          { label: 'Grid', data: grid, backgroundColor: 'rgba(220,38,38,0.6)', borderRadius: 2, order: 2 },
-          { label: 'Solar', data: pv, backgroundColor: 'rgba(245,158,11,0.6)', borderRadius: 2, order: 3 },
-          { label: 'Battery', data: battery, backgroundColor: 'rgba(16,185,129,0.6)', borderRadius: 2, order: 4 },
-          { label: 'Consumption', data: consumption, type: 'line', borderColor: '#6b7280', borderWidth: 1.5, borderDash: [4, 3], pointRadius: 0, fill: false, tension: 0.3, order: 1 }
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false, animation: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: function(c) { return c.dataset.label + ': ' + c.parsed.y.toFixed(1) + ' kWh'; },
-              title: function(items) {
-                var idx = items[0].dataIndex;
-                return items[0].chart.data.labels[idx] || ('Day ' + (idx + 1));
-              }
-            }
-          }
-        },
-        scales: {
-          x: {
-            stacked: true,
-            grid: { display: false },
-            ticks: { color: chartTextColor(), font: { size: 10 }, maxTicksLimit: period === 'year' ? 12 : 15, maxRotation: 0 }
-          },
-          y: {
-            stacked: true,
-            grid: { color: chartGridColor() },
-            title: { display: true, text: yLabel, color: chartTextColor(), font: { size: 11 } },
-            ticks: { color: chartTextColor(), font: { size: 10 } }
-          }
-        }
-      }
-    });
-  }
 })();
 </script>

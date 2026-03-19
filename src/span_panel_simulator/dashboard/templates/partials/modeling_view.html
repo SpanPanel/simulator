@@ -1,0 +1,406 @@
+<div class="card" id="modeling-controls">
+  <div class="modeling-header">
+    <h2>Modeling — <span id="modeling-panel-name"></span></h2>
+    <button type="button" class="btn btn-sm" id="btn-back-to-runtime">Back to Runtime</button>
+  </div>
+
+  <!-- Horizon selector -->
+  <div class="modeling-horizon-row">
+    <span class="sim-slider-label">Horizon</span>
+    <select id="modeling-horizon" class="modeling-horizon-select">
+      <option value="1mo">Last Month</option>
+      <option value="3mo">Last 3 Months</option>
+      <option value="6mo" selected>Last 6 Months</option>
+      <option value="1yr">Last Year</option>
+    </select>
+    <span id="modeling-horizon-dates" class="text-muted" style="font-size:0.75rem; margin-left:auto"></span>
+  </div>
+
+  <!-- Range slider -->
+  <div class="modeling-slider-section">
+    <div class="modeling-slider-labels">
+      <span id="modeling-range-start" class="text-muted" style="font-size:0.75rem"></span>
+      <span style="font-size:0.8rem; font-weight:500">Visible Range</span>
+      <span id="modeling-range-end" class="text-muted" style="font-size:0.75rem"></span>
+    </div>
+    <div class="sim-slider-wrap modeling-range-wrap">
+      <div id="modeling-range-slider"></div>
+    </div>
+  </div>
+
+  <!-- Loading spinner -->
+  <div id="modeling-spinner" style="display:none; text-align:center; padding:2rem 0">
+    <span class="text-muted">Loading modeling data...</span>
+  </div>
+
+  <!-- Before chart -->
+  <div id="modeling-charts" style="display:none">
+    <div class="modeling-chart-block">
+      <div class="modeling-chart-label">
+        <span class="modeling-chart-title">Before</span>
+        <span class="text-muted">(Site Power — no BESS)</span>
+        <span id="modeling-before-kwh" class="modeling-kwh" style="color:#ef4444"></span>
+      </div>
+      <div class="power-chart-wrap modeling-chart-wrap">
+        <canvas id="modeling-before-canvas"></canvas>
+      </div>
+    </div>
+
+    <!-- After chart -->
+    <div class="modeling-chart-block">
+      <div class="modeling-chart-label">
+        <span class="modeling-chart-title">After</span>
+        <span class="text-muted">(Grid Power — with BESS)</span>
+        <span id="modeling-after-kwh" class="modeling-kwh" style="color:#10b981"></span>
+        <span id="modeling-savings" class="modeling-savings"></span>
+      </div>
+      <div class="power-chart-wrap modeling-chart-wrap">
+        <canvas id="modeling-after-canvas"></canvas>
+      </div>
+    </div>
+
+    <!-- Shared legend -->
+    <div class="power-chart-legend" id="modeling-legend">
+      <span class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> Grid</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Solar</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#10b981"></span> Battery</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ---------------------------------------------------------------
+  // State
+  // ---------------------------------------------------------------
+  var modelingData = null;
+  var beforeChart = null;
+  var afterChart = null;
+  var visibleStart = 0;
+  var visibleEnd = 0;
+  var overlayCircuits = {};
+  var colorIndex = 0;
+
+  var OVERLAY_COLORS = ['#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#e879f9'];
+
+  // DOM refs
+  var horizonSelect = document.getElementById('modeling-horizon');
+  var spinner = document.getElementById('modeling-spinner');
+  var chartsWrap = document.getElementById('modeling-charts');
+  var beforeKwhEl = document.getElementById('modeling-before-kwh');
+  var afterKwhEl = document.getElementById('modeling-after-kwh');
+  var savingsEl = document.getElementById('modeling-savings');
+  var rangeStartEl = document.getElementById('modeling-range-start');
+  var rangeEndEl = document.getElementById('modeling-range-end');
+  var horizonDatesEl = document.getElementById('modeling-horizon-dates');
+  var sliderEl = document.getElementById('modeling-range-slider');
+
+  // ---------------------------------------------------------------
+  // Entry / Exit
+  // ---------------------------------------------------------------
+  function enterModelingMode(panelFilename, panelSerial) {
+    document.body.classList.add('modeling-mode');
+    document.getElementById('modeling-panel-name').textContent = panelSerial || panelFilename;
+    overlayCircuits = {};
+    colorIndex = 0;
+    document.querySelectorAll('.modeling-overlay-cb').forEach(function(cb) {
+      cb.checked = false;
+      cb.closest('.entity-row').classList.remove('overlay-active');
+    });
+    fetchModelingData(horizonSelect.value);
+  }
+
+  function exitModelingMode() {
+    document.body.classList.remove('modeling-mode');
+    if (beforeChart) { beforeChart.destroy(); beforeChart = null; }
+    if (afterChart) { afterChart.destroy(); afterChart = null; }
+    modelingData = null;
+    chartsWrap.style.display = 'none';
+  }
+
+  // ---------------------------------------------------------------
+  // Data fetching
+  // ---------------------------------------------------------------
+  function fetchModelingData(horizon) {
+    spinner.style.display = '';
+    chartsWrap.style.display = 'none';
+
+    fetch('modeling-data?horizon=' + horizon)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        spinner.style.display = 'none';
+        if (data.error) {
+          chartsWrap.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem">' + data.error + '</p>';
+          chartsWrap.style.display = '';
+          return;
+        }
+        modelingData = data;
+        visibleStart = 0;
+        visibleEnd = data.timestamps.length - 1;
+
+        var startDate = formatDate(data.timestamps[0], data.time_zone);
+        var endDate = formatDate(data.timestamps[data.timestamps.length - 1], data.time_zone);
+        horizonDatesEl.textContent = startDate + ' \u2014 ' + endDate;
+
+        initSlider(data);
+        chartsWrap.style.display = '';
+        renderCharts();
+      })
+      .catch(function(err) {
+        spinner.style.display = 'none';
+        chartsWrap.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem">Error loading data</p>';
+        chartsWrap.style.display = '';
+      });
+  }
+
+  // ---------------------------------------------------------------
+  // Range slider
+  // ---------------------------------------------------------------
+  function initSlider(data) {
+    if (sliderEl.noUiSlider) {
+      sliderEl.noUiSlider.destroy();
+    }
+    var maxIdx = data.timestamps.length - 1;
+    noUiSlider.create(sliderEl, {
+      start: [0, maxIdx],
+      connect: true,
+      range: { min: 0, max: Math.max(1, maxIdx) },
+      step: 1,
+      margin: Math.min(24, maxIdx),
+      behaviour: 'drag',
+    });
+    sliderEl.noUiSlider.on('update', function(values) {
+      visibleStart = Math.round(parseFloat(values[0]));
+      visibleEnd = Math.round(parseFloat(values[1]));
+      renderCharts();
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Chart rendering
+  // ---------------------------------------------------------------
+  function renderCharts() {
+    if (!modelingData) return;
+
+    var d = modelingData;
+    var ts = d.timestamps.slice(visibleStart, visibleEnd + 1);
+    var sitePower = d.site_power.slice(visibleStart, visibleEnd + 1);
+    var gridPower = d.grid_power.slice(visibleStart, visibleEnd + 1);
+    var pvPower = d.pv_power.slice(visibleStart, visibleEnd + 1);
+    var batteryPower = d.battery_power.slice(visibleStart, visibleEnd + 1);
+
+    // Energy summaries (W * s -> kWh)
+    var beforeKwh = computeKwh(sitePower, d.resolution_s);
+    var afterKwh = computeKwh(gridPower, d.resolution_s);
+    var savingsKwh = beforeKwh - afterKwh;
+    var savingsPct = beforeKwh > 0 ? (savingsKwh / beforeKwh * 100) : 0;
+
+    beforeKwhEl.textContent = formatKwh(beforeKwh) + ' kWh';
+    afterKwhEl.textContent = formatKwh(afterKwh) + ' kWh';
+    if (savingsKwh > 0) {
+      savingsEl.textContent = 'Savings: ' + formatKwh(savingsKwh) + ' kWh (' + savingsPct.toFixed(1) + '%)';
+      savingsEl.style.display = '';
+    } else {
+      savingsEl.style.display = 'none';
+    }
+
+    // Slider labels
+    rangeStartEl.textContent = formatDate(ts[0], d.time_zone);
+    rangeEndEl.textContent = formatDate(ts[ts.length - 1], d.time_zone);
+
+    // Labels and adaptive ticks
+    var labels = buildLabels(ts, d.time_zone);
+
+    // Shared Y-axis max
+    var allVals = sitePower.concat(gridPower);
+    var yMax = 0;
+    for (var i = 0; i < allVals.length; i++) {
+      if (Math.abs(allVals[i]) > yMax) yMax = Math.abs(allVals[i]);
+    }
+    yMax = Math.ceil(yMax * 1.1 / 100) * 100;
+    if (yMax === 0) yMax = 100;
+
+    // Build overlay datasets
+    var overlayBefore = [];
+    var overlayAfter = [];
+    var circuitIds = Object.keys(overlayCircuits);
+    for (var j = 0; j < circuitIds.length; j++) {
+      var cid = circuitIds[j];
+      var cdata = d.circuits[cid];
+      if (!cdata) continue;
+      var cPower = cdata.power.slice(visibleStart, visibleEnd + 1);
+      var color = overlayCircuits[cid];
+      var ds = {
+        label: cdata.name,
+        data: cPower,
+        borderColor: color,
+        borderWidth: 1.2,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.3,
+      };
+      overlayBefore.push(Object.assign({}, ds));
+      overlayAfter.push(Object.assign({}, ds));
+    }
+
+    // Before chart datasets
+    var beforeDatasets = [
+      { label: 'Site Power', data: sitePower, borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(239,68,68,0.08)' }, tension: 0.3 },
+      { label: 'Solar', data: pvPower, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(245,158,11,0.08)' }, tension: 0.3 },
+    ].concat(overlayBefore);
+
+    // After chart datasets
+    var afterDatasets = [
+      { label: 'Grid Power', data: gridPower, borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(239,68,68,0.08)' }, tension: 0.3 },
+      { label: 'Solar', data: pvPower, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(245,158,11,0.08)' }, tension: 0.3 },
+      { label: 'Battery', data: batteryPower, borderColor: '#10b981', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(16,185,129,0.08)' }, tension: 0.3 },
+    ].concat(overlayAfter);
+
+    // Tick configuration
+    var tickCfg = getTickConfig(ts);
+
+    // Render
+    beforeChart = renderOrUpdateChart(beforeChart, 'modeling-before-canvas', beforeDatasets, labels, yMax, tickCfg);
+    afterChart = renderOrUpdateChart(afterChart, 'modeling-after-canvas', afterDatasets, labels, yMax, tickCfg);
+  }
+
+  function renderOrUpdateChart(chart, canvasId, datasets, labels, yMax, tickCfg) {
+    var canvas = document.getElementById(canvasId);
+    if (chart) { chart.destroy(); }
+
+    return new Chart(canvas, {
+      type: 'line',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(c) { return c.dataset.label + ': ' + c.parsed.y.toFixed(0) + ' W'; }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: getChartGridColor(), display: tickCfg.showGrid },
+            ticks: {
+              color: getChartTextColor(),
+              font: { size: 10 },
+              maxTicksLimit: tickCfg.maxTicks,
+              maxRotation: 0,
+              autoSkip: true,
+            }
+          },
+          y: {
+            min: undefined,
+            max: yMax,
+            grid: { color: getChartGridColor() },
+            title: { display: true, text: 'Watts', color: getChartTextColor(), font: { size: 11 } },
+            ticks: { color: getChartTextColor(), font: { size: 10 } }
+          }
+        }
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------
+  function computeKwh(powerArr, resolutionS) {
+    var sum = 0;
+    for (var i = 0; i < powerArr.length; i++) {
+      sum += Math.abs(powerArr[i]) * resolutionS / 3600000;
+    }
+    return sum;
+  }
+
+  function formatKwh(kwh) {
+    if (kwh >= 1000) return (kwh / 1000).toFixed(1) + 'k';
+    return kwh.toFixed(0);
+  }
+
+  function formatDate(epoch, tz) {
+    try {
+      var d = new Date(epoch * 1000);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz });
+    } catch (e) {
+      var d2 = new Date(epoch * 1000);
+      return d2.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+  }
+
+  function buildLabels(timestamps, tz) {
+    var spanHours = (timestamps[timestamps.length - 1] - timestamps[0]) / 3600;
+    var labels = [];
+    for (var i = 0; i < timestamps.length; i++) {
+      var d = new Date(timestamps[i] * 1000);
+      var opts = {};
+      try { opts.timeZone = tz; } catch (e) { /* ignore */ }
+      if (spanHours <= 24) {
+        labels.push(d.toLocaleTimeString('en-US', Object.assign({ hour: '2-digit', minute: '2-digit', hour12: false }, opts)));
+      } else if (spanHours <= 168) {
+        labels.push(d.toLocaleDateString('en-US', Object.assign({ weekday: 'short', day: 'numeric' }, opts)));
+      } else if (spanHours <= 720) {
+        labels.push(d.toLocaleDateString('en-US', Object.assign({ month: 'short', day: 'numeric' }, opts)));
+      } else {
+        labels.push(d.toLocaleDateString('en-US', Object.assign({ month: 'short' }, opts)));
+      }
+    }
+    return labels;
+  }
+
+  function getTickConfig(timestamps) {
+    var spanHours = (timestamps[timestamps.length - 1] - timestamps[0]) / 3600;
+    if (spanHours <= 24) return { maxTicks: 12, showGrid: true };
+    if (spanHours <= 168) return { maxTicks: 14, showGrid: false };
+    if (spanHours <= 720) return { maxTicks: 15, showGrid: false };
+    return { maxTicks: 12, showGrid: false };
+  }
+
+  // Chart color helpers — use globals from runtime_controls.html if available
+  function getChartTextColor() {
+    if (typeof window.chartTextColor === 'function') return window.chartTextColor();
+    return getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim() || '#888';
+  }
+  function getChartGridColor() {
+    if (typeof window.chartGridColor === 'function') return window.chartGridColor();
+    return getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#333';
+  }
+
+  // ---------------------------------------------------------------
+  // Circuit overlay support
+  // ---------------------------------------------------------------
+  function toggleCircuitOverlay(circuitId, checked) {
+    if (checked) {
+      overlayCircuits[circuitId] = OVERLAY_COLORS[colorIndex % OVERLAY_COLORS.length];
+      colorIndex++;
+    } else {
+      delete overlayCircuits[circuitId];
+    }
+    renderCharts();
+  }
+
+  // ---------------------------------------------------------------
+  // Event handlers
+  // ---------------------------------------------------------------
+  horizonSelect.addEventListener('change', function() {
+    if (document.body.classList.contains('modeling-mode')) {
+      fetchModelingData(horizonSelect.value);
+    }
+  });
+
+  document.getElementById('btn-back-to-runtime').addEventListener('click', exitModelingMode);
+
+  // ---------------------------------------------------------------
+  // Expose to global scope
+  // ---------------------------------------------------------------
+  window.enterModelingMode = enterModelingMode;
+  window.exitModelingMode = exitModelingMode;
+  window.toggleCircuitOverlay = toggleCircuitOverlay;
+
+})();
+</script>
