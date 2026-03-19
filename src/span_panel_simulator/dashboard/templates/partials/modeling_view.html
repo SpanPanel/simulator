@@ -318,9 +318,12 @@
   // Helpers
   // ---------------------------------------------------------------
   function computeKwh(powerArr, resolutionS) {
+    // Sum only positive (import) values — this represents energy
+    // bought from the grid.  Negative values are export (solar excess
+    // fed back) and don't cost the user anything.
     var sum = 0;
     for (var i = 0; i < powerArr.length; i++) {
-      sum += Math.abs(powerArr[i]) * resolutionS / 3600000;
+      if (powerArr[i] > 0) sum += powerArr[i] * resolutionS / 3600000;
     }
     return sum;
   }
