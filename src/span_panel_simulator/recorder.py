@@ -74,6 +74,9 @@ class RecorderDataSource:
     def __init__(self) -> None:
         # entity_id -> sorted list of (epoch_seconds, mean_power_watts)
         self._series: dict[str, list[tuple[float, float]]] = {}
+        # Stored for lookback expansion (set during load)
+        self._history: HistoryProvider | None = None
+        self._entity_ids: list[str] = []
 
     # ------------------------------------------------------------------
     # Loading
@@ -83,6 +86,8 @@ class RecorderDataSource:
         self,
         history: HistoryProvider,
         entity_ids: list[str],
+        *,
+        lookback_days: int | None = None,
     ) -> int:
         """Pre-fetch statistics for *entity_ids* from *history*.
 
@@ -92,6 +97,9 @@ class RecorderDataSource:
 
         Returns the number of entities for which data was loaded.
         """
+        self._history = history
+        self._entity_ids = list(entity_ids)
+
         if not entity_ids:
             return 0
 
@@ -103,7 +111,8 @@ class RecorderDataSource:
         # For 5-minute stats we request the last 10 days (short-term
         # retention window).
         now = datetime.now(UTC)
-        hourly_start = (now - _HOURLY_LOOKBACK).isoformat()
+        hourly_lookback = timedelta(days=lookback_days) if lookback_days else _HOURLY_LOOKBACK
+        hourly_start = (now - hourly_lookback).isoformat()
         short_term_start = (now - _SHORT_TERM_LOOKBACK).isoformat()
 
         hourly = await history.async_get_statistics(
@@ -239,6 +248,28 @@ class RecorderDataSource:
         earliest = min(s[0][0] for s in self._series.values())
         latest = max(s[-1][0] for s in self._series.values())
         return (earliest, latest)
+
+    async def ensure_lookback(self, required_days: int) -> None:
+        """Expand hourly data if current coverage is less than *required_days*.
+
+        Re-queries the stored ``HistoryProvider`` with a sufficient lookback
+        and replaces the cached series.  No-op if no provider is stored or
+        coverage is already sufficient.
+        """
+        if self._history is None or not self._entity_ids:
+            return
+        bounds = self.time_bounds()
+        if bounds is None:
+            return
+        current_coverage_days = (bounds[1] - bounds[0]) / 86400
+        if current_coverage_days >= required_days:
+            return
+        _LOGGER.info(
+            "Expanding recorder lookback from %d to %d days",
+            int(current_coverage_days),
+            required_days,
+        )
+        await self.load(self._history, self._entity_ids, lookback_days=required_days)
 
     @property
     def is_loaded(self) -> bool:
