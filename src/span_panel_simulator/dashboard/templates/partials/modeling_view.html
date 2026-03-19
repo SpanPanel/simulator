@@ -158,13 +158,20 @@
   // ---------------------------------------------------------------
   // Range slider
   // ---------------------------------------------------------------
-  function initSlider(data) {
+  function initSlider(data, startIdx, endIdx) {
     if (sliderEl.noUiSlider) {
       sliderEl.noUiSlider.destroy();
     }
     var maxIdx = data.timestamps.length - 1;
+    var s = (startIdx != null && startIdx <= maxIdx) ? startIdx : 0;
+    var e = (endIdx != null && endIdx <= maxIdx) ? endIdx : maxIdx;
+    if (e <= s) { s = 0; e = maxIdx; }
+
+    visibleStart = s;
+    visibleEnd = e;
+
     noUiSlider.create(sliderEl, {
-      start: [0, maxIdx],
+      start: [s, e],
       connect: true,
       range: { min: 0, max: Math.max(1, maxIdx) },
       step: 1,
@@ -445,23 +452,12 @@
             modelingData = data;
             var maxIdx = data.timestamps.length - 1;
 
-            // Restore slider position (clamp to new data bounds)
-            visibleStart = Math.min(savedStart, maxIdx);
-            visibleEnd = Math.min(savedEnd, maxIdx);
-            if (visibleEnd <= visibleStart) {
-              visibleStart = 0;
-              visibleEnd = maxIdx;
-            }
-
             var startDate = formatDate(data.timestamps[0], data.time_zone);
             var endDate = formatDate(data.timestamps[maxIdx], data.time_zone);
             horizonDatesEl.textContent = startDate + ' \u2014 ' + endDate;
-            initSlider(data);
 
-            // Set slider to restored position after init
-            if (sliderEl.noUiSlider) {
-              sliderEl.noUiSlider.set([visibleStart, visibleEnd]);
-            }
+            // Restore slider to saved zoom position
+            initSlider(data, savedStart, savedEnd);
 
             chartsWrap.style.display = '';
             renderCharts();
