@@ -396,6 +396,65 @@
   document.getElementById('btn-back-to-runtime').addEventListener('click', exitModelingMode);
 
   // ---------------------------------------------------------------
+  // Auto-refresh on config changes
+  // ---------------------------------------------------------------
+  // After any entity/profile/schedule save while in modeling mode,
+  // persist the config, reload the engine, and re-fetch modeling data.
+  document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (!document.body.classList.contains('modeling-mode')) return;
+    var tgt = evt.detail.target;
+    if (!tgt) return;
+    // Entity list or profile/schedule saves target these sections
+    var isEntityChange = tgt.id === 'entity-list-section';
+    var isProfileChange = tgt.closest && tgt.closest('#entity-list-section');
+    if (!isEntityChange && !isProfileChange) return;
+
+    // Save config to disk and restart engine with new config
+    spinner.style.display = '';
+    chartsWrap.style.display = 'none';
+    fetch('save-reload', { method: 'POST' }).then(function() {
+      // Poll modeling-data until the engine is back up
+      var attempts = 0;
+      function pollForData() {
+        attempts++;
+        if (attempts > 15) {
+          spinner.style.display = 'none';
+          chartsWrap.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem">Engine reload timed out</p>';
+          chartsWrap.style.display = '';
+          return;
+        }
+        fetch('modeling-data?horizon=' + horizonSelect.value)
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.error && data.error === 'No running simulation') {
+              // Engine still restarting — retry
+              setTimeout(pollForData, 500);
+              return;
+            }
+            // Got data (or a different error) — render it
+            spinner.style.display = 'none';
+            if (data.error) {
+              chartsWrap.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem">' + data.error + '</p>';
+              chartsWrap.style.display = '';
+              return;
+            }
+            modelingData = data;
+            visibleStart = 0;
+            visibleEnd = data.timestamps.length - 1;
+            var startDate = formatDate(data.timestamps[0], data.time_zone);
+            var endDate = formatDate(data.timestamps[data.timestamps.length - 1], data.time_zone);
+            horizonDatesEl.textContent = startDate + ' \u2014 ' + endDate;
+            initSlider(data);
+            chartsWrap.style.display = '';
+            renderCharts();
+          })
+          .catch(function() { setTimeout(pollForData, 500); });
+      }
+      setTimeout(pollForData, 500);
+    });
+  });
+
+  // ---------------------------------------------------------------
   // Expose to global scope
   // ---------------------------------------------------------------
   window.enterModelingMode = enterModelingMode;
