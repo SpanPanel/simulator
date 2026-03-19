@@ -11,6 +11,7 @@ Circuit-level logic lives in ``circuit.py``; time management in
 from __future__ import annotations
 
 import asyncio
+import copy
 import random
 import threading
 from dataclasses import replace
@@ -1330,6 +1331,166 @@ class DynamicSimulationEngine:
             evse=evse_devices,
             pcs=SpanPcsSnapshot(),
         )
+
+    # ------------------------------------------------------------------
+    # Modeling computation
+    # ------------------------------------------------------------------
+
+    async def compute_modeling_data(self, horizon_hours: int) -> dict[str, Any]:
+        """Compute Before/After modeling data over recorder history.
+
+        Performs a **read-only** simulation pass — no runtime state is mutated.
+        Clones the behaviour engine and creates a temporary BSEE so the
+        iteration across the horizon doesn't affect the live simulation.
+
+        Returns the response dict matching the ``GET /modeling-data`` schema,
+        or an error dict ``{"error": "..."}`` when recorder data is missing.
+        """
+        if not self._config:
+            raise SimulationConfigurationError("Configuration not loaded")
+
+        if not self._recorder or not self._recorder.is_loaded:
+            return {"error": "No recorder data available"}
+
+        # Expand recorder lookback if needed
+        required_days = horizon_hours // 24 + 1
+        await self._recorder.ensure_lookback(required_days)
+
+        bounds = self._recorder.time_bounds()
+        if bounds is None:
+            return {"error": "No recorder data available"}
+
+        # Determine horizon window (clamp to available data)
+        horizon_end = bounds[1]
+        horizon_start = max(bounds[0], horizon_end - horizon_hours * 3600)
+
+        # Generate hourly timestamps
+        timestamps: list[float] = []
+        t = horizon_start
+        while t <= horizon_end:
+            timestamps.append(t)
+            t += 3600
+
+        if not timestamps:
+            return {"error": "No recorder data available"}
+
+        # Clone behaviour engine for read-only pass
+        cloned_behavior = copy.deepcopy(self._behavior_engine)
+
+        # Identify solar-excess battery circuits
+        solar_excess_ids: set[str] = set()
+        for cid, circuit in self._circuits.items():
+            battery_cfg = circuit.template.get("battery_behavior", {})
+            if (
+                isinstance(battery_cfg, dict)
+                and battery_cfg.get("enabled", False)
+                and battery_cfg.get("charge_mode") == "solar-excess"
+            ):
+                solar_excess_ids.add(cid)
+
+        # Create temporary BSEE if battery is configured
+        cloned_bsee: BatteryStorageEquipment | None = None
+        battery_circuit = self._find_battery_circuit()
+        if self._bsee is not None and battery_circuit is not None:
+            battery_cfg = battery_circuit.template.get("battery_behavior", {})
+            if isinstance(battery_cfg, dict):
+                battery_dict: dict[str, Any] = dict(battery_cfg)
+                cloned_bsee = BatteryStorageEquipment(
+                    battery_behavior=battery_dict,
+                    panel_serial=self._config["panel_config"]["serial_number"],
+                    feed_circuit_id=battery_circuit.circuit_id,
+                    nameplate_capacity_kwh=self._bsee.nameplate_capacity_kwh,
+                    behavior_engine=cloned_behavior,
+                    panel_timezone=(cloned_behavior.panel_timezone if cloned_behavior else None),
+                )
+
+        # Result arrays
+        site_power_arr: list[float] = []
+        grid_power_arr: list[float] = []
+        pv_power_arr: list[float] = []
+        battery_power_arr: list[float] = []
+        circuit_arrays: dict[str, list[float]] = {cid: [] for cid in self._circuits}
+
+        for ts in timestamps:
+            total_consumption = 0.0
+            total_production = 0.0
+            raw_battery_power = 0.0
+            circuit_powers: dict[str, float] = {}
+
+            # Pass 1: non-solar-excess circuits
+            for cid, circuit in self._circuits.items():
+                if cid in solar_excess_ids:
+                    continue
+                power = (
+                    cloned_behavior.get_circuit_power(cid, circuit.template, ts)
+                    if cloned_behavior
+                    else circuit.template["energy_profile"]["typical_power"]
+                )
+                circuit_powers[cid] = power
+
+                if circuit.energy_mode == "producer":
+                    total_production += power
+                elif circuit.energy_mode == "bidirectional":
+                    raw_battery_power = power
+                else:
+                    total_consumption += power
+
+            # Pass 2: solar-excess circuits
+            if solar_excess_ids and cloned_behavior is not None:
+                excess = max(0.0, total_production - total_consumption)
+                cloned_behavior.set_solar_excess(excess)
+                for cid in solar_excess_ids:
+                    circuit = self._circuits[cid]
+                    power = cloned_behavior.get_circuit_power(cid, circuit.template, ts)
+                    circuit_powers[cid] = power
+                    raw_battery_power = power
+
+            site_power = total_consumption - total_production
+
+            # BSEE step — determine actual battery power and state
+            signed_battery = 0.0
+            if cloned_bsee is not None:
+                cloned_bsee.update(ts, raw_battery_power)
+                effective_power = cloned_bsee.battery_power_w
+                state = cloned_bsee.battery_state
+                if state == "discharging":
+                    signed_battery = -effective_power
+                elif state == "charging":
+                    signed_battery = effective_power
+
+            # Grid power: charging adds to grid import, discharging reduces it
+            grid_power = site_power + signed_battery
+
+            site_power_arr.append(round(site_power, 1))
+            grid_power_arr.append(round(grid_power, 1))
+            pv_power_arr.append(round(total_production, 1))
+            battery_power_arr.append(round(signed_battery, 1))
+
+            for cid in self._circuits:
+                circuit_arrays[cid].append(round(circuit_powers.get(cid, 0.0), 1))
+
+        # Build per-circuit response
+        circuits_response: dict[str, dict[str, Any]] = {}
+        for cid, circuit in self._circuits.items():
+            circuits_response[cid] = {
+                "name": circuit.name,
+                "power": circuit_arrays[cid],
+            }
+
+        tz_str = str(cloned_behavior.panel_timezone) if cloned_behavior else "UTC"
+
+        return {
+            "horizon_start": int(horizon_start),
+            "horizon_end": int(horizon_end),
+            "resolution_s": 3600,
+            "time_zone": tz_str,
+            "timestamps": [int(t) for t in timestamps],
+            "site_power": site_power_arr,
+            "grid_power": grid_power_arr,
+            "pv_power": pv_power_arr,
+            "battery_power": battery_power_arr,
+            "circuits": circuits_response,
+        }
 
     # ------------------------------------------------------------------
     # Dynamic overrides (dispatched to SimulatedCircuit instances)

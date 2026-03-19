@@ -173,6 +173,10 @@ class SimulatedCircuit:
         return self._circuit_def["id"]
 
     @property
+    def name(self) -> str:
+        return str(self._circuit_def["name"])
+
+    @property
     def instant_power_w(self) -> float:
         return self._instant_power_w
 
