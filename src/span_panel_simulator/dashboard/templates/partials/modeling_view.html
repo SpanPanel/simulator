@@ -398,22 +398,28 @@
   // ---------------------------------------------------------------
   // Auto-refresh on config changes
   // ---------------------------------------------------------------
-  // After any entity/profile/schedule save while in modeling mode,
-  // persist the config, reload the engine, and re-fetch modeling data.
+  // After any entity/profile/schedule SAVE (PUT/POST/DELETE, not GET)
+  // while in modeling mode, persist config, reload engine, re-fetch.
   document.body.addEventListener('htmx:afterSwap', function(evt) {
     if (!document.body.classList.contains('modeling-mode')) return;
+
+    // Only trigger on mutating requests (saves), not navigation (edit forms)
+    var verb = evt.detail.requestConfig && evt.detail.requestConfig.verb;
+    if (!verb || verb === 'get' || verb === 'GET') return;
+
     var tgt = evt.detail.target;
     if (!tgt) return;
-    // Entity list or profile/schedule saves target these sections
-    var isEntityChange = tgt.id === 'entity-list-section';
-    var isProfileChange = tgt.closest && tgt.closest('#entity-list-section');
-    if (!isEntityChange && !isProfileChange) return;
+    var inEntitySection = tgt.id === 'entity-list-section'
+      || (tgt.closest && tgt.closest('#entity-list-section'));
+    if (!inEntitySection) return;
 
-    // Save config to disk and restart engine with new config
+    // Preserve current slider position across refresh
+    var savedStart = visibleStart;
+    var savedEnd = visibleEnd;
+
     spinner.style.display = '';
     chartsWrap.style.display = 'none';
     fetch('save-reload', { method: 'POST' }).then(function() {
-      // Poll modeling-data until the engine is back up
       var attempts = 0;
       function pollForData() {
         attempts++;
@@ -427,11 +433,9 @@
           .then(function(r) { return r.json(); })
           .then(function(data) {
             if (data.error && data.error === 'No running simulation') {
-              // Engine still restarting — retry
               setTimeout(pollForData, 500);
               return;
             }
-            // Got data (or a different error) — render it
             spinner.style.display = 'none';
             if (data.error) {
               chartsWrap.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem">' + data.error + '</p>';
@@ -439,12 +443,26 @@
               return;
             }
             modelingData = data;
-            visibleStart = 0;
-            visibleEnd = data.timestamps.length - 1;
+            var maxIdx = data.timestamps.length - 1;
+
+            // Restore slider position (clamp to new data bounds)
+            visibleStart = Math.min(savedStart, maxIdx);
+            visibleEnd = Math.min(savedEnd, maxIdx);
+            if (visibleEnd <= visibleStart) {
+              visibleStart = 0;
+              visibleEnd = maxIdx;
+            }
+
             var startDate = formatDate(data.timestamps[0], data.time_zone);
-            var endDate = formatDate(data.timestamps[data.timestamps.length - 1], data.time_zone);
+            var endDate = formatDate(data.timestamps[maxIdx], data.time_zone);
             horizonDatesEl.textContent = startDate + ' \u2014 ' + endDate;
             initSlider(data);
+
+            // Set slider to restored position after init
+            if (sliderEl.noUiSlider) {
+              sliderEl.noUiSlider.set([visibleStart, visibleEnd]);
+            }
+
             chartsWrap.style.display = '';
             renderCharts();
           })
