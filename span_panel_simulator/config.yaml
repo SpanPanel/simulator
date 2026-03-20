@@ -29,6 +29,6 @@ schema:
   log_level: list(DEBUG|INFO|WARNING|ERROR)
   advertise_address: str?
   dashboard_enabled: bool
-webui: "http://[HOST]:[PORT:18080/tcp]"
+webui: "http://[HOST]:18080"
 startup: application
 init: false
