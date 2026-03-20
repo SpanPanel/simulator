@@ -29,9 +29,10 @@ RUN chmod +x /run.sh
 
 EXPOSE 18883 8081 18080
 
-LABEL io.hass.name="SPAN Panel Simulator"
-LABEL io.hass.description="Simulates a SPAN electrical panel for testing and upgrade modeling"
-LABEL io.hass.type="addon"
-LABEL io.hass.version="0.1.0"
+LABEL io.hass.name="SPAN Panel Simulator" \
+      io.hass.description="Simulates a SPAN electrical panel for testing and upgrade modeling" \
+      io.hass.type="addon" \
+      io.hass.version="1.0.0" \
+      io.hass.arch="aarch64|amd64"
 
 CMD ["/run.sh"]

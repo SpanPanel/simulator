@@ -1,4 +1,13 @@
 repos:
+  - repo: local
+    hooks:
+      - id: sync-version
+        name: sync-version
+        entry: scripts/sync-version.sh
+        language: script
+        files: '(pyproject\.toml|__init__\.py|config\.yaml|Dockerfile)$'
+        pass_filenames: false
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.6
     hooks:

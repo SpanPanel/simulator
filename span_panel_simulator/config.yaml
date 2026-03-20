@@ -1,6 +1,6 @@
 name: "SPAN Panel Simulator"
 description: "Simulates a SPAN electrical panel for testing and upgrade modeling"
-version: "0.1.0"
+version: "1.0.0"
 slug: "span_panel_simulator"
 image: "ghcr.io/spanpanel/simulator/{arch}"
 arch:
@@ -12,8 +12,14 @@ ingress: true
 ingress_port: 18080
 panel_icon: "mdi:flash"
 panel_title: "SPAN Simulator"
+watchdog: "http://[HOST]:[PORT:18080]/"
 map:
-  - config:rw
+  - type: config
+    read_only: false
+backup: hot
+backup_exclude:
+  - "*.key"
+  - "*.crt"
 options:
   config_file: "span_simulator/default_MAIN_40.yaml"
   tick_interval: 1.0
