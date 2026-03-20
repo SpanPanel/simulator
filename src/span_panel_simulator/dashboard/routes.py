@@ -885,7 +885,7 @@ async def handle_import(request: web.Request) -> web.Response:
         _store(request).load_from_yaml(text)
     except (ValueError, TypeError) as exc:
         raise web.HTTPBadRequest(text=str(exc)) from exc
-    return web.Response(status=200, headers={"HX-Redirect": "/"})
+    return web.Response(status=200, headers={"HX-Redirect": "./"})
 
 
 async def handle_load_config(request: web.Request) -> web.Response:
@@ -911,7 +911,7 @@ async def handle_load_config(request: web.Request) -> web.Response:
     ctx.config_filter = filename
 
     # Full page redirect so HTMX replaces the entire document
-    return web.Response(status=200, headers={"HX-Redirect": "/"})
+    return web.Response(status=200, headers={"HX-Redirect": "./"})
 
 
 async def handle_clone(request: web.Request) -> web.Response:
@@ -1319,7 +1319,7 @@ async def handle_clone_from_panel(request: web.Request) -> web.Response:
         store.load_from_file(clone_path)
 
     # Redirect to refresh the full dashboard with the new config
-    return web.Response(status=200, headers={"HX-Redirect": "/"})
+    return web.Response(status=200, headers={"HX-Redirect": "./"})
 
 
 # -- HA profile import --
