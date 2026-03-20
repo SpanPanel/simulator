@@ -60,15 +60,13 @@ def create_dashboard_app(context: DashboardContext) -> web.Application:
 
     store = ConfigStore()
 
-    # Try loading the current config
-    if context.config_filter:
+    # Load the active config into the editor (if one is set).
+    # Default templates (default_*) are never auto-loaded — users
+    # must clone them first.
+    if context.config_filter and not context.config_filter.startswith("default_"):
         config_path = context.config_dir / context.config_filter
         if config_path.exists():
             store.load_from_file(config_path)
-    else:
-        default_path = context.config_dir / "default_config.yaml"
-        if default_path.exists():
-            store.load_from_file(default_path)
 
     app["store"] = store
     app["dashboard_context"] = context

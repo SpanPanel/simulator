@@ -3,6 +3,13 @@
   <span class="panel-status-dot {{ 'status-running' if p.running else 'status-stopped' }}"></span>
   <span class="panel-serial">{{ p.serial }}</span>
   <span class="panel-filename">{{ p.filename }}</span>
+  {% if p.is_default %}
+  <span class="badge badge-default" title="Clone this template to create an editable config">template</span>
+  <button class="btn btn-sm btn-secondary"
+          onclick="var n=prompt('Clone as:','{{ p.filename.replace('default_', '') }}');if(n){htmx.ajax('POST','clone',{target:'#flash-area',swap:'innerHTML',values:{filename:n,source_file:'{{ p.filename }}'}});}">
+    Clone
+  </button>
+  {% else %}
   {% if p.active %}
   <span class="badge badge-editing">editing</span>
   {% else %}
@@ -49,8 +56,11 @@
           title="Delete config file">Del</button>
   {% endif %}
   {% endif %}
+  {% endif %}
 </div>
 {% endfor %}
 {% if not panels %}
 <p class="hint">No config files found. Import or clone a panel to get started.</p>
+{% elif panels | selectattr('is_default') | list | length == panels | length %}
+<p class="hint">Clone a template above to create your own editable configuration.</p>
 {% endif %}

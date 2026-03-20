@@ -130,43 +130,39 @@ def main(argv: list[str] | None = None) -> None:
         level=getattr(logging, args.log_level),
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
+    # Suppress noisy per-request access logs unless explicitly at DEBUG.
+    logging.getLogger("aiohttp.access").setLevel(logging.DEBUG)
 
     config_dir: Path = args.config_dir
     if not config_dir.is_dir():
         logging.error("Config directory not found: %s", config_dir)
         sys.exit(1)
 
-    # Resolve which config(s) to load
+    # Resolve which config(s) to load.
+    # When --config is given explicitly, that panel auto-starts.
+    # Otherwise, resume the last-used config if saved — but never
+    # auto-start a default_ template (those are clone-only).
     config_filter: str | None = args.config
     if config_filter:
-        # Explicit --config given: load only that file
         config_path = config_dir / config_filter
         if not config_path.exists():
             logging.error("Config file not found: %s", config_path)
             sys.exit(1)
         logging.info("Using config: %s", config_path.name)
     else:
-        # No --config: resume the last-used config if saved, otherwise
-        # fall back to default_config.yaml.
         last_config_file = config_dir / ".last_config"
         if last_config_file.exists():
             last_name = last_config_file.read_text(encoding="utf-8").strip()
-            if last_name and (config_dir / last_name).exists():
+            if (
+                last_name
+                and not last_name.startswith("default_")
+                and (config_dir / last_name).exists()
+            ):
                 config_filter = last_name
                 logging.info("Resuming last config: %s", last_name)
 
         if config_filter is None:
-            default_path = config_dir / "default_config.yaml"
-            if default_path.exists():
-                config_filter = "default_config.yaml"
-                logging.info("Using default config: %s", default_path.name)
-            else:
-                # Fall back to all configs
-                yamls = list(config_dir.glob("*.yaml")) + list(config_dir.glob("*.yml"))
-                if not yamls:
-                    logging.error("No YAML configs found in %s", config_dir)
-                    sys.exit(1)
-                logging.info("Found %d config(s) in %s", len(yamls), config_dir)
+            logging.info("No user config to resume — dashboard ready, no panel running")
 
     # Resolve HA API connection (add-on mode auto-detects via env var)
     from span_panel_simulator.ha_api.client import HAConnectionConfig

@@ -105,6 +105,7 @@ def _all_panels(request: web.Request) -> list[dict[str, object]]:
             "serial": running_map.get(fname, ""),
             "running": fname in running_map,
             "active": fname == active_file,
+            "is_default": fname.startswith("default_"),
         }
         for fname in configs
     ]
@@ -894,6 +895,10 @@ async def handle_load_config(request: web.Request) -> web.Response:
     filename = str(data.get("config_file", ""))
     if not filename:
         raise web.HTTPBadRequest(text="No config file selected")
+    if filename.startswith("default_"):
+        raise web.HTTPBadRequest(
+            text="Default templates cannot be edited. Clone to create your own."
+        )
     ctx = _ctx(request)
     config_path = ctx.config_dir / filename
     if not config_path.exists() or not config_path.is_file():
@@ -1120,6 +1125,14 @@ async def handle_delete_config(request: web.Request) -> web.Response:
     if not filename:
         return web.Response(
             text='<div class="flash error">No filename specified.</div>',
+            content_type="text/html",
+        )
+
+    # Default templates are protected — clone instead.
+    if filename.startswith("default_"):
+        return web.Response(
+            text='<div class="flash error">Default templates cannot be deleted.'
+            " Clone to create your own.</div>",
             content_type="text/html",
         )
 

@@ -1212,6 +1212,10 @@ legend {
   background: var(--primary);
   font-size: 0.65rem;
 }
+.badge-default {
+  background: #6c757d;
+  font-size: 0.65rem;
+}
 
 .active-panel {
   border-left: 3px solid var(--primary);
