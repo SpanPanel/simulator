@@ -17,6 +17,16 @@
         <input type="text" name="tabs" value="{{ e.tabs|join(', ') }}">
       </label>
       {% endif %}
+      {% if e.entity_type in ('pv', 'battery') and e.recorder_entity %}
+      <label>Priority:
+        <input type="text" value="{{ e.priority }}" disabled style="width:8em">
+        <input type="hidden" name="priority" value="{{ e.priority }}">
+      </label>
+      <label>Relay Behavior:
+        <input type="text" value="{{ e.relay_behavior }}" disabled style="width:10em">
+        <input type="hidden" name="relay_behavior" value="{{ e.relay_behavior }}">
+      </label>
+      {% else %}
       <label>Priority:
         <select name="priority">
           {% for p in priorities %}
@@ -31,6 +41,7 @@
           {% endfor %}
         </select>
       </label>
+      {% endif %}
       {% if e.entity_type != 'battery' %}
       <label>Breaker (A):
         <input type="number" name="breaker_rating"

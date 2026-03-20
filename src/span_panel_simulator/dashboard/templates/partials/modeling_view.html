@@ -134,6 +134,8 @@
   // Data fetching
   // ---------------------------------------------------------------
   function fetchModelingData(horizon) {
+    if (beforeChart) { beforeChart.destroy(); beforeChart = null; }
+    if (afterChart) { afterChart.destroy(); afterChart = null; }
     spinner.style.display = '';
     chartsWrap.style.display = 'none';
 
@@ -468,6 +470,11 @@
     // Preserve current slider position across refresh
     var savedStart = visibleStart;
     var savedEnd = visibleEnd;
+
+    // Destroy charts before hiding — Chart.js corrupts dimensions
+    // when updated while the canvas is display:none.
+    if (beforeChart) { beforeChart.destroy(); beforeChart = null; }
+    if (afterChart) { afterChart.destroy(); afterChart = null; }
 
     spinner.style.display = '';
     chartsWrap.style.display = 'none';
