@@ -1,14 +1,13 @@
 # SPAN Panel Simulator
 
-A standalone simulator that mimics real SPAN panel behavior for
-development and testing of the
-[span-panel](https://github.com/SpanPanel/span-panel-api) Home Assistant
-integration. Provides mDNS discovery, bootstrap HTTP API, TLS
-certificates, and Homie v5 MQTT publishing — everything HA needs to
-discover and connect to a panel.
+A standalone simulator that mimics real SPAN panel behavior.
+
+- Provides mDNS discovery to panels not yet using the Hone Assistant integration and direct connections to the SpanPanel SPAN integration for Home Assistant.
+- When used with the [SpanPanel](https://github.com/SpanPanel/span-panel-api) Home Assistant
+integration, the App can mimic additional panels and for modeling upgrades to the electrical system.
 
 Includes a web dashboard for real-time configuration, grid simulation,
-recorder replay, and energy modeling.
+Home Assistant history replay, and energy "what-if" modeling.
 
 ![Dashboard overview — grid offline with load shedding, live power chart, entity list with relay status](docs/images/dashboard1.png)
 
