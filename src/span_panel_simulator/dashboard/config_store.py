@@ -253,7 +253,7 @@ class ConfigStore:
         if "name" in data:
             circuit["name"] = data["name"]
 
-        if "tabs" in data:
+        if "tabs" in data and _detect_entity_type(template) != "battery":
             tabs_raw = data["tabs"]
             if isinstance(tabs_raw, str):
                 tabs_raw = [int(t.strip()) for t in tabs_raw.split(",") if t.strip()]
@@ -335,11 +335,17 @@ class ConfigStore:
         return self._merge_entity(circuit_dict)
 
     def get_unmapped_tabs(self) -> list[int]:
-        """Return tab numbers not assigned to any circuit, sorted ascending."""
+        """Return tab numbers not assigned to any circuit, sorted ascending.
+
+        Battery entities are excluded — they sit between the panel lugs
+        and the grid, not on breaker tabs.
+        """
         total_tabs = self._state.get("panel_config", {}).get("total_tabs", 32)
         used: set[int] = set()
         for circ in self._circuits():
-            used.update(circ.get("tabs", []))
+            tpl = self._templates().get(circ.get("template", ""), {})
+            if _detect_entity_type(tpl) != "battery":
+                used.update(circ.get("tabs", []))
         return sorted(t for t in range(1, total_tabs + 1) if t not in used)
 
     def add_entity_from_tabs(self, tabs: list[int]) -> EntityView:

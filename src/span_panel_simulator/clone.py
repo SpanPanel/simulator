@@ -151,6 +151,16 @@ def translate_scraped_panel(
     for evse_id in evse_nodes:
         _enrich_evse_template(scraped.properties, prefix, evse_id, feed_map, templates)
 
+    # Battery entities sit between panel lugs and grid — strip their tabs.
+    for circ in circuits:
+        tpl_name = circ.get("template")
+        tpl = templates.get(str(tpl_name), {}) if tpl_name else {}
+        bb = tpl.get("battery_behavior")
+        if isinstance(bb, dict) and bb.get("enabled"):
+            freed = circ.pop("tabs", [])
+            if isinstance(freed, list):
+                used_tabs -= set(freed)
+
     # Unmapped tabs
     all_tabs = set(range(1, total_tabs + 1))
     unmapped = sorted(all_tabs - used_tabs)

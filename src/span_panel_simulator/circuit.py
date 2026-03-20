@@ -125,7 +125,7 @@ class SimulatedCircuit:
 
     def to_snapshot(self) -> SpanCircuitSnapshot:
         """Produce a frozen snapshot of the current circuit state."""
-        tabs = self._circuit_def["tabs"]
+        tabs = self._circuit_def.get("tabs", [])
         controllable = self._template["relay_behavior"] == "controllable"
         is_240v = len(tabs) == 2
         voltage = 240.0 if is_240v else 120.0
@@ -198,7 +198,7 @@ class SimulatedCircuit:
 
     @property
     def tabs(self) -> list[int]:
-        return self._circuit_def["tabs"]
+        return self._circuit_def.get("tabs", [])
 
     @property
     def template_name(self) -> str:

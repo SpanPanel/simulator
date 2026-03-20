@@ -64,9 +64,13 @@ def _file_hash(path: Path) -> str:
 def _discover_configs(config_dir: Path, config_filter: str | None = None) -> dict[Path, str]:
     """Scan a directory for YAML config files and return path -> content hash.
 
-    When *config_filter* is set, only the named file is returned.
+    When *config_filter* is a filename, only that file is returned.
+    When *config_filter* is ``None``, all YAML files are returned.
+    When *config_filter* is empty string, nothing is returned (idle startup).
     """
-    if config_filter:
+    if config_filter is not None:
+        if not config_filter:
+            return {}  # Explicit "start nothing"
         path = config_dir / config_filter
         if path.exists():
             return {path: _file_hash(path)}

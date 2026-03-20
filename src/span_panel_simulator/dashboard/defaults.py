@@ -123,9 +123,7 @@ ENTITY_TYPE_DEFAULTS: dict[str, dict[str, Any]] = {
                 "max_discharge_power": 3500.0,
             },
         },
-        "circuit": {
-            "tabs": [],
-        },
+        "circuit": {},
     },
 }
 

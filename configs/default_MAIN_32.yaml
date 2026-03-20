@@ -656,7 +656,7 @@ circuits:
     template: "ev_charger"
     tabs: [27, 29]  # 240V Level 2 charger
 
-  # Solar + battery (tabs 28-32)
+  # Solar (tabs 28-30)
   - id: "solar_inverter"
     name: "Solar Inverter"
     template: "solar_production"
@@ -665,12 +665,7 @@ circuits:
     overrides:
       nameplate_capacity_w: 8000.0
 
-  - id: "battery_storage_1"
-    name: "Battery Storage"
-    template: "battery_storage"
-    tabs: [31, 32]
-
-unmapped_tabs: []
+unmapped_tabs: [31, 32]
 
 # Global simulation parameters
 simulation_params:

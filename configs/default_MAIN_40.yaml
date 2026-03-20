@@ -761,15 +761,6 @@ circuits:
   breaker_rating: 30
   overrides:
     typical_power: 1400.0
-- id: battery_storage
-  name: Battery Storage
-  template: battery
-  tabs:
-  - 24
-  - 26
-  breaker_rating: 40
-  overrides:
-    typical_power: 3500.0
 - id: heat_pump
   name: Heat Pump
   template: heat_pump
@@ -817,7 +808,7 @@ circuits:
     power_range:
     - 0.0
     - 250.0
-unmapped_tabs: []
+unmapped_tabs: [24, 26]
 simulation_params:
   update_interval: 5.0
   time_acceleration: 1.0

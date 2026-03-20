@@ -150,9 +150,8 @@ circuits:
   - id: "batt"
     name: "Battery"
     template: "battery"
-    tabs: [2, 4]
 
-unmapped_tabs: []
+unmapped_tabs: [2, 4]
 
 simulation_params:
   update_interval: 5

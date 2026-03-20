@@ -84,7 +84,7 @@ def validate_single_circuit(index: int, circuit: Any, circuit_templates: dict[st
     if not isinstance(circuit, dict):
         raise ValueError(f"Circuit {index} must be a dictionary")
 
-    required_circuit_fields = ["id", "name", "template", "tabs"]
+    required_circuit_fields = ["id", "name", "template"]
     for field in required_circuit_fields:
         if field not in circuit:
             raise ValueError(f"Missing required field '{field}' in circuit {index}")
@@ -93,17 +93,27 @@ def validate_single_circuit(index: int, circuit: Any, circuit_templates: dict[st
     if template_name not in circuit_templates:
         raise ValueError(f"Circuit {index} references unknown template '{template_name}'")
 
-    tabs = circuit["tabs"]
+    template = circuit_templates.get(template_name, {})
+    is_battery = isinstance(template.get("battery_behavior"), dict) and template[
+        "battery_behavior"
+    ].get("enabled")
+
+    tabs = circuit.get("tabs", [])
     if not isinstance(tabs, list):
         raise ValueError(f"Circuit {index} ('tabs') must be a list")
 
-    # Infrastructure entities (battery, PV, EVSE) may have empty tabs
+    if is_battery:
+        # Battery sits between panel lugs and grid — no breaker tabs.
+        if tabs:
+            raise ValueError(
+                f"Circuit {index} ('{circuit.get('name', '')}') is a battery and must not "
+                f"have tabs assigned. Batteries connect at the panel lugs, not on breakers."
+            )
+        return
+
+    # Infrastructure entities (PV, EVSE) may have empty tabs
     # when added as virtual devices for "what-if" modeling.
-    template = circuit_templates.get(template_name, {})
-    is_infrastructure = template.get("device_type") in ("pv", "evse", "battery") or (
-        isinstance(template.get("battery_behavior"), dict)
-        and template["battery_behavior"].get("enabled")
-    )
+    is_infrastructure = template.get("device_type") in ("pv", "evse")
     if not tabs and not is_infrastructure:
         raise ValueError(f"Circuit {index} ('tabs') must be a non-empty list")
 

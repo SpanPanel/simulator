@@ -142,6 +142,8 @@ def main(argv: list[str] | None = None) -> None:
     # When --config is given explicitly, that panel auto-starts.
     # Otherwise, resume the last-used config if saved — but never
     # auto-start a default_ template (those are clone-only).
+    # If nothing to resume, start idle (empty filter) so the dashboard
+    # is ready for the user to choose a config.
     config_filter: str | None = args.config
     if config_filter:
         config_path = config_dir / config_filter
@@ -162,6 +164,7 @@ def main(argv: list[str] | None = None) -> None:
                 logging.info("Resuming last config: %s", last_name)
 
         if config_filter is None:
+            config_filter = ""  # idle — no panel until user picks one
             logging.info("No user config to resume — dashboard ready, no panel running")
 
     # Resolve HA API connection (add-on mode auto-detects via env var)
