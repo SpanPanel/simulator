@@ -1,5 +1,5 @@
 name: "SPAN Panel Simulator"
-description: "Simulates a SPAN electrical panel for development and testing"
+description: "Simulates a SPAN electrical panel for testing and upgrade modeling"
 version: "0.1.0"
 slug: "span_panel_simulator"
 image: "ghcr.io/spanpanel/simulator/{arch}"
