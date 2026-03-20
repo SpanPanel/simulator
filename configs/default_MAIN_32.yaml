@@ -3,7 +3,6 @@
 
 panel_config:
   serial_number: "sim-32t-001"
-  model: "MAIN_32"
   total_tabs: 32
   main_size: 200
   latitude: 37.7

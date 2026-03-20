@@ -3,20 +3,21 @@
   <form hx-put="panel-config" hx-target="#panel-config-section" hx-swap="innerHTML">
     <div class="form-row">
       <label>Serial:
-        <input type="text" name="serial_number" value="{{ panel_config.serial_number }}" size="20">
+        <input type="text" name="serial_number" value="{{ panel_config.serial_number }}" size="20" {{ 'disabled' if readonly else '' }}>
       </label>
       <label>Tabs:
-        <input type="number" name="total_tabs" value="{{ panel_config.total_tabs }}" min="2" max="40" step="2" style="width:5em">
+        <input type="number" name="total_tabs" value="{{ panel_config.total_tabs }}" min="2" max="48" step="2" style="width:5em" {{ 'disabled' if readonly else '' }}>
       </label>
       <label>Main Breaker (A):
-        <input type="number" name="main_size" value="{{ panel_config.main_size }}" min="100" max="400" style="width:5em">
+        <input type="number" name="main_size" value="{{ panel_config.main_size }}" min="100" max="400" style="width:5em" {{ 'disabled' if readonly else '' }}>
       </label>
       <label>SOC Shed (%):
-        <input type="number" name="soc_shed_threshold" value="{{ panel_config.soc_shed_threshold | default(20) }}" min="5" max="80" step="5" style="width:5em" title="Battery SOC below which SOC_THRESHOLD circuits are shed">
+        <input type="number" name="soc_shed_threshold" value="{{ panel_config.soc_shed_threshold | default(20) }}" min="5" max="80" step="5" style="width:5em" title="Battery SOC below which SOC_THRESHOLD circuits are shed" {{ 'disabled' if readonly else '' }}>
       </label>
     </div>
 
     <div class="form-row" style="margin-top:0.5rem">
+      {% if not readonly %}
       <div class="location-search-group">
         <label>Location:
           <input type="text" id="location-query" placeholder="Search city or address..."
@@ -24,22 +25,25 @@
         </label>
         <div id="location-results" class="location-dropdown" style="display:none"></div>
       </div>
+      {% endif %}
       <label>Lat:
         <input type="number" name="latitude" id="panel-lat"
                value="{{ panel_config.latitude | default(37.7) }}"
-               step="0.01" style="width:7em">
+               step="0.01" style="width:7em" {{ 'disabled' if readonly else '' }}>
       </label>
       <label>Lon:
         <input type="number" name="longitude" id="panel-lon"
                value="{{ panel_config.longitude | default(-122.4) }}"
-               step="0.01" style="width:7em">
+               step="0.01" style="width:7em" {{ 'disabled' if readonly else '' }}>
       </label>
       <span id="location-display" class="location-name">
         {%- if panel_config.location_name is defined and panel_config.location_name -%}
           {{ panel_config.location_name }}
         {%- endif -%}
       </span>
+      {% if not readonly %}
       <button type="submit" class="btn btn-sm">Update</button>
+      {% endif %}
     </div>
 
     <div id="weather-status" class="weather-status" style="margin-top:0.4rem; font-size:0.82rem; color:var(--text-muted)"></div>

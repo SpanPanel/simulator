@@ -3,21 +3,25 @@
     <h2>Simulation Config</h2>
     <div style="display:flex; gap:0.5rem; align-items:center">
       <a href="export" class="btn btn-sm btn-secondary">Export</a>
+      {% if not readonly %}
       <button class="btn btn-sm btn-primary"
               hx-post="save-reload" hx-target="#flash-area" hx-swap="innerHTML">
         Save &amp; Reload
       </button>
+      {% endif %}
     </div>
   </div>
   <form hx-put="sim-params" hx-target="#sim-config-section" hx-swap="innerHTML">
     <div class="form-row">
       <label>Interval (s):
-        <input type="number" name="update_interval" value="{{ sim_params.update_interval }}" min="1" max="60" style="width:4em">
+        <input type="number" name="update_interval" value="{{ sim_params.update_interval }}" min="1" max="60" style="width:4em" {{ 'disabled' if readonly else '' }}>
       </label>
       <label>Noise:
-        <input type="number" name="noise_factor" value="{{ sim_params.noise_factor }}" min="0" max="1" step="0.01" style="width:5em">
+        <input type="number" name="noise_factor" value="{{ sim_params.noise_factor }}" min="0" max="1" step="0.01" style="width:5em" {{ 'disabled' if readonly else '' }}>
       </label>
+      {% if not readonly %}
       <button type="submit" class="btn btn-sm">Update</button>
+      {% endif %}
     </div>
   </form>
 </div>

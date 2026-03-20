@@ -1,6 +1,5 @@
 panel_config:
   serial_number: sim-40t-001
-  model: MAIN_40
   total_tabs: 40
   main_size: 200
   latitude: 37.7

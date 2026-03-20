@@ -1,6 +1,7 @@
 <div class="card">
   <div class="card-header">
     <h2>Entities ({{ entities|length }})</h2>
+    {% if not readonly %}
     <div class="add-entity">
       <select id="new-entity-type" name="entity_type" form="add-entity-form">
         {% for t in entity_types %}
@@ -12,7 +13,11 @@
         <button type="submit" class="btn btn-sm btn-primary" onclick="document.getElementById('add-entity-type-hidden').value=document.getElementById('new-entity-type').value">+ Add Entity</button>
       </form>
     </div>
+    {% endif %}
   </div>
+  {% if readonly %}
+  <p class="hint" style="padding: 0.5rem 1rem;">Clone a template to create an editable configuration.</p>
+  {% endif %}
   <div class="entity-table">
     {% set ns = namespace(prev_infra=true) %}
     {% for entity in entities %}
@@ -30,7 +35,7 @@
   </div>
 </div>
 
-{% if unmapped_tabs is defined and unmapped_tabs %}
+{% if not readonly and unmapped_tabs is defined and unmapped_tabs %}
 <div class="card unmapped-card">
   <div class="card-header">
     <h2>Unmapped Tabs ({{ unmapped_tabs|length }})</h2>

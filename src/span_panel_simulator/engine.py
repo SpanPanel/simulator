@@ -1280,11 +1280,8 @@ class DynamicSimulationEngine:
         # Voltage drops to 0 when offline without battery
         line_voltage = 0.0 if (self._forced_grid_offline and self._bsee is None) else 120.0
 
-        # Panel model: explicit config value, or derived from tab count
-        cfg_model = self._config["panel_config"].get("model")
-        panel_model: str | None = (
-            str(cfg_model) if cfg_model else _PANEL_SIZE_TO_MODEL.get(total_tabs)
-        )
+        # Panel model derived from tab count
+        panel_model = _PANEL_SIZE_TO_MODEL.get(total_tabs)
 
         # Config-driven fields with sensible defaults
         postal_code = self._config["panel_config"].get("postal_code", "94103")

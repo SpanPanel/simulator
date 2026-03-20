@@ -5,11 +5,8 @@
   <span class="panel-filename">{{ p.filename }}</span>
   {% if p.is_default %}
   <span class="badge badge-default" title="Clone this template to create an editable config">template</span>
-  <button class="btn btn-sm btn-secondary"
-          onclick="var n=prompt('Clone as:','{{ p.filename.replace('default_', '') }}');if(n){htmx.ajax('POST','clone',{target:'#flash-area',swap:'innerHTML',values:{filename:n,source_file:'{{ p.filename }}'}});}">
-    Clone
-  </button>
-  {% else %}
+  {% endif %}
+  {% if not p.is_default %}
   {% if p.active %}
   <span class="badge badge-editing">editing</span>
   {% else %}
@@ -21,11 +18,12 @@
     Edit
   </button>
   {% endif %}
+  {% endif %}
   <button class="btn btn-sm btn-secondary"
-          onclick="var n=prompt('Clone as:','{{ p.filename }}');if(n){htmx.ajax('POST','clone',{target:'#flash-area',swap:'innerHTML',values:{filename:n,source_file:'{{ p.filename }}'}});}">
+          onclick="var n=prompt('Clone as:','{{ p.filename.replace('default_', '') }}');if(n){htmx.ajax('POST','clone',{target:'#flash-area',swap:'innerHTML',values:{filename:n,source_file:'{{ p.filename }}'}});}">
     Clone
   </button>
-  {% if p.running %}
+  {% if not p.is_default and p.running %}
   <button class="btn btn-sm btn-secondary"
           onclick="window.enterModelingMode('{{ p.filename }}', '{{ p.serial }}')"
           title="Open modeling view">Model</button>
@@ -47,7 +45,7 @@
           hx-vals='{"filename": "{{ p.filename }}"}'
           hx-target="#flash-area" hx-swap="innerHTML"
           title="Start engine">Start</button>
-  {% if not p.active %}
+  {% if not p.is_default and not p.running %}
   <button class="btn btn-sm btn-danger"
           hx-post="delete-config"
           hx-vals='{"filename": "{{ p.filename }}"}'
@@ -56,11 +54,10 @@
           title="Delete config file">Del</button>
   {% endif %}
   {% endif %}
-  {% endif %}
 </div>
 {% endfor %}
 {% if not panels %}
 <p class="hint">No config files found. Import or clone a panel to get started.</p>
-{% elif panels | selectattr('is_default') | list | length == panels | length %}
+{% elif panels | rejectattr('is_default') | list | length == 0 %}
 <p class="hint">Clone a template above to create your own editable configuration.</p>
 {% endif %}

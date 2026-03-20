@@ -84,6 +84,12 @@ def _available_configs(request: web.Request) -> list[str]:
     return sorted(set(files))
 
 
+def _first_default_config(config_dir: Path) -> str | None:
+    """Return the filename of the first default_* template, or None."""
+    defaults = sorted(p.name for p in config_dir.glob("default_*.yaml"))
+    return defaults[0] if defaults else None
+
+
 def _all_panels(request: web.Request) -> list[dict[str, object]]:
     """Merge on-disk configs with running panel info.
 
@@ -111,6 +117,12 @@ def _all_panels(request: web.Request) -> list[dict[str, object]]:
     ]
 
 
+def _is_readonly(ctx: DashboardContext) -> bool:
+    """Config is read-only when viewing a default template or no config."""
+    f = ctx.config_filter
+    return f is None or f.startswith("default_")
+
+
 def _dashboard_context(request: web.Request) -> dict[str, Any]:
     """Build the full-page template context."""
     store = _store(request)
@@ -130,6 +142,7 @@ def _dashboard_context(request: web.Request) -> dict[str, Any]:
         "ha_available": ctx.ha_client is not None,
         "clone_host": panel_source.get("host", "") if panel_source else "",
         "panels": _all_panels(request),
+        "readonly": _is_readonly(ctx),
     }
 
 
@@ -145,11 +158,13 @@ def _entity_list_context(request: web.Request, editing_id: str | None = None) ->
     mode and all others as collapsed rows.
     """
     store = _store(request)
+    dash_ctx = _ctx(request)
     ctx: dict[str, Any] = {
         "entities": store.list_entities(),
         "entity_types": _available_entity_types(store),
         "editing_id": editing_id,
         "unmapped_tabs": store.get_unmapped_tabs(),
+        "readonly": _is_readonly(dash_ctx),
     }
     if editing_id is not None:
         entity = store.get_entity(editing_id)
@@ -1146,13 +1161,6 @@ async def handle_delete_config(request: web.Request) -> web.Response:
             content_type="text/html",
         )
 
-    # Refuse to delete the file currently loaded in the editor
-    if filename == ctx.config_filter:
-        return web.Response(
-            text='<div class="flash error">Cannot delete the config currently being edited.</div>',
-            content_type="text/html",
-        )
-
     # Refuse to delete a running panel's config
     running = {p.name for p in ctx.get_panel_configs()}
     if filename in running:
@@ -1163,6 +1171,19 @@ async def handle_delete_config(request: web.Request) -> web.Response:
 
     config_path.unlink()
     _LOGGER.info("Deleted config %s", filename)
+
+    # If we just deleted the active editor file, fall back to viewing
+    # the first default template (read-only).
+    if filename == ctx.config_filter:
+        first_default = _first_default_config(ctx.config_dir)
+        ctx.config_filter = first_default
+        if first_default:
+            _store(request).load_from_file(ctx.config_dir / first_default)
+        return web.Response(
+            status=200,
+            headers={"HX-Redirect": "./"},
+        )
+
     return web.Response(
         text=f'<div class="flash success">Deleted {filename}</div>',
         content_type="text/html",
