@@ -92,12 +92,49 @@ simulated panel.
   outage
 - **Live power chart** — real-time grid, solar, and battery power flows
 
+### Recorder Replay
+
+When connected to Home Assistant, the simulator replays recorded power
+data from the HA recorder for circuits with mapped entities. This
+grounds the simulation in actual household usage patterns rather than
+synthetic profiles.
+
+```bash
+./scripts/run-local.sh --ha-url http://192.168.1.10:8123 --ha-token YOUR_TOKEN
+```
+
+Circuits with recorder data show a **REC** badge in the entity list.
+Clicking the badge toggles to **SYN** (synthetic) mode, where the
+simulator uses the configured power profile instead of recorded data.
+Click again to switch back to recorder replay. This lets you compare
+how well a synthetic profile matches your real usage, or override a
+specific circuit while keeping the rest on recorded data.
+
 ### Energy Modeling
 
-Enter the modeling view from the **Model** button on any running panel:
+The modeling view lets you answer "what if" questions about adding solar
+or battery storage to your panel. Clone your real panel, then add or
+modify PV and Battery entities to see the projected impact on your grid
+consumption over historical data.
 
-- **Before/After comparison** — dual charts showing site power (no BESS)
-  vs grid power (with BESS) over historical recorder data
+**Typical workflow:**
+
+1. Clone your real SPAN panel from the dashboard
+2. Connect to HA so circuits replay actual recorded power data
+3. Click **Model** on the running panel to enter the modeling view
+4. The **Before** chart shows your site power as-is (loads minus any
+   existing solar)
+5. Add a Battery entity (or modify an existing one) — adjust capacity,
+   charge/discharge schedule, and backup reserve
+6. The **After** chart immediately updates to show grid power with the
+   BESS applied, along with kWh savings
+7. Add or resize a PV entity to see how additional solar offsets your
+   consumption in the Before chart
+8. Experiment with different battery sizes, charge modes, and PV
+   nameplate ratings — charts auto-refresh on every save
+
+**Modeling controls:**
+
 - **Horizon selector** — last month, 3 months, 6 months, or 1 year
 - **Range zoom** — drag the slider to zoom into any time window
 - **Circuit overlays** — check individual circuits in the entity list
@@ -105,7 +142,6 @@ Enter the modeling view from the **Model** button on any running panel:
 - **Toggleable legend** — show/hide Solar and Battery traces
 - **Energy summary** — net kWh with import/export breakdown and savings
   percentage
-- **Auto-refresh** — charts update when you save entity changes
 
 ### Entity Management
 
@@ -133,16 +169,6 @@ panel. Recorder-sourced entities preserve their original panel settings
 - Grid offline triggers load shedding by priority:
   `OFF_GRID` circuits shed immediately, `SOC_THRESHOLD` circuits shed
   when battery SOC drops below threshold, `NEVER` circuits stay on
-
-### Recorder Replay
-
-When connected to Home Assistant, the simulator replays recorded power
-data from the HA recorder for circuits with mapped entities. This
-provides realistic power patterns based on actual household usage.
-
-```bash
-./scripts/run-local.sh --ha-url http://192.168.1.10:8123 --ha-token YOUR_TOKEN
-```
 
 ### Theme
 
