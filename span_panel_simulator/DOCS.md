@@ -2,35 +2,124 @@
 
 Simulates a SPAN electrical panel within Home Assistant for development,
 testing, and energy modeling. The simulator publishes Homie v5 MQTT
-topics, serves an HTTP bootstrap API, and advertises via mDNS — exactly
+topics, serves an eBus bootstrap API, and advertises via mDNS — exactly
 like real hardware. No real SPAN panel is needed.
+
+The simulator automatically connects to this HA instance for recorder
+data and entity discovery — no manual URL or token configuration needed.
 
 ## Getting started
 
 1. Install and start this app
-2. The `span-panel` integration will discover the simulated panel
+2. The `span-panel` integration discovers the simulated panel
    automatically via mDNS — just like a real SPAN panel
-3. Open the simulator's web dashboard from the sidebar (or via the
-   app's **Open Web UI** button) to configure the panel, manage
-   entities, clone a real panel, and run energy modeling
+3. Open the web dashboard via the **Open Web UI** button to configure
+   the panel, manage entities, clone a real panel, and run energy
+   modeling
 
 A default panel configuration is included. You can also clone your
 real SPAN panel's configuration directly from the dashboard.
 
-## What you can do
+## Dashboard
 
-- **Clone your real panel** — enter your panel's IP and passphrase in
-  the dashboard to import its full circuit layout
-- **Add virtual PV or Battery** — model what solar or battery storage
-  would look like on your panel using actual recorded usage data
-- **Energy modeling** — Before/After comparison charts showing grid
-  consumption impact of adding BESS, with kWh savings over historical
-  data
-- **Recorder replay** — the simulator automatically connects to this
-  HA instance and replays actual power data from the recorder for
-  realistic simulation (no manual URL or token configuration needed)
-- **Grid simulation** — toggle grid online/offline to test backup
-  behavior and load shedding
+### Panel management
+
+- **Multi-panel** — load multiple YAML configs, start/stop/restart
+  individual panels
+- **File operations** — import/export YAML, clone configs, save & reload
+- **Panel cloning** — clone a real SPAN panel's configuration from
+  the dashboard (enter the panel IP and passphrase)
+- **Config persistence** — the simulator remembers the last running
+  config across restarts
+
+### Simulation controls
+
+- **Time-of-day slider** — scrub through the day to see solar curves,
+  time-of-day profiles, and battery schedules respond
+- **Speed acceleration** — 1x to 360x time acceleration
+- **Grid online/offline** — toggle to test backup behavior and load
+  shedding
+- **Islandable toggle** — controls whether PV operates during grid
+  outage
+- **Live power chart** — real-time grid, solar, and battery power flows
+
+### Recorder replay
+
+The simulator automatically replays recorded power data from this HA
+instance's recorder for circuits with mapped entities. This grounds the
+simulation in actual household usage patterns rather than synthetic
+profiles.
+
+Circuits with recorder data show a **REC** badge in the entity list.
+Clicking the badge toggles to **SYN** (synthetic) mode, where the
+simulator uses the configured power profile instead of recorded data.
+Click again to switch back to recorder replay. This lets you compare
+how well a synthetic profile matches your real usage, or override a
+specific circuit while keeping the rest on recorded data.
+
+### Energy modeling
+
+The modeling view lets you answer "what if" questions about adding solar
+or battery storage to your panel. Clone your real panel, then add or
+modify PV and Battery entities to see the projected impact on your grid
+consumption over historical data.
+
+**Typical workflow:**
+
+1. Clone your real SPAN panel from the dashboard
+2. Circuits automatically replay actual recorded power data
+3. Click **Model** on the running panel to enter the modeling view
+4. The **Before** chart shows your site power as-is (loads minus any
+   existing solar)
+5. Add a Battery entity (or modify an existing one) — adjust capacity,
+   charge/discharge schedule, and backup reserve
+6. The **After** chart immediately updates to show grid power with the
+   BESS applied, along with kWh savings
+7. Add or resize a PV entity to see how additional solar offsets your
+   consumption in the Before chart
+8. Experiment with different battery sizes, charge modes, and PV
+   nameplate ratings — charts auto-refresh on every save
+
+**Modeling controls:**
+
+- **Horizon selector** — last month, 3 months, 6 months, or 1 year
+- **Range zoom** — drag the slider to zoom into any time window
+- **Circuit overlays** — check individual circuits in the entity list
+  to overlay their power traces on both charts
+- **Toggleable legend** — show/hide Solar and Battery traces
+- **Energy summary** — net kWh with import/export breakdown and savings
+  percentage
+
+### Entity management
+
+Add, edit, and delete circuits with specialized editors per type:
+
+- **PV** — nameplate capacity, geographic sine-curve solar model,
+  monthly weather degradation from Open-Meteo historical data
+- **Battery** — nameplate capacity (kWh), backup reserve %, charge mode
+  (Custom / Solar Generation / Solar Excess), discharge presets,
+  24-hour charge/discharge/idle schedule
+- **EVSE** — charging schedule with presets (Peak Solar, Evening, Night)
+  or custom start/duration, 24-hour visual timeline
+- **Circuits** — typical power, 24-hour usage profile with presets,
+  HVAC type selector with seasonal power modulation
+
+PV and Battery are singleton types — only one of each can exist per
+panel. Recorder-sourced entities preserve their original panel settings
+(priority, relay behavior) as read-only.
+
+### Relay control and load shedding
+
+- Click status dots to toggle circuit relays
+- Changes from the dashboard or HA integration (via MQTT) are reflected
+  in both directions
+- Grid offline triggers load shedding by priority:
+  `OFF_GRID` circuits shed immediately, `SOC_THRESHOLD` circuits shed
+  when battery SOC drops below threshold, `NEVER` circuits stay on
+
+### Theme
+
+System, light, or dark theme via the header selector.
 
 ## Configuration options
 
@@ -52,7 +141,7 @@ needed.
 
 ## Full documentation
 
-Dashboard features, energy modeling workflows, panel cloning, recorder
-replay, and configuration reference:
+Dashboard features, configuration reference, MQTT topics, and
+simulation engine internals:
 
 **<https://github.com/SpanPanel/simulator#readme>**
