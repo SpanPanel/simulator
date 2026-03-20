@@ -6,11 +6,11 @@ image: "ghcr.io/spanpanel/simulator/{arch}"
 arch:
   - amd64
   - aarch64
-ports:
-  18080/tcp: 18080
-ports_description:
-  18080/tcp: "Web dashboard"
 host_network: true
+ingress: true
+ingress_port: 18080
+panel_icon: "mdi:flash"
+panel_title: "SPAN Simulator"
 map:
   - config:rw
 options:
@@ -25,6 +25,5 @@ schema:
   log_level: list(DEBUG|INFO|WARNING|ERROR)
   advertise_address: str?
   dashboard_enabled: bool
-webui: "http://[HOST]:[PORT:18080]"
 startup: application
 init: false

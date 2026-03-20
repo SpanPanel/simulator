@@ -79,7 +79,7 @@ def create_dashboard_app(context: DashboardContext) -> web.Application:
         app,
         loader=jinja2.FileSystemLoader(str(template_dir)),
     )
-    env.globals["static_url"] = "/static"
+    env.globals["static_url"] = "static"
 
     static_dir = Path(__file__).parent / "static"
     app.router.add_static("/static", static_dir, name="static")
