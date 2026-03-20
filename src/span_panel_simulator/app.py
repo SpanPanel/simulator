@@ -545,7 +545,37 @@ class SimulatorApp:
         self._http_server = http_server
         await http_server.start()
 
-        # 3b. Start dashboard on its own port
+        # 3b. Initialise HA API client and history provider (if configured).
+        # Must happen before the dashboard starts listening so the first
+        # request (e.g. via HA ingress) already sees ha_available=True.
+        ha_client: HAClient | None = None
+        if self._ha_config is not None:
+            from span_panel_simulator.ha_api.client import HAClient
+
+            ha_client = HAClient(self._ha_config)
+            if await ha_client.async_validate():
+                _LOGGER.info("HA API: connected and validated")
+                self._ha_client = ha_client
+            else:
+                _LOGGER.warning("HA API: validation failed — continuing without HA")
+                await ha_client.close()
+                ha_client = None
+
+        # 3c. Start mDNS advertiser and panel browser before the dashboard
+        # is reachable so discovery results are available on first load.
+        advertiser = PanelAdvertiser(
+            http_port=self._advertise_http_port or self._http_port,
+            advertise_address=self._advertise_address,
+        )
+        self._advertiser = advertiser
+        await advertiser.start()
+
+        browser = PanelBrowser()
+        self._panel_browser = browser
+        await browser.start()
+
+        # 3d. Start dashboard on its own port — HA client and panel
+        # browser are already initialised so the context is complete.
         dashboard_ctx = DashboardContext(
             config_dir=self._config_dir,
             config_filter=self._config_filter,
@@ -563,6 +593,9 @@ class SimulatorApp:
             set_circuit_priority=self._set_circuit_priority,
             set_circuit_relay=self._set_circuit_relay,
             get_modeling_data=self._get_modeling_data,
+            ha_client=ha_client,
+            history_provider=ha_client,
+            panel_browser=browser,
         )
         dashboard_app = create_dashboard_app(dashboard_ctx)
         self._dashboard_runner = web.AppRunner(dashboard_app)
@@ -570,34 +603,6 @@ class SimulatorApp:
         dashboard_site = web.TCPSite(self._dashboard_runner, "0.0.0.0", self._dashboard_port)
         await dashboard_site.start()
         _LOGGER.info("Dashboard listening on http://0.0.0.0:%d", self._dashboard_port)
-
-        # 3c. Initialise HA API client and history provider (if configured)
-        if self._ha_config is not None:
-            from span_panel_simulator.ha_api.client import HAClient
-
-            self._ha_client = HAClient(self._ha_config)
-            if await self._ha_client.async_validate():
-                _LOGGER.info("HA API: connected and validated")
-                dashboard_ctx.ha_client = self._ha_client
-                # HAClient satisfies HistoryProvider — use it for profiles
-                dashboard_ctx.history_provider = self._ha_client
-            else:
-                _LOGGER.warning("HA API: validation failed — continuing without HA")
-                await self._ha_client.close()
-                self._ha_client = None
-
-        # 4. Start mDNS advertiser and panel browser
-        advertiser = PanelAdvertiser(
-            http_port=self._advertise_http_port or self._http_port,
-            advertise_address=self._advertise_address,
-        )
-        self._advertiser = advertiser
-        await advertiser.start()
-
-        browser = PanelBrowser()
-        self._panel_browser = browser
-        dashboard_ctx.panel_browser = browser
-        await browser.start()
 
         # 5. Connect to MQTT broker and run
         self._running = True
