@@ -1,5 +1,15 @@
-#!/usr/bin/with-contenv bash
+#!/usr/bin/env bash
 set -euo pipefail
+
+# Import s6-overlay container environment so Supervisor-injected vars
+# (SUPERVISOR_TOKEN, etc.) are visible to this process tree.
+if [ -d /run/s6/container_environment ]; then
+    for _f in /run/s6/container_environment/*; do
+        [ -f "$_f" ] || continue
+        export "$(basename "$_f")=$(cat "$_f")"
+    done
+    unset _f
+fi
 
 # Read add-on options from standard HA location
 OPTIONS_FILE="/data/options.json"
