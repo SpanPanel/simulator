@@ -15,7 +15,7 @@ panel_title: "SPAN Simulator"
 map:
   - config:rw
 options:
-  config_file: "span_simulator/default_main_40.yaml"
+  config_file: "span_simulator/default_MAIN_40.yaml"
   tick_interval: 1.0
   log_level: "INFO"
   advertise_address: ""

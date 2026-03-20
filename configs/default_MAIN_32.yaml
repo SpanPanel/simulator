@@ -413,17 +413,18 @@ circuit_templates:
       on_duration: 7200   # 2 hours on
       off_duration: 14400 # 4 hours off
 
-  # Solar production system - generic producer
+  # Solar production system
   solar_production:
     energy_profile:
-      mode: "producer"  # Produces power (negative values)
-      power_range: [-4000.0, 0.0]  # 4kW peak production
-      typical_power: -2500.0  # Average production
-      power_variation: 0.3
-      efficiency: 0.85  # 85% efficiency
-      nameplate_capacity_w: 4000.0
+      mode: "producer"
+      power_range: [-8000.0, 0.0]
+      typical_power: -5000.0
+      power_variation: 0.25
+      efficiency: 0.85
+      nameplate_capacity_w: 8000.0
     relay_behavior: "non_controllable"
     priority: "NEVER"
+    device_type: "pv"
     breaker_rating: 30
 
   # Backup generator - another producer type
@@ -453,9 +454,12 @@ circuit_templates:
       enabled: true
       nameplate_capacity_kwh: 13.5
       backup_reserve_pct: 20.0
-      charge_power: 3000.0
-      discharge_power: -3000.0
-      idle_power: 0.0
+      charge_mode: "solar-gen"
+      max_charge_power: 3500.0
+      max_discharge_power: 3500.0
+      charge_hours: [8, 9, 10, 11, 12, 13, 14, 15]
+      discharge_hours: [16, 17, 18, 19, 20, 21, 22]
+      idle_hours: [0, 1, 2, 3, 4, 5, 6, 7, 23]
 
   # Wind turbine - variable producer
   wind_production:
@@ -652,40 +656,21 @@ circuits:
     template: "ev_charger"
     tabs: [27, 29]  # 240V Level 2 charger
 
-# Configuration for unmapped tabs with specific behaviors
-# Tabs 30 and 32: Solar production tabs for integration testing
-# These tabs remain unmapped (no circuits) but have synchronized behavior
-unmapped_tab_templates:
-  "30":
-    energy_profile:
-      mode: "producer"
-      power_range: [-2000.0, 0.0]  # 2kW production capacity per phase
-      typical_power: -1500.0  # 1.5kW average per phase
-      power_variation: 0.2
-      efficiency: 0.85
-    relay_behavior: "non_controllable"
-    priority: "NEVER"
+  # Solar + battery (tabs 28-32)
+  - id: "solar_inverter"
+    name: "Solar Inverter"
+    template: "solar_production"
+    tabs: [28, 30]
+    device_type: "pv"
+    overrides:
+      nameplate_capacity_w: 8000.0
 
-  "32":
-    energy_profile:
-      mode: "producer"
-      power_range: [-2000.0, 0.0]  # 2kW production capacity per phase
-      typical_power: -1500.0  # 1.5kW average per phase
-      power_variation: 0.2
-      efficiency: 0.85
-    relay_behavior: "non_controllable"
-    priority: "NEVER"
+  - id: "battery_storage_1"
+    name: "Battery Storage"
+    template: "battery_storage"
+    tabs: [31, 32]
 
-# Tab synchronization for coordinated behavior (e.g., 240V loads, multi-phase production)
-tab_synchronizations:
-  - tabs: [30, 32]
-    behavior: "240v_split_phase"  # Two phases of same 240V system
-    power_split: "equal"  # Equal power on both phases
-    energy_sync: true  # Synchronized energy accumulation
-    template: "solar_production"  # Generic production template
-
-# Unmapped tabs that should have behavior but remain unmapped (no circuits created)
-unmapped_tabs: [30, 32]
+unmapped_tabs: []
 
 # Global simulation parameters
 simulation_params:
