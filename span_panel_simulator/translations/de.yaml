@@ -1,0 +1,16 @@
+configuration:
+  config_file:
+    name: Konfigurationsdatei
+    description: Pfad zur Simulations-YAML-Datei (relativ zu /config)
+  tick_interval:
+    name: Aktualisierungsintervall
+    description: Sekunden zwischen Simulationsaktualisierungen
+  log_level:
+    name: Protokollstufe
+    description: Ausführlichkeit der Protokollierung
+  advertise_address:
+    name: Angekündigte Adresse
+    description: IP-Adresse für mDNS-Ankündigung (leer lassen für automatische Erkennung)
+  dashboard_enabled:
+    name: Dashboard aktiviert
+    description: Web-Dashboard zur Steuerung der Simulation aktivieren

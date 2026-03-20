@@ -1,0 +1,16 @@
+configuration:
+  config_file:
+    name: Configuratiebestand
+    description: Pad naar het simulatie-YAML-bestand (relatief ten opzichte van /config)
+  tick_interval:
+    name: Bijwerkingsinterval
+    description: Seconden tussen simulatie-updates
+  log_level:
+    name: Logniveau
+    description: Uitgebreidheid van logboekregistratie
+  advertise_address:
+    name: Geadverteerd adres
+    description: IP-adres om via mDNS aan te kondigen (leeg laten voor automatische detectie)
+  dashboard_enabled:
+    name: Dashboard ingeschakeld
+    description: Webdashboard inschakelen voor het besturen van de simulatie
