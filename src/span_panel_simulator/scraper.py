@@ -97,6 +97,13 @@ async def register_with_panel(
             async with session.post(register_url, json=body) as resp:
                 if resp.status in (401, 403):
                     raise ScrapeError("registering", "Bad passphrase or access denied")
+                if resp.status == 422:
+                    hint = (
+                        "Panel rejected the request (422). "
+                        "This usually means a passphrase is required "
+                        "— enter the door-code passphrase and retry."
+                    )
+                    raise ScrapeError("registering", hint)
                 resp.raise_for_status()
                 data = await resp.json()
 
