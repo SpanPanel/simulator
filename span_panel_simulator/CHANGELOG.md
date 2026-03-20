@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1 — 2026-03-20
+
+### Translations
+- Add add-on config translations for German, French, Spanish, Dutch, and Brazilian Portuguese
+
 ## 1.0.0 — 2026-03-20
 
 Initial public release.
