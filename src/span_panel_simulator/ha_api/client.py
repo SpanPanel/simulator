@@ -48,20 +48,34 @@ class HAConnectionConfig:
         """Resolve connection config from the environment.
 
         Priority:
-          1. ``SUPERVISOR_TOKEN`` env var (add-on mode)
+          1. ``SUPERVISOR_TOKEN`` or ``HASSIO_TOKEN`` env var (add-on mode)
           2. Explicit ``ha_url`` + ``ha_token`` (local mode)
           3. ``HA_URL`` + ``HA_TOKEN`` env vars (local mode fallback)
 
         Returns ``None`` if no valid configuration is found — the caller
         should treat HA integration as unavailable.
         """
-        supervisor_token = os.environ.get("SUPERVISOR_TOKEN")
+        # Modern Supervisor uses SUPERVISOR_TOKEN; older versions set
+        # HASSIO_TOKEN.  Check both so the add-on works across versions.
+        supervisor_token = os.environ.get(
+            "SUPERVISOR_TOKEN",
+        ) or os.environ.get("HASSIO_TOKEN")
         if supervisor_token:
             _LOGGER.info("HA API: running as add-on (Supervisor token detected)")
             return HAConnectionConfig(
                 base_url=_SUPERVISOR_API_BASE,
                 token=supervisor_token,
                 is_supervisor=True,
+            )
+
+        # Log a hint when we appear to be inside an add-on container but
+        # no token was injected — most likely the Supervisor metadata
+        # needs refreshing (Settings → Add-ons → ⋮ → Check for updates).
+        if os.path.isfile("/data/options.json"):
+            _LOGGER.warning(
+                "HA API: /data/options.json exists (add-on container) but "
+                "SUPERVISOR_TOKEN is not set — ensure homeassistant_api is "
+                "true in config.yaml and refresh the add-on store",
             )
 
         url = ha_url or os.environ.get("HA_URL")
