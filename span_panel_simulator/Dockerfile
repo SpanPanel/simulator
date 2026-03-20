@@ -17,8 +17,11 @@ RUN pip install --no-cache-dir . \
 # Copy Mosquitto directory (for fallback use; run.sh generates config at runtime)
 COPY mosquitto/ mosquitto/
 
+# Copy default panel configs (run.sh seeds /config/span_simulator/ from these)
+COPY configs/ configs/
+
 # Create directories
-RUN mkdir -p /app/certs /app/configs /mosquitto/data /data/certs
+RUN mkdir -p /app/certs /mosquitto/data /data/certs
 
 # Copy add-on entry point
 COPY span_panel_simulator/run.sh /run.sh

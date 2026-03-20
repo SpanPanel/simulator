@@ -21,6 +21,14 @@ export CERT_DIR="/data/certs"
 export BROKER_USERNAME="span"
 export BROKER_PASSWORD="sim-password"
 
+# Ensure config directory exists and has a default config
+CONFIG_DIR="/config/span_simulator"
+mkdir -p "${CONFIG_DIR}"
+if [ ! -f "${CONFIG_DIR}/default_config.yaml" ] && [ -f "/app/configs/default_config.yaml" ]; then
+    cp /app/configs/default_config.yaml "${CONFIG_DIR}/default_config.yaml"
+    echo "Copied default config to ${CONFIG_DIR}/default_config.yaml"
+fi
+
 mkdir -p "${CERT_DIR}"
 
 # Generate TLS certs
@@ -60,9 +68,15 @@ CONF
 mosquitto -c /app/mosquitto/mosquitto.conf -d
 sleep 1
 
+# Split config option into directory and filename
+# CONFIG_FILE is e.g. "span_simulator/default_config.yaml"
+CONFIG_BASENAME=$(basename "${CONFIG_FILE}")
+CONFIG_SUBDIR=$(dirname "${CONFIG_FILE}")
+
 # Build simulator CLI arguments
 ARGS=(
-    --config "/config/${CONFIG_FILE}"
+    --config-dir "/config/${CONFIG_SUBDIR}"
+    --config "${CONFIG_BASENAME}"
     --tick-interval "${TICK_INTERVAL}"
     --log-level "${LOG_LEVEL}"
     --http-port 8081
