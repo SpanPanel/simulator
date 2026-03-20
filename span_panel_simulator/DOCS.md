@@ -26,8 +26,9 @@ real SPAN panel's configuration directly from the dashboard.
 - **Energy modeling** — Before/After comparison charts showing grid
   consumption impact of adding BESS, with kWh savings over historical
   data
-- **Recorder replay** — circuits replay actual power data from the HA
-  recorder for realistic simulation
+- **Recorder replay** — the simulator automatically connects to this
+  HA instance and replays actual power data from the recorder for
+  realistic simulation (no manual URL or token configuration needed)
 - **Grid simulation** — toggle grid online/offline to test backup
   behavior and load shedding
 
