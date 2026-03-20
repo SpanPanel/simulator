@@ -16,6 +16,8 @@ recorder replay, and energy modeling.
 
 ![Battery editor — BESS charge and discharge profile](docs/images/dashboard_battery.png)
 
+![Modeling view — Before/After energy comparison with BESS, dual charts with range zoom and circuit overlays](docs/images/modeling.png)
+
 ## Quick Start (macOS)
 
 ```bash
