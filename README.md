@@ -42,19 +42,23 @@ the simulator with mDNS advertising on your LAN IP. No `sudo` required.
 
 Open the dashboard at **http://localhost:18080**.
 
-## Home Assistant Add-on
+## Home Assistant App
 
-The simulator can run as an HA add-on so users with the `span-panel`
-integration can spin up a simulated panel directly in their HA environment.
+The simulator can run as an HA app (add-on) so users with the
+`span-panel` integration can spin up a simulated panel directly in
+their HA environment.
 
 1. Go to **Settings > Add-ons > Add-on Store** > three-dot menu >
    **Repositories**
 2. Add `https://github.com/SpanPanel/simulator`
 3. Install **SPAN Panel Simulator** from the store
-4. Configure options and start
+4. Start the app — a default panel config is included
+5. The `span-panel` integration discovers the simulated panel
+   automatically via mDNS
+6. Open the web dashboard on port **18080** to configure the panel
 
-The add-on runs the simulator in a container with its own Mosquitto broker.
-The `span-panel` integration discovers it via mDNS just like a real panel.
+The app runs the simulator in a container with its own Mosquitto broker.
+No real SPAN hardware is needed.
 
 ## Running with Docker (Linux only)
 

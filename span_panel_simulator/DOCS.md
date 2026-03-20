@@ -1,10 +1,18 @@
-# SPAN Panel Simulator Add-on
+# SPAN Panel Simulator
 
-Simulates a SPAN electrical panel within Home Assistant for development and testing. The simulator publishes Homie v5 MQTT topics, serves an HTTP bootstrap API, and advertises via mDNS — exactly like real hardware.
+Simulates a SPAN electrical panel within Home Assistant for development,
+testing, and energy modeling. The simulator publishes Homie v5 MQTT
+topics, serves an HTTP bootstrap API, and advertises via mDNS — exactly
+like real hardware. No real SPAN panel is needed.
 
-## How it works
+## Setup
 
-The `span-panel` HA integration discovers the simulated panel through mDNS, connects to its MQTT broker, and creates entities with live-updating power values. No real SPAN hardware is needed.
+1. Install this app
+2. Start the app — a default panel config is included
+3. The `span-panel` integration will discover the simulated panel
+   automatically via mDNS
+4. Open the web dashboard on port **18080** to configure the panel,
+   manage entities, and run energy modeling
 
 ## Configuration
 
@@ -24,13 +32,14 @@ The `span-panel` HA integration discovers the simulated panel through mDNS, conn
 | 8081 | HTTP bootstrap API |
 | 18080 | Web dashboard |
 
-## Setup
-
-1. Install this add-on
-2. Place a simulation config YAML in `/config/span_simulator/`
-3. Start the add-on
-4. The `span-panel` integration will discover the simulated panel automatically
-
 ## Custom configs
 
-Copy the default config from the simulator repository to `/config/span_simulator/default_config.yaml` and modify as needed. The config controls panel size, circuit names, solar/battery presence, and load profiles.
+Place simulation config YAML files in `/config/span_simulator/` and set
+the `config_file` option to the filename. The config controls panel size,
+circuit names, solar/battery presence, and load profiles.
+
+## Full documentation
+
+For dashboard features, energy modeling workflows, panel cloning,
+recorder replay, and configuration details, see the
+[project README](https://github.com/SpanPanel/simulator#readme).
