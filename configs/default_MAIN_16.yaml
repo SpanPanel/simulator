@@ -2,7 +2,8 @@
 # Includes solar + battery for basic DER testing
 
 panel_config:
-  serial_number: "sim-16t-test-001"
+  serial_number: "sim-16t-001"
+  model: "MAIN_16"
   total_tabs: 16
   main_size: 100
   latitude: 37.7
