@@ -8,8 +8,12 @@
   {% endif %}
 
   <p class="hint">
-    Scrapes circuit configuration from a real SPAN panel{% if ha_available %} and imports
-    usage profiles from Home Assistant recorder statistics{% endif %}.
+    {% if ha_available %}
+    Clones circuit configuration from a SPAN panel registered with this
+    Home Assistant instance, including usage profiles from the recorder.
+    {% else %}
+    Scrapes circuit configuration from a real SPAN panel via its eBus.
+    {% endif %}
   </p>
   <form hx-post="clone-from-panel"
         hx-target="#clone-panel-section"
@@ -17,15 +21,19 @@
         hx-indicator="#clone-spinner">
     <div class="form-row">
       <label>Panel
-        <select id="panel-selector">
+        <select id="panel-selector" name="panel-select">
           <option value="">Scanning…</option>
         </select>
       </label>
+      <input type="hidden" name="host" id="clone-host-input"
+             value="{{ clone_host | default('', true) }}">
+      {% if not ha_available %}
       <label>Panel IP / hostname
-        <input type="text" name="host" id="clone-host-input"
+        <input type="text" id="clone-host-manual"
                placeholder="192.168.1.100"
-               value="{{ clone_host | default('', true) }}" required>
+               value="{{ clone_host | default('', true) }}">
       </label>
+      {% endif %}
       <label>Passphrase <span class="hint">(blank for door-bypass)</span>
         <input type="text" name="passphrase" placeholder="optional"
                value="{{ clone_passphrase | default('', true) }}">
@@ -39,7 +47,9 @@
 (function() {
   var sel = document.getElementById('panel-selector');
   var hostInput = document.getElementById('clone-host-input');
+  var manualInput = document.getElementById('clone-host-manual');
   if (!sel || !hostInput) return;
+
   fetch('discovered-panels')
     .then(function(r) { return r.json(); })
     .then(function(panels) {
@@ -60,10 +70,18 @@
     .catch(function() {
       sel.innerHTML = '<option value="">Discovery unavailable</option>';
     });
+
   sel.addEventListener('change', function() {
     if (sel.value) {
       hostInput.value = sel.value;
     }
   });
+
+  // In standalone mode, sync manual input to hidden host field
+  if (manualInput) {
+    manualInput.addEventListener('input', function() {
+      hostInput.value = manualInput.value;
+    });
+  }
 })();
 </script>

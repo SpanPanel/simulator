@@ -21,13 +21,17 @@ export CERT_DIR="/data/certs"
 export BROKER_USERNAME="span"
 export BROKER_PASSWORD="sim-password"
 
-# Ensure config directory exists and has a default config
+# Ensure config directory exists and seed any missing configs from the image
 CONFIG_DIR="/config/span_simulator"
 mkdir -p "${CONFIG_DIR}"
-if [ ! -f "${CONFIG_DIR}/default_config.yaml" ] && [ -f "/app/configs/default_config.yaml" ]; then
-    cp /app/configs/default_config.yaml "${CONFIG_DIR}/default_config.yaml"
-    echo "Copied default config to ${CONFIG_DIR}/default_config.yaml"
-fi
+for src in /app/configs/*.yaml /app/configs/*.yml; do
+    [ -f "${src}" ] || continue
+    dest="${CONFIG_DIR}/$(basename "${src}")"
+    if [ ! -f "${dest}" ]; then
+        cp "${src}" "${dest}"
+        echo "Seeded config: $(basename "${src}")"
+    fi
+done
 
 mkdir -p "${CERT_DIR}"
 
