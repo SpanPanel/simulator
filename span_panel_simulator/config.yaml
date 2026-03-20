@@ -14,7 +14,7 @@ ports_description:
   18883/tcp: "MQTTS broker"
   8081/tcp: "HTTP bootstrap API"
   18080/tcp: "Web dashboard"
-host_network: false
+host_network: true
 map:
   - config:rw
 options:
@@ -29,5 +29,6 @@ schema:
   log_level: list(DEBUG|INFO|WARNING|ERROR)
   advertise_address: str?
   dashboard_enabled: bool
+webui: "http://[HOST]:[PORT:18080/tcp]"
 startup: application
 init: false
