@@ -265,9 +265,6 @@ class ConfigStore:
         template_name = circuit["template"]
         template = self._templates().get(template_name, {})
 
-        # Editing detaches from recorder — the user is customizing
-        template.pop("recorder_entity", None)
-
         if "name" in data:
             circuit["name"] = data["name"]
 
