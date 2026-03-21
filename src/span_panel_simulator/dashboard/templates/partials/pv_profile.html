@@ -110,6 +110,12 @@
     var ctx = document.getElementById('pv-chart-canvas');
     if (!ctx) return;
 
+    // Destroy any stale Chart.js instance left after HTMX swap
+    var existing = Chart.getChart(ctx);
+    if (existing && existing !== chartInstance) {
+      existing.destroy();
+    }
+
     if (chartInstance) {
       chartInstance.data.labels = labels;
       chartInstance.data.datasets[0].data = values;
