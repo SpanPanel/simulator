@@ -59,6 +59,35 @@ their HA environment.
 The app runs the simulator in a container with its own Mosquitto broker.
 No real SPAN hardware is needed.
 
+## Multi-Panel Discovery
+
+Each simulated panel runs its own bootstrap HTTP server on a separate
+port (starting from `base_http_port`, default 8081). The dashboard
+shows the port next to each running panel's serial number.
+
+### HA App (add-on) mode
+
+The simulator registers each panel with the HA Supervisor Discovery
+API. The `span-panel` integration discovers all running panels
+automatically — no manual configuration needed.
+
+### Standalone mode
+
+Home Assistant's zeroconf discovers **one panel per IP address**. When
+running multiple panels on the same host, the first panel is
+auto-discovered via mDNS. Additional panels must be added manually:
+
+1. Note the port shown in the dashboard panel list (e.g. `:8082`)
+2. In HA, go to **Settings > Devices & Services > Add Integration**
+3. Search for **Span Panel** and enter the host IP and port
+
+When you remove a configured panel from HA, zeroconf may auto-discover
+a different panel on the same IP — you cannot predict which one. Check
+the serial number after discovery to identify it.
+
+To avoid this ambiguity, run panels on separate hosts (e.g. different
+machines or VMs) where each host has its own IP.
+
 ## Running with Docker (Linux only)
 
 ```bash

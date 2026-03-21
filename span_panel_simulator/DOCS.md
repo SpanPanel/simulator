@@ -11,10 +11,11 @@ data and entity discovery — no manual URL or token configuration needed.
 ## Getting started
 
 1. Install and start this app
-2. The `span-panel` integration discovers the simulated panel
-   automatically via mDNS — just like a real SPAN panel
+2. The `span-panel` integration discovers simulated panels
+   automatically — each running panel appears as a separate
+   discoverable device in HA
 3. Open the web dashboard via the **Open Web UI** button to configure
-   the panel, manage entities, clone a real panel, and run energy
+   panels, manage entities, clone a real panel, and run energy
    modeling
 
 A default panel configuration is included. You can also clone your
@@ -130,6 +131,7 @@ System, light, or dark theme via the header selector.
 | `log_level` | `INFO` | Logging verbosity |
 | `advertise_address` | (auto-detected) | IP to advertise via mDNS (leave blank for auto) |
 | `dashboard_enabled` | `true` | Enable the web dashboard |
+| `base_http_port` | `8081` | Base port for per-panel HTTP servers (first panel uses this port, second uses port+1, etc.) |
 
 ## Custom configs
 
