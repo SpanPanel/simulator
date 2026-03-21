@@ -437,7 +437,7 @@ git commit -m "feat: add hx-disabled-elt to config, sim, clone, import, lifecycl
 ### Task 5: Convert runtime_controls.html fetch calls to busyFetch
 
 **Files:**
-- Modify: `src/span_panel_simulator/dashboard/templates/partials/runtime_controls.html:234,260,279,296,320`
+- Modify: `src/span_panel_simulator/dashboard/templates/partials/runtime_controls.html:234,260,279,296,320,527-572`
 
 - [ ] **Step 1: set-sim-time (line 234)**
 
@@ -537,11 +537,58 @@ Replace `fetch(` with `busyFetch(dot,`:
     });
 ```
 
-- [ ] **Step 6: Verify manually**
+- [ ] **Step 6: Convert pollPower() sync code to classList (lines 527-572)**
 
-Drag the time slider — slider dims briefly during POST. Click grid toggle — button dims briefly. Click a relay dot — dot dims briefly. All should clear immediately on response.
+The `pollPower()` function runs every 3 seconds and syncs grid/islandable buttons and relay dots using `className =` assignment. This would strip `.busy` if a busyFetch is in flight when a poll arrives. Convert all three sync blocks to `classList` for consistency:
 
-- [ ] **Step 7: Commit**
+Grid button sync (lines 526-532):
+```javascript
+        if (data.grid_online !== undefined) {
+          if (data.grid_online) {
+            gridBtn.classList.remove('grid-offline');
+            gridBtn.classList.add('grid-online');
+            gridBtn.textContent = 'Grid Online';
+          } else {
+            gridBtn.classList.remove('grid-online');
+            gridBtn.classList.add('grid-offline');
+            gridBtn.textContent = 'Grid Offline';
+          }
+        }
+```
+
+Islandable button sync (lines 536-542):
+```javascript
+          if (data.is_islandable) {
+            islandableBtn.classList.remove('islandable-off');
+            islandableBtn.classList.add('islandable-on');
+            islandableBtn.textContent = 'Islandable';
+          } else {
+            islandableBtn.classList.remove('islandable-on');
+            islandableBtn.classList.add('islandable-off');
+            islandableBtn.textContent = 'Not Islandable';
+          }
+```
+
+Relay dots sync (lines 562-573) — this one is trickier because the full `className` is built dynamically. Use a helper approach that preserves `.busy`:
+```javascript
+        dots.forEach(function(dot) {
+          var cid = dot.dataset.cid;
+          dot.classList.remove('status-off', 'status-shed', 'status-open');
+          if (data.all_off) {
+            dot.classList.add('status-off');
+          } else if (shedIds.indexOf(cid) >= 0) {
+            dot.classList.add('status-shed');
+          } else if (userOpenIds.indexOf(cid) >= 0) {
+            dot.classList.add('status-open');
+          }
+        });
+```
+
+- [ ] **Step 7: Verify manually**
+
+Drag the time slider — slider dims briefly during POST. Click grid toggle — button dims briefly. Click a relay dot — dot dims briefly. All should clear immediately on response. Wait for a 3s poll cycle — verify the busy state is not prematurely stripped.
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/span_panel_simulator/dashboard/templates/partials/runtime_controls.html
