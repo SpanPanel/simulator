@@ -265,6 +265,9 @@ class ConfigStore:
         template_name = circuit["template"]
         template = self._templates().get(template_name, {})
 
+        # Editing detaches from recorder — the user is customizing
+        template.pop("recorder_entity", None)
+
         if "name" in data:
             circuit["name"] = data["name"]
 
@@ -274,13 +277,18 @@ class ConfigStore:
                 tabs_raw = [int(t.strip()) for t in tabs_raw.split(",") if t.strip()]
             circuit["tabs"] = tabs_raw
 
-        if "priority" in data:
+        if "inverter_type" in data:
+            template["priority"] = "MUST_HAVE" if data["inverter_type"] == "hybrid" else "OFF_GRID"
+        elif "priority" in data:
             template["priority"] = data["priority"]
         if "relay_behavior" in data:
             template["relay_behavior"] = data["relay_behavior"]
 
         overrides: dict[str, Any] = circuit.get("overrides", {})
         ep = template.get("energy_profile", {})
+
+        if "efficiency" in data:
+            ep["efficiency"] = float(data["efficiency"])
 
         # PV nameplate: update the template directly and derive power_range
         if "nameplate_capacity_w" in data:
@@ -305,12 +313,17 @@ class ConfigStore:
                 else:
                     overrides.pop("power_range", None)
 
-        if "nameplate_capacity_kwh" in data or "backup_reserve_pct" in data:
+        battery_keys = (
+            "nameplate_capacity_kwh",
+            "backup_reserve_pct",
+            "max_charge_power",
+            "max_discharge_power",
+        )
+        if any(k in data for k in battery_keys):
             bb: dict[str, Any] = template.setdefault("battery_behavior", {})
-            if "nameplate_capacity_kwh" in data:
-                bb["nameplate_capacity_kwh"] = float(data["nameplate_capacity_kwh"])
-            if "backup_reserve_pct" in data:
-                bb["backup_reserve_pct"] = float(data["backup_reserve_pct"])
+            for k in battery_keys:
+                if k in data:
+                    bb[k] = float(data[k])
 
         if "breaker_rating" in data:
             br_val = str(data["breaker_rating"]).strip()
