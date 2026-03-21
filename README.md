@@ -63,17 +63,17 @@ Open the dashboard at **http://localhost:18080**.
 
 ### Multi-panel in standalone mode
 
-Home Assistant's zeroconf discovers **one panel per IP address**, so
-only one panel is auto-discovered via mDNS. For multiple panels on
-the same host, add each one manually using the port shown in the
-dashboard panel list:
+Home Assistant's zeroconf auto-discovers **one panel per IP address**.
+The first panel appears as a discovery notification in HA and can be
+configured normally. Additional panels on the same host need to be
+added manually — use the port shown in the dashboard panel list:
 
 1. In HA, go to **Settings > Devices & Services > Add Integration**
 2. Search for **Span Panel** and enter the host IP and port
-   (e.g. `192.168.1.50` port `8081`, then again with port `8082`)
+   (e.g. `192.168.1.50` port `8082`)
 
-This avoids ambiguity — zeroconf cannot tell you which panel it
-discovered when multiple share the same IP.
+Each panel has a unique serial number, so there is no conflict between
+the auto-discovered panel and manually added ones.
 
 ## Running with Docker (Linux only)
 
