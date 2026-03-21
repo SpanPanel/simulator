@@ -175,6 +175,10 @@ class SimulatorApp:
         """Return a mapping of config path to serial number for running panels."""
         return {path: panel.serial_number for path, panel in self._panels.items()}
 
+    def _get_panel_ports(self) -> dict[str, int]:
+        """Return a mapping of serial number to HTTP port for running panels."""
+        return dict(self._panel_ports)
+
     def _get_first_engine(self) -> DynamicSimulationEngine | None:
         """Return the engine of the first running panel, if any."""
         for panel in self._panels.values():
@@ -654,6 +658,7 @@ class SimulatorApp:
             config_dir=self._config_dir,
             config_filter=self._config_filter,
             get_panel_configs=self._get_panel_configs,
+            get_panel_ports=self._get_panel_ports,
             request_reload=self.request_reload,
             set_config_filter=self.set_config_filter,
             start_panel=self.request_start_panel,

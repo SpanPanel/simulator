@@ -36,6 +36,7 @@ class DashboardContext:
     config_dir: Path
     config_filter: str | None
     get_panel_configs: Callable[[], dict[Path, str]]  # path -> serial
+    get_panel_ports: Callable[[], dict[str, int]]  # serial -> port
     request_reload: Callable[[], None]
     set_config_filter: Callable[[str | None], None] = lambda _: None
     start_panel: Callable[[str], None] = lambda _: None

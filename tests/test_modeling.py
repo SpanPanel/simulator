@@ -286,6 +286,7 @@ async def test_modeling_data_route_no_engine(tmp_path: Path) -> None:
         config_dir=tmp_path,
         config_filter=None,
         get_panel_configs=lambda: {},
+        get_panel_ports=lambda: {},
         request_reload=lambda: None,
     )
     app = create_dashboard_app(ctx)
@@ -318,6 +319,7 @@ async def test_modeling_data_route_returns_data(
         config_dir=tmp_path,
         config_filter=None,
         get_panel_configs=lambda: {},
+        get_panel_ports=lambda: {},
         request_reload=lambda: None,
         get_modeling_data=mock_get_modeling_data,
     )
