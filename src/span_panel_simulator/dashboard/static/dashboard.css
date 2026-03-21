@@ -1326,3 +1326,25 @@ body.modeling-mode #panel-source-section { display: none; }
   accent-color: var(--primary);
 }
 body.modeling-mode .modeling-overlay-cb { display: inline-block; }
+
+/* Loading / busy state — applied automatically by HTMX (.htmx-request)
+   or manually via busyFetch() (.busy) */
+.htmx-request,
+.busy {
+  cursor: wait;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.htmx-request button,
+.htmx-request .btn,
+.busy button,
+.busy .btn,
+button.htmx-request,
+button.busy {
+  cursor: wait;
+}
+
+.htmx-indicator {
+  margin-left: 0.5em;
+}
