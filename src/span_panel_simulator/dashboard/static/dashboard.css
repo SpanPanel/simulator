@@ -1175,8 +1175,9 @@ legend {
   font-size: 0.85rem;
 }
 
-.panel-row:hover {
+.panel-row:not(.active-panel):hover {
   background: var(--row-hover);
+  cursor: pointer;
 }
 
 .panel-status-dot {
