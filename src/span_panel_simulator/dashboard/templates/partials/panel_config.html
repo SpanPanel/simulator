@@ -102,8 +102,7 @@
       .then(function(data) {
         weatherStatus.innerHTML =
           '<span style="color:var(--success)">&#10003;</span> ' +
-          escapeHtml(data.summary) +
-          ' <span style="color:var(--text-muted)">(' + escapeHtml(data.source) + ')</span>';
+          escapeHtml(data.summary);
       })
       .catch(function(err) {
         weatherStatus.innerHTML =
