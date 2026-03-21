@@ -1,5 +1,10 @@
 {% for p in panels %}
-<div class="panel-row {{ 'active-panel' if p.active else '' }}">
+<div class="panel-row {{ 'active-panel' if p.active else '' }}"
+     {% if not p.active %}
+     onclick="switchPanel('{{ p.filename }}')"
+     style="cursor: pointer"
+     title="Click to view this config"
+     {% endif %}>
   <span class="panel-status-dot {{ 'status-running' if p.running else 'status-stopped' }}"></span>
   <span class="panel-serial">{{ p.serial }}</span>
   {% if p.port %}<span class="panel-port" title="Bootstrap HTTP port">:{{ p.port }}</span>{% endif %}
@@ -7,47 +12,42 @@
   {% if p.is_default %}
   <span class="badge badge-default" title="Clone this template to create an editable config">template</span>
   {% endif %}
-  {% if not p.is_default %}
   {% if p.active %}
-  <span class="badge badge-editing">editing</span>
-  {% else %}
-  <button class="btn btn-sm"
-          hx-post="load-config"
-          hx-vals='{"config_file": "{{ p.filename }}"}'
-          hx-target="#main-content"
-          hx-swap="innerHTML">
-    Edit
-  </button>
-  {% endif %}
+  <span class="badge badge-editing">{{ 'viewing' if p.is_default else 'editing' }}</span>
   {% endif %}
   <button class="btn btn-sm btn-secondary"
-          onclick="var n=prompt('Clone as:','{{ p.filename.replace('default_', '') }}');if(n){htmx.ajax('POST','clone',{target:'#flash-area',swap:'innerHTML',values:{filename:n,source_file:'{{ p.filename }}'}});}">
+          onclick="event.stopPropagation();var n=prompt('Clone as:','{{ p.filename.replace('default_', '') }}');if(n){htmx.ajax('POST','clone',{target:'#flash-area',swap:'innerHTML',values:{filename:n,source_file:'{{ p.filename }}'}});}"
+          title="Clone this config">
     Clone
   </button>
   {% if not p.is_default and p.running %}
   <button class="btn btn-sm btn-secondary"
-          onclick="window.enterModelingMode('{{ p.filename }}', '{{ p.serial }}')"
+          onclick="event.stopPropagation();window.enterModelingMode('{{ p.filename }}', '{{ p.serial }}')"
           title="Open modeling view">Model</button>
   {% endif %}
   {% if p.running %}
   <button class="btn btn-sm btn-secondary"
+          onclick="event.stopPropagation()"
           hx-post="restart-panel"
           hx-vals='{"filename": "{{ p.filename }}"}'
           hx-target="#flash-area" hx-swap="innerHTML"
           title="Restart engine">Restart</button>
   <button class="btn btn-sm btn-danger"
+          onclick="event.stopPropagation()"
           hx-post="stop-panel"
           hx-vals='{"filename": "{{ p.filename }}"}'
           hx-target="#flash-area" hx-swap="innerHTML"
           title="Stop engine">Stop</button>
   {% else %}
   <button class="btn btn-sm btn-primary"
+          onclick="event.stopPropagation()"
           hx-post="start-panel"
           hx-vals='{"filename": "{{ p.filename }}"}'
           hx-target="#flash-area" hx-swap="innerHTML"
           title="Start engine">Start</button>
   {% if not p.is_default and not p.running %}
   <button class="btn btn-sm btn-danger"
+          onclick="event.stopPropagation()"
           hx-post="delete-config"
           hx-vals='{"filename": "{{ p.filename }}"}'
           hx-target="#flash-area" hx-swap="innerHTML"
@@ -62,3 +62,28 @@
 {% elif panels | rejectattr('is_default') | list | length == 0 %}
 <p class="hint">Clone a template above to create your own editable configuration.</p>
 {% endif %}
+
+<script>
+function switchPanel(filename) {
+  fetch('check-dirty')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.dirty) {
+        if (!confirm('You have unsaved changes that will be lost. Switch anyway?')) {
+          return;
+        }
+      }
+      // load-config responds with HX-Redirect, so HTMX handles the
+      // full page reload automatically — no target/swap needed.
+      htmx.ajax('POST', 'load-config', {
+        values: { config_file: filename }
+      });
+    })
+    .catch(function(err) {
+      var flash = document.getElementById('flash-area');
+      if (flash) {
+        flash.innerHTML = '<div class="flash error">Failed to switch panel: ' + err.message + '</div>';
+      }
+    });
+}
+</script>
