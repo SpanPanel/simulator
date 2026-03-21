@@ -297,6 +297,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/load-config", handle_load_config)
     app.router.add_post("/clone", handle_clone)
     app.router.add_post("/save-reload", handle_save_reload)
+    app.router.add_get("/check-dirty", handle_check_dirty)
 
     # Panel source provenance
     app.router.add_get("/panel-source", handle_get_panel_source)
@@ -914,10 +915,6 @@ async def handle_load_config(request: web.Request) -> web.Response:
     filename = str(data.get("config_file", ""))
     if not filename:
         raise web.HTTPBadRequest(text="No config file selected")
-    if filename.startswith("default_"):
-        raise web.HTTPBadRequest(
-            text="Default templates cannot be edited. Clone to create your own."
-        )
     ctx = _ctx(request)
     config_path = ctx.config_dir / filename
     if not config_path.exists() or not config_path.is_file():
@@ -982,22 +979,26 @@ async def handle_save_reload(request: web.Request) -> web.Response:
     store = _store(request)
     ctx = _ctx(request)
 
-    yaml_content = store.export_yaml()
-
     filename = ctx.config_filter or "default_config.yaml"
-    output_path = ctx.config_dir / filename
+    if filename.startswith("default_"):
+        raise web.HTTPBadRequest(text="Cannot save changes to a default template. Clone it first.")
 
-    output_path.write_text(yaml_content, encoding="utf-8")
+    output_path = ctx.config_dir / filename
+    store.save_to_file(output_path)
     _LOGGER.info("Config saved to %s", output_path)
 
-    # Ensure the panel is running (removes from stopped set if needed)
-    # and trigger reload so the engine picks up the new config.
     ctx.start_panel(filename)
 
     return web.Response(
         text='<div class="flash success">Config saved and reload triggered.</div>',
         content_type="text/html",
     )
+
+
+async def handle_check_dirty(request: web.Request) -> web.Response:
+    """GET /check-dirty — return JSON dirty state for JS fetch."""
+    store = _store(request)
+    return web.json_response({"dirty": store.dirty})
 
 
 # -- Panel source provenance --

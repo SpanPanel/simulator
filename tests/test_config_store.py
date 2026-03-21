@@ -109,3 +109,35 @@ class TestDirtyFlag:
         assert store.dirty is True
         store.load_from_yaml(MINIMAL_YAML)
         assert store.dirty is False
+
+
+class TestDirtyStateAfterMutation:
+    """Tests for dirty flag transitions across mutations and loads."""
+
+    def test_clean_store_reports_not_dirty(self) -> None:
+        store = ConfigStore()
+        store.load_from_yaml(MINIMAL_YAML)
+        assert store.dirty is False
+
+    def test_mutated_store_reports_dirty(self) -> None:
+        store = ConfigStore()
+        store.load_from_yaml(MINIMAL_YAML)
+        store.update_panel_config({"serial_number": "X"})
+        assert store.dirty is True
+
+
+class TestSaveToFile:
+    """Tests for save_to_file round-trip."""
+
+    def test_saved_file_is_valid_yaml(self, tmp_path: Path) -> None:
+        store = ConfigStore()
+        store.load_from_yaml(MINIMAL_YAML)
+        store.update_panel_config({"serial_number": "SAVED"})
+        out = tmp_path / "saved.yaml"
+        store.save_to_file(out)
+
+        # Reload and verify
+        store2 = ConfigStore()
+        store2.load_from_file(out)
+        assert store2.get_panel_config()["serial_number"] == "SAVED"
+        assert store2.dirty is False
