@@ -8,7 +8,7 @@
         <option value="{{ t }}">{{ t|title }}</option>
         {% endfor %}
       </select>
-      <form id="add-entity-form" hx-post="entities" hx-target="#entity-list-section" hx-swap="innerHTML">
+      <form id="add-entity-form" hx-post="entities" hx-target="#entity-list-section" hx-swap="innerHTML" hx-disabled-elt="find button">
         <input type="hidden" name="entity_type" id="add-entity-type-hidden">
         <button type="submit" class="btn btn-sm btn-primary" onclick="document.getElementById('add-entity-type-hidden').value=document.getElementById('new-entity-type').value">+ Add Entity</button>
       </form>
@@ -43,7 +43,7 @@
   {% if unmapped_error is defined and unmapped_error %}
   <div class="flash error">{{ unmapped_error }}</div>
   {% endif %}
-  <form id="unmapped-form" hx-post="entities/from-tabs" hx-target="#entity-list-section" hx-swap="innerHTML">
+  <form id="unmapped-form" hx-post="entities/from-tabs" hx-target="#entity-list-section" hx-swap="innerHTML" hx-disabled-elt="find button">
     <div class="unmapped-tabs">
       {% for tab in unmapped_tabs %}
       <label class="unmapped-tab">
