@@ -269,6 +269,22 @@ class SimulatorApp:
         )
         serial = await panel.start()
 
+        # Ensure unique serial — cloned configs may share the same serial.
+        # Append a suffix to avoid MQTT topic and mDNS name collisions.
+        if serial in self._serial_to_panel:
+            base_serial = serial
+            suffix = 2
+            while f"{base_serial}-{suffix}" in self._serial_to_panel:
+                suffix += 1
+            serial = f"{base_serial}-{suffix}"
+            if panel.engine is not None:
+                panel.engine.override_serial_number(serial)
+            _LOGGER.warning(
+                "Duplicate serial %s detected — renamed to %s",
+                base_serial,
+                serial,
+            )
+
         self._panels[config_path] = panel
         self._serial_to_panel[serial] = panel
 
