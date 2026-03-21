@@ -104,7 +104,7 @@ circuits:
     template: "solar"
     tabs: [6, 8]
 
-unmapped_tabs: [9, 11]
+unmapped_tabs: [9, 10, 11, 12, 13, 14, 15, 16]
 
 simulation_params:
   update_interval: 5
