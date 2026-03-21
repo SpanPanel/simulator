@@ -22,11 +22,11 @@ from span_panel_simulator.bootstrap import BootstrapHttpServer
 from span_panel_simulator.certs import generate_certificates
 from span_panel_simulator.const import (
     DASHBOARD_PORT,
+    DEFAULT_BASE_HTTP_PORT,
     DEFAULT_BROKER_PASSWORD,
     DEFAULT_BROKER_USERNAME,
     DEFAULT_FIRMWARE_VERSION,
     DEFAULT_TICK_INTERVAL_S,
-    HTTPS_PORT,
     MQTTS_PORT,
 )
 from span_panel_simulator.dashboard import DashboardContext, create_dashboard_app
@@ -107,7 +107,7 @@ class SimulatorApp:
         broker_password: str = DEFAULT_BROKER_PASSWORD,
         broker_host: str = "localhost",
         broker_port: int = MQTTS_PORT,
-        http_port: int = HTTPS_PORT,
+        http_port: int = DEFAULT_BASE_HTTP_PORT,
         cert_dir: Path | None = None,
         homie_schema_path: Path | None = None,
         dashboard_port: int = DASHBOARD_PORT,

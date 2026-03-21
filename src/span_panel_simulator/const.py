@@ -8,7 +8,7 @@ from __future__ import annotations
 MQTTS_PORT = 18883
 WS_PORT = 19001
 WSS_PORT = 19002
-HTTPS_PORT = 8081
+DEFAULT_BASE_HTTP_PORT = 8081
 DASHBOARD_PORT = 18080
 
 # Default simulation parameters
