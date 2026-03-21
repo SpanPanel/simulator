@@ -67,6 +67,7 @@ class ConfigStore:
     """In-memory config state: load, mutate, validate, export."""
 
     def __init__(self) -> None:
+        self._dirty: bool = False
         self._state: dict[str, Any] = {
             "panel_config": {
                 "serial_number": "SPAN-SIM-001",
@@ -85,6 +86,11 @@ class ConfigStore:
             },
         }
 
+    @property
+    def dirty(self) -> bool:
+        """Whether in-memory state has unsaved changes."""
+        return self._dirty
+
     def load_from_yaml(self, content: str) -> None:
         """Parse, validate, and replace state from YAML string."""
         data = yaml.safe_load(content)
@@ -92,6 +98,7 @@ class ConfigStore:
             raise ValueError("YAML content must be a mapping")
         validate_yaml_config(data)
         self._state = data
+        self._dirty = False
 
     def load_from_file(self, path: Path) -> None:
         """Read a file and load its content."""
@@ -105,6 +112,11 @@ class ConfigStore:
             sort_keys=False,
             allow_unicode=True,
         )
+
+    def save_to_file(self, path: Path) -> None:
+        """Serialize current state to YAML and write to disk."""
+        path.write_text(self.export_yaml(), encoding="utf-8")
+        self._dirty = False
 
     # -- Panel config --
 
@@ -124,6 +136,7 @@ class ConfigStore:
         for key in ("latitude", "longitude", "soc_shed_threshold"):
             if key in data:
                 cfg[key] = float(data[key])
+        self._dirty = True
 
     def get_panel_source(self) -> dict[str, Any] | None:
         """Return the panel_source block, or None if absent."""
@@ -151,6 +164,7 @@ class ConfigStore:
         if "enable_realistic_behaviors" in data:
             val = data["enable_realistic_behaviors"]
             params["enable_realistic_behaviors"] = val in (True, "true", "on", "1")
+        self._dirty = True
 
     # -- Entities --
 
@@ -192,6 +206,7 @@ class ConfigStore:
             return False
         current = bool(template.get("user_modified"))
         template["user_modified"] = not current
+        self._dirty = True
         return not current
 
     def _merge_entity(self, circuit: dict[str, Any]) -> EntityView:
@@ -317,6 +332,7 @@ class ConfigStore:
             circuit.pop("overrides", None)
 
         self._mark_user_modified(template_name)
+        self._dirty = True
 
     def add_entity(self, entity_type: str) -> EntityView:
         """Create a new entity with type-appropriate defaults."""
@@ -332,6 +348,7 @@ class ConfigStore:
 
         self._templates()[template_name] = template_dict
         self._circuits().append(circuit_dict)
+        self._dirty = True
         return self._merge_entity(circuit_dict)
 
     def get_unmapped_tabs(self) -> list[int]:
@@ -386,6 +403,7 @@ class ConfigStore:
 
         self._templates()[template_name] = template_dict
         self._circuits().append(circuit_dict)
+        self._dirty = True
         return self._merge_entity(circuit_dict)
 
     def delete_entity(self, entity_id: str) -> None:
@@ -403,6 +421,7 @@ class ConfigStore:
         still_used = any(c.get("template") == template_name for c in circuits)
         if not still_used:
             self._templates().pop(template_name, None)
+        self._dirty = True
 
     # -- Active days --
 
@@ -451,6 +470,7 @@ class ConfigStore:
                 tod.pop("active_days", None)
 
         self._mark_user_modified(template_name)
+        self._dirty = True
 
     # -- Profile --
 
@@ -514,6 +534,7 @@ class ConfigStore:
             tod["active_days"] = preserved_days
 
         self._mark_user_modified(template_name)
+        self._dirty = True
 
     def apply_preset(
         self,
@@ -546,6 +567,7 @@ class ConfigStore:
             count = _rng.randint(3, 6)
             days = sorted(_rng.sample(range(7), count))
             self.update_active_days(entity_id, days)
+        self._dirty = True
         return multipliers
 
     # -- Battery charge mode --
@@ -572,6 +594,7 @@ class ConfigStore:
         bb["charge_mode"] = mode
 
         self._mark_user_modified(template_name)
+        self._dirty = True
 
     # -- Battery profile --
 
@@ -610,11 +633,13 @@ class ConfigStore:
         bb["idle_hours"] = sorted(h for h, m in hour_modes.items() if m == "idle")
 
         self._mark_user_modified(template_name)
+        self._dirty = True
 
     def apply_battery_preset(self, entity_id: str, preset_name: str) -> dict[int, str]:
         """Apply a named battery preset and return the schedule."""
         hour_modes = get_battery_preset(preset_name)
         self.update_battery_profile(entity_id, hour_modes)
+        self._dirty = True
         return hour_modes
 
     # -- EVSE schedule --
@@ -688,6 +713,7 @@ class ConfigStore:
             tod["active_days"] = preserved_days
 
         self._mark_user_modified(template_name)
+        self._dirty = True
 
     def apply_evse_preset(self, entity_id: str, preset_name: str) -> dict[int, float]:
         """Apply an EVSE charging preset and return the schedule factors."""
@@ -704,6 +730,7 @@ class ConfigStore:
         tod["hour_factors"] = factors
 
         self._mark_user_modified(template_name)
+        self._dirty = True
         return factors
 
     # -- Energy projection --
