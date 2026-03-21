@@ -303,7 +303,13 @@ class ConfigStore:
         return self._merge_entity(circuit)
 
     def update_entity(self, entity_id: str, data: dict[str, Any]) -> None:
-        """Update circuit and template fields from form data."""
+        """Update circuit and template fields from form data.
+
+        The ``_dirty`` key (set by a hidden form field) controls whether
+        the template is flagged as user-modified.  When the user opens
+        the editor and clicks Save without touching anything, ``_dirty``
+        is absent and ``_mark_user_modified`` is skipped.
+        """
         circuit = self._find_circuit(entity_id)
         if circuit is None:
             raise KeyError(f"Entity not found: {entity_id}")
@@ -387,7 +393,8 @@ class ConfigStore:
         else:
             circuit.pop("overrides", None)
 
-        self._mark_user_modified(template_name)
+        if data.get("_dirty"):
+            self._mark_user_modified(template_name)
         self._dirty = True
 
     def add_entity(self, entity_type: str) -> EntityView:
