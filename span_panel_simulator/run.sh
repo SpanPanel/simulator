@@ -14,19 +14,14 @@ fi
 # Read add-on options from standard HA location
 OPTIONS_FILE="/data/options.json"
 
-CONFIG_FILE=$(jq -r '.config_file' "${OPTIONS_FILE}")
 TICK_INTERVAL=$(jq -r '.tick_interval' "${OPTIONS_FILE}")
 LOG_LEVEL=$(jq -r '.log_level' "${OPTIONS_FILE}")
-ADVERTISE_ADDRESS=$(jq -r '.advertise_address // empty' "${OPTIONS_FILE}")
 DASHBOARD_ENABLED=$(jq -r '.dashboard_enabled' "${OPTIONS_FILE}")
 BASE_HTTP_PORT=$(jq -r '.base_http_port // 8081' "${OPTIONS_FILE}")
 
-# Detect the HA host IP for mDNS advertisement if not explicitly set.
+# Auto-detect host IP for TLS cert SAN.
 # Inside a bridge-networked container the default gateway is the host.
-if [ -z "${ADVERTISE_ADDRESS}" ]; then
-    ADVERTISE_ADDRESS=$(ip route | awk '/default/ { print $3 }' || true)
-fi
-
+ADVERTISE_ADDRESS=$(ip route | awk '/default/ { print $3 }' || true)
 export ADVERTISE_ADDRESS
 export CERT_DIR="/data/certs"
 export BROKER_USERNAME="span"
@@ -83,23 +78,13 @@ CONF
 mosquitto -c /app/mosquitto/mosquitto.conf -d
 sleep 1
 
-# Split config option into directory and filename
-# CONFIG_FILE is e.g. "span_simulator/default_config.yaml"
-CONFIG_BASENAME=$(basename "${CONFIG_FILE}")
-CONFIG_SUBDIR=$(dirname "${CONFIG_FILE}")
-
 # Build simulator CLI arguments
 ARGS=(
-    --config-dir "/config/${CONFIG_SUBDIR}"
-    --config "${CONFIG_BASENAME}"
+    --config-dir "${CONFIG_DIR}"
     --tick-interval "${TICK_INTERVAL}"
     --log-level "${LOG_LEVEL}"
     --base-http-port "${BASE_HTTP_PORT}"
 )
-
-if [ -n "${ADVERTISE_ADDRESS}" ]; then
-    ARGS+=(--advertise-address "${ADVERTISE_ADDRESS}")
-fi
 
 if [ "${DASHBOARD_ENABLED}" = "true" ]; then
     ARGS+=(--dashboard-port 18080)

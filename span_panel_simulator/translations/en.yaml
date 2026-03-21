@@ -1,16 +1,10 @@
 configuration:
-  config_file:
-    name: Configuration file
-    description: Path to the simulation config YAML (relative to /config)
   tick_interval:
     name: Tick interval
     description: Seconds between simulation updates
   log_level:
     name: Log level
     description: Logging verbosity
-  advertise_address:
-    name: Advertise address
-    description: IP address to advertise via mDNS (leave empty for auto-detection)
   dashboard_enabled:
     name: Dashboard enabled
     description: Enable the web dashboard for controlling the simulation

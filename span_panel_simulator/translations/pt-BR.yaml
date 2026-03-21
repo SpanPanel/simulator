@@ -1,16 +1,10 @@
 configuration:
-  config_file:
-    name: Arquivo de configuração
-    description: Caminho para o arquivo YAML de simulação (relativo a /config)
   tick_interval:
     name: Intervalo de atualização
     description: Segundos entre atualizações da simulação
   log_level:
     name: Nível de registro
     description: Verbosidade do registro
-  advertise_address:
-    name: Endereço anunciado
-    description: Endereço IP para anunciar via mDNS (deixe vazio para detecção automática)
   dashboard_enabled:
     name: Painel ativado
     description: Ativar o painel web para controlar a simulação
