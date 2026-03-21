@@ -2,6 +2,7 @@
 <div class="panel-row {{ 'active-panel' if p.active else '' }}">
   <span class="panel-status-dot {{ 'status-running' if p.running else 'status-stopped' }}"></span>
   <span class="panel-serial">{{ p.serial }}</span>
+  {% if p.port %}<span class="panel-port" title="Bootstrap HTTP port">:{{ p.port }}</span>{% endif %}
   <span class="panel-filename">{{ p.filename }}</span>
   {% if p.is_default %}
   <span class="badge badge-default" title="Clone this template to create an editable config">template</span>

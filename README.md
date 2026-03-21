@@ -17,7 +17,27 @@ Home Assistant history replay, and energy "what-if" modeling.
 
 ![Modeling view — Before/After energy comparison with BESS, dual charts with range zoom and circuit overlays](docs/images/modeling.png)
 
-## Quick Start (macOS)
+## Home Assistant App
+
+The simulator can run as an HA App so users with the
+`span-panel` integration can spin up simulated panels directly in
+their HA environment.
+
+1. Go to **Settings > Add-ons > Add-on Store** > three-dot menu >
+   **Repositories**
+2. Add `https://github.com/SpanPanel/simulator`
+3. Install **SPAN Panel Simulator** from the store
+4. Start the App — a default panel config is included
+5. The `span-panel` integration discovers all running panels
+   automatically via the Supervisor Discovery API
+6. Open the web dashboard via **Open Web UI** to configure panels
+
+The App runs the simulator in a container with its own Mosquitto broker.
+No real SPAN hardware is needed. Each panel runs on its own HTTP port
+(starting from `base_http_port`, default 8081) and the dashboard shows
+the port next to each running panel's serial number.
+
+## Quick Start (macOS standalone)
 
 ```bash
 # Prerequisites
@@ -41,23 +61,19 @@ the simulator with mDNS advertising on your LAN IP. No `sudo` required.
 
 Open the dashboard at **http://localhost:18080**.
 
-## Home Assistant App
+### Multi-panel in standalone mode
 
-The simulator can run as an HA app (add-on) so users with the
-`span-panel` integration can spin up a simulated panel directly in
-their HA environment.
+Home Assistant's zeroconf auto-discovers **one panel per IP address**.
+The first panel appears as a discovery notification in HA and can be
+configured normally. Additional panels on the same host need to be
+added manually — use the port shown in the dashboard panel list:
 
-1. Go to **Settings > Add-ons > Add-on Store** > three-dot menu >
-   **Repositories**
-2. Add `https://github.com/SpanPanel/simulator`
-3. Install **SPAN Panel Simulator** from the store
-4. Start the app — a default panel config is included
-5. The `span-panel` integration discovers the simulated panel
-   automatically via mDNS
-6. Open the web dashboard on port **18080** to configure the panel
+1. In HA, go to **Settings > Devices & Services > Add Integration**
+2. Search for **Span Panel** and enter the host IP and port
+   (e.g. `192.168.1.50` port `8082`)
 
-The app runs the simulator in a container with its own Mosquitto broker.
-No real SPAN hardware is needed.
+Each panel has a unique serial number, so there is no conflict between
+the auto-discovered panel and manually added ones.
 
 ## Running with Docker (Linux only)
 

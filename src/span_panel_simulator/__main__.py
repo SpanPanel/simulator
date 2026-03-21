@@ -12,11 +12,11 @@ from pathlib import Path
 from span_panel_simulator.app import SimulatorApp
 from span_panel_simulator.const import (
     DASHBOARD_PORT,
+    DEFAULT_BASE_HTTP_PORT,
     DEFAULT_BROKER_PASSWORD,
     DEFAULT_BROKER_USERNAME,
     DEFAULT_FIRMWARE_VERSION,
     DEFAULT_TICK_INTERVAL_S,
-    HTTPS_PORT,
     MQTTS_PORT,
 )
 
@@ -61,10 +61,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="MQTT broker port",
     )
     parser.add_argument(
+        "--base-http-port",
+        type=int,
+        default=int(os.environ.get("HTTP_PORT", str(DEFAULT_BASE_HTTP_PORT))),
+        help="Base port for per-panel bootstrap HTTP servers. "
+        "First panel uses this port, second uses port+1, etc.",
+    )
+    parser.add_argument(
         "--http-port",
         type=int,
-        default=int(os.environ.get("HTTP_PORT", str(HTTPS_PORT))),
-        help="Bootstrap HTTP server port",
+        default=None,
+        help="Deprecated: use --base-http-port instead",
     )
     parser.add_argument(
         "--broker-username",
@@ -90,12 +97,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--advertise-address",
         default=os.environ.get("ADVERTISE_ADDRESS"),
         help="IP address to advertise via mDNS (required when running in a VM)",
-    )
-    parser.add_argument(
-        "--advertise-http-port",
-        type=int,
-        default=int(os.environ.get("ADVERTISE_HTTP_PORT", "0")) or None,
-        help="Port to advertise via mDNS (when host port differs from container port)",
     )
     parser.add_argument(
         "--log-level",
@@ -125,6 +126,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
     args = _parse_args(argv)
+
+    # Resolve deprecated --http-port alias
+    base_http_port = args.base_http_port
+    if args.http_port is not None:
+        logging.warning("--http-port is deprecated, use --base-http-port instead")
+        base_http_port = args.http_port
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
@@ -186,13 +193,12 @@ def main(argv: list[str] | None = None) -> None:
         firmware_version=args.firmware,
         broker_host=args.broker_host,
         broker_port=args.broker_port,
-        http_port=args.http_port,
+        base_http_port=base_http_port,
         broker_username=args.broker_username,
         broker_password=args.broker_password,
         cert_dir=args.cert_dir,
         dashboard_port=args.dashboard_port,
         advertise_address=args.advertise_address,
-        advertise_http_port=args.advertise_http_port,
         ha_config=ha_config,
     )
 

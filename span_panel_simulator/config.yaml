@@ -26,11 +26,13 @@ options:
   log_level: "INFO"
   advertise_address: ""
   dashboard_enabled: true
+  base_http_port: 8081
 schema:
   config_file: str
   tick_interval: "float(0.5,60.0)"
   log_level: list(DEBUG|INFO|WARNING|ERROR)
   advertise_address: str?
   dashboard_enabled: bool
+  base_http_port: "int(1024,65535)?"
 startup: application
 init: false

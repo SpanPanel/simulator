@@ -903,6 +903,12 @@ class DynamicSimulationEngine:
             return self._serial_number_override
         raise ValueError("No configuration loaded - serial number not available")
 
+    def override_serial_number(self, serial: str) -> None:
+        """Replace the serial number at runtime (e.g. to resolve duplicates)."""
+        self._serial_number_override = serial
+        if self._config:
+            self._config["panel_config"]["serial_number"] = serial
+
     @property
     def total_tabs(self) -> int:
         """Total panel tab count from configuration."""

@@ -281,6 +281,16 @@ class HomiePublisher:
         # Populated by _build_description: node_id → schema type_id
         self._description_nodes: dict[str, str] = {}
 
+    def override_serial(self, serial: str) -> None:
+        """Replace the serial used for MQTT topic prefixes.
+
+        Resets published state so the next ``publish_init`` re-publishes
+        everything under the new topic namespace.
+        """
+        self._serial = serial
+        self._state = _PublishedState()
+        self._description_published = False
+
     # ------------------------------------------------------------------
     # Topic helpers
     # ------------------------------------------------------------------

@@ -31,7 +31,7 @@ Environment variables:
   LOG_LEVEL         Logging level (default: INFO)
   BROKER_USERNAME   MQTT broker username (default: span)
   BROKER_PASSWORD   MQTT broker password (default: sim-password)
-  HTTP_PORT         Bootstrap HTTP port (default: 8081)
+  HTTP_PORT         Base HTTP port for panel instances (default: 8081)
   DASHBOARD_PORT    Dashboard UI port (default: 18080)
   BROKER_PORT       MQTTS port (default: 18883)
   HA_URL            Home Assistant URL (alternative to --ha-url)
@@ -48,7 +48,6 @@ BROKER_USERNAME="${BROKER_USERNAME:-span}"
 BROKER_PASSWORD="${BROKER_PASSWORD:-sim-password}"
 HTTP_PORT="${HTTP_PORT:-8081}"
 DASHBOARD_PORT="${DASHBOARD_PORT:-18080}"
-ADVERTISE_HTTP_PORT="${ADVERTISE_HTTP_PORT:-${HTTP_PORT}}"
 BROKER_PORT="${BROKER_PORT:-18883}"
 
 get_host_ip() {
@@ -177,7 +176,7 @@ run_simulator() {
 
     "${VENV_DIR}/bin/python3" -m span_panel_simulator \
         --config-dir "${config_dir}" \
-        --http-port "${HTTP_PORT}" \
+        --base-http-port "${HTTP_PORT}" \
         --broker-port "${BROKER_PORT}" \
         --broker-username "${BROKER_USERNAME}" \
         --broker-password "${BROKER_PASSWORD}" \
@@ -186,7 +185,6 @@ run_simulator() {
         --tick-interval "${TICK_INTERVAL:-1.0}" \
         --log-level "${LOG_LEVEL:-INFO}" \
         ${advertise_addr:+--advertise-address "${advertise_addr}"} \
-        --advertise-http-port "${ADVERTISE_HTTP_PORT}" \
         ${CONFIG_NAME:+--config "${CONFIG_NAME}"} \
         ${HA_URL:+--ha-url "${HA_URL}"} \
         ${HA_TOKEN:+--ha-token "${HA_TOKEN}"} &
@@ -196,7 +194,7 @@ run_simulator() {
     echo "==> Simulator started (pid ${sim_pid})"
     echo ""
     echo "    Stop:    $(basename "$0") --stop"
-    echo "    Reload:  curl -X POST http://${advertise_addr:-localhost}:${HTTP_PORT}/admin/reload"
+    echo "    Dashboard: http://${advertise_addr:-localhost}:${DASHBOARD_PORT}/"
     echo ""
 
     # Wait for the simulator (foreground)

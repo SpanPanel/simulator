@@ -19,6 +19,7 @@ TICK_INTERVAL=$(jq -r '.tick_interval' "${OPTIONS_FILE}")
 LOG_LEVEL=$(jq -r '.log_level' "${OPTIONS_FILE}")
 ADVERTISE_ADDRESS=$(jq -r '.advertise_address // empty' "${OPTIONS_FILE}")
 DASHBOARD_ENABLED=$(jq -r '.dashboard_enabled' "${OPTIONS_FILE}")
+BASE_HTTP_PORT=$(jq -r '.base_http_port // 8081' "${OPTIONS_FILE}")
 
 # Detect the HA host IP for mDNS advertisement if not explicitly set.
 # Inside a bridge-networked container the default gateway is the host.
@@ -93,7 +94,7 @@ ARGS=(
     --config "${CONFIG_BASENAME}"
     --tick-interval "${TICK_INTERVAL}"
     --log-level "${LOG_LEVEL}"
-    --http-port 8081
+    --base-http-port "${BASE_HTTP_PORT}"
 )
 
 if [ -n "${ADVERTISE_ADDRESS}" ]; then

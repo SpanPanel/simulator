@@ -1,5 +1,5 @@
 # Simple test configuration with minimal circuits
-# Includes solar for basic DER testing
+# Includes solar + battery for basic DER testing
 
 panel_config:
   serial_number: "sim-16t-001"
@@ -104,7 +104,11 @@ circuits:
     template: "solar"
     tabs: [6, 8]
 
-unmapped_tabs: [9, 11]
+  - id: "battery_storage"
+    name: "Battery Storage"
+    template: "battery"
+
+unmapped_tabs: [9, 10, 11, 12, 13, 14, 15, 16]
 
 simulation_params:
   update_interval: 5

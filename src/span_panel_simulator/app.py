@@ -2,6 +2,8 @@
 
 Scans a configuration directory for YAML files, creates a PanelInstance
 per file, and manages their lifecycle through a shared MQTT connection.
+Each panel gets its own bootstrap HTTP server on a unique port, matching
+real SPAN hardware where each panel is a separate network device.
 Supports on-demand reload: re-scans configs, starts new panels, stops
 removed panels, and restarts panels whose configs have changed.
 """
@@ -9,6 +11,7 @@ removed panels, and restarts panels whose configs have changed.
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import logging
 from pathlib import Path
@@ -22,11 +25,11 @@ from span_panel_simulator.bootstrap import BootstrapHttpServer
 from span_panel_simulator.certs import generate_certificates
 from span_panel_simulator.const import (
     DASHBOARD_PORT,
+    DEFAULT_BASE_HTTP_PORT,
     DEFAULT_BROKER_PASSWORD,
     DEFAULT_BROKER_USERNAME,
     DEFAULT_FIRMWARE_VERSION,
     DEFAULT_TICK_INTERVAL_S,
-    HTTPS_PORT,
     MQTTS_PORT,
 )
 from span_panel_simulator.dashboard import DashboardContext, create_dashboard_app
@@ -40,6 +43,7 @@ if TYPE_CHECKING:
     from span_panel_simulator.certs import CertificateBundle
     from span_panel_simulator.engine import DynamicSimulationEngine
     from span_panel_simulator.ha_api.client import HAClient, HAConnectionConfig
+    from span_panel_simulator.supervisor_discovery import SupervisorDiscovery
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,9 +91,9 @@ class SimulatorApp:
     """Orchestrates multiple simulated panels from a config directory.
 
     Each ``.yaml`` file in the config directory becomes an independent
-    panel with its own serial number and MQTT topic namespace.  All
-    panels share a single MQTT broker connection and bootstrap HTTP
-    server.
+    panel with its own serial number, MQTT topic namespace, and HTTP
+    bootstrap server on a unique port.  All panels share a single MQTT
+    broker connection.
 
     Call ``reload()`` at any time to re-scan the directory: new configs
     are started, removed configs are stopped, and changed configs are
@@ -107,12 +111,11 @@ class SimulatorApp:
         broker_password: str = DEFAULT_BROKER_PASSWORD,
         broker_host: str = "localhost",
         broker_port: int = MQTTS_PORT,
-        http_port: int = HTTPS_PORT,
+        base_http_port: int = DEFAULT_BASE_HTTP_PORT,
         cert_dir: Path | None = None,
         homie_schema_path: Path | None = None,
         dashboard_port: int = DASHBOARD_PORT,
         advertise_address: str | None = None,
-        advertise_http_port: int | None = None,
         ha_config: HAConnectionConfig | None = None,
     ) -> None:
         self._config_dir = config_dir
@@ -123,19 +126,20 @@ class SimulatorApp:
         self._broker_password = broker_password
         self._broker_host = broker_host
         self._broker_port = broker_port
-        self._http_port = http_port
+        self._base_http_port = base_http_port
         self._cert_dir = cert_dir or Path("/tmp/span-sim-certs")
         self._homie_schema_path = homie_schema_path
         self._dashboard_port = dashboard_port
         self._advertise_address = advertise_address
-        self._advertise_http_port = advertise_http_port
 
         # Tracked state
         self._panels: dict[Path, PanelInstance] = {}
         self._config_hashes: dict[Path, str] = {}
         self._serial_to_panel: dict[str, PanelInstance] = {}
         self._stopped_configs: set[str] = set()
-        self._http_server: BootstrapHttpServer | None = None
+        self._panel_servers: dict[str, BootstrapHttpServer] = {}
+        self._panel_ports: dict[str, int] = {}
+        self._used_ports: set[int] = set()
         self._dashboard_runner: web.AppRunner | None = None
         self._advertiser: PanelAdvertiser | None = None
         self._panel_browser: PanelBrowser | None = None
@@ -146,6 +150,23 @@ class SimulatorApp:
         self._reload_event: asyncio.Event = asyncio.Event()
         self._ha_config = ha_config
         self._ha_client: HAClient | None = None
+        self._supervisor_discovery: SupervisorDiscovery | None = None
+
+    # ------------------------------------------------------------------
+    # Port allocation
+    # ------------------------------------------------------------------
+
+    def _allocate_port(self) -> int:
+        """Return the lowest available port from the base."""
+        port = self._base_http_port
+        while port in self._used_ports:
+            port += 1
+        self._used_ports.add(port)
+        return port
+
+    def _release_port(self, port: int) -> None:
+        """Release a port back to the pool."""
+        self._used_ports.discard(port)
 
     # ------------------------------------------------------------------
     # Dashboard helpers
@@ -154,6 +175,10 @@ class SimulatorApp:
     def _get_panel_configs(self) -> dict[Path, str]:
         """Return a mapping of config path to serial number for running panels."""
         return {path: panel.serial_number for path, panel in self._panels.items()}
+
+    def _get_panel_ports(self) -> dict[str, int]:
+        """Return a mapping of serial number to HTTP port for running panels."""
+        return dict(self._panel_ports)
 
     def _get_first_engine(self) -> DynamicSimulationEngine | None:
         """Return the engine of the first running panel, if any."""
@@ -228,6 +253,9 @@ class SimulatorApp:
 
     async def _start_panel(self, config_path: Path) -> PanelInstance:
         """Create, initialise, and register a panel from a config file."""
+        assert self._certs is not None
+        assert self._schema is not None
+
         # Load recorder replay data if HA is connected and config has
         # recorder_entity mappings.  The RecorderDataSource is populated
         # here (outside the engine) so the engine stays backend-agnostic.
@@ -242,6 +270,24 @@ class SimulatorApp:
         )
         serial = await panel.start()
 
+        # Ensure unique serial — cloned configs may share the same serial.
+        # Append a suffix to avoid MQTT topic and mDNS name collisions.
+        if serial in self._serial_to_panel:
+            base_serial = serial
+            suffix = 2
+            while f"{base_serial}-{suffix}" in self._serial_to_panel:
+                suffix += 1
+            serial = f"{base_serial}-{suffix}"
+            if panel.engine is not None:
+                panel.engine.override_serial_number(serial)
+            if panel.publisher is not None:
+                panel.publisher.override_serial(serial)
+            _LOGGER.warning(
+                "Duplicate serial %s detected — renamed to %s",
+                base_serial,
+                serial,
+            )
+
         self._panels[config_path] = panel
         self._serial_to_panel[serial] = panel
 
@@ -250,13 +296,60 @@ class SimulatorApp:
         if panel.engine is not None:
             panel_model = _PANEL_SIZE_TO_MODEL.get(panel.engine.total_tabs, "MAIN_32")
 
-        # Update the HTTP server and mDNS registries
-        if self._http_server is not None:
-            self._http_server.register_panel(serial, self._firmware)
-        if self._advertiser is not None:
-            await self._advertiser.register_panel(serial, self._firmware, model=panel_model)
+        # Create per-panel bootstrap HTTP server with port allocation
+        port = self._allocate_port()
+        server = BootstrapHttpServer(
+            serial,
+            self._firmware,
+            self._certs,
+            self._schema,
+            broker_username=self._broker_username,
+            broker_password=self._broker_password,
+            broker_host=self._broker_host,
+            port=port,
+        )
+        max_port_retries = 20
+        for _attempt in range(max_port_retries):
+            try:
+                await server.start()
+                break
+            except OSError as exc:
+                if exc.errno != errno.EADDRINUSE:
+                    raise
+                _LOGGER.warning("Port %d in use for panel %s, trying next port", port, serial)
+                self._release_port(port)
+                port = self._allocate_port()
+                server = BootstrapHttpServer(
+                    serial,
+                    self._firmware,
+                    self._certs,
+                    self._schema,
+                    broker_username=self._broker_username,
+                    broker_password=self._broker_password,
+                    broker_host=self._broker_host,
+                    port=port,
+                )
+        else:
+            raise OSError(
+                f"Could not find an available port for panel {serial} "
+                f"after {max_port_retries} attempts"
+            )
 
-        _LOGGER.info("Registered panel %s from %s", serial, config_path.name)
+        self._panel_servers[serial] = server
+        self._panel_ports[serial] = port
+
+        # Register with mDNS advertiser
+        if self._advertiser is not None:
+            await self._advertiser.register_panel(
+                serial, self._firmware, model=panel_model, port=port
+            )
+
+        # Register with Supervisor Discovery
+        if self._supervisor_discovery is not None and self._supervisor_discovery.is_available:
+            advertise_host = self._advertise_address or "127.0.0.1"
+            await self._supervisor_discovery.register_panel(serial, advertise_host, port)
+
+        _LOGGER.info("Registered panel %s from %s on port %d", serial, config_path.name, port)
         return panel
 
     async def _load_recorder_data(self, config_path: Path) -> RecorderDataSource | None:
@@ -324,10 +417,24 @@ class SimulatorApp:
         await panel.stop()
 
         self._serial_to_panel.pop(serial, None)
-        if self._http_server is not None:
-            self._http_server.unregister_panel(serial)
+
+        # Stop and remove per-panel HTTP server
+        server = self._panel_servers.pop(serial, None)
+        if server is not None:
+            await server.stop()
+
+        # Release allocated port
+        port = self._panel_ports.pop(serial, None)
+        if port is not None:
+            self._release_port(port)
+
+        # Unregister from mDNS
         if self._advertiser is not None:
             await self._advertiser.unregister_panel(serial)
+
+        # Unregister from Supervisor Discovery
+        if self._supervisor_discovery is not None:
+            await self._supervisor_discovery.unregister_panel(serial)
 
         _LOGGER.info("Unregistered panel %s", serial)
 
@@ -536,20 +643,7 @@ class SimulatorApp:
         schema_path = self._homie_schema_path or _find_homie_schema()
         self._schema = load_schema(schema_path)
 
-        # 3. Start bootstrap HTTP server (multi-panel aware)
-        http_server = BootstrapHttpServer(
-            certs=certs,
-            schema=self._schema,
-            broker_username=self._broker_username,
-            broker_password=self._broker_password,
-            broker_host=self._broker_host,
-            port=self._http_port,
-            reload_callback=self.request_reload,
-        )
-        self._http_server = http_server
-        await http_server.start()
-
-        # 3b. Initialise HA API client and history provider (if configured).
+        # 3. Initialise HA API client and history provider (if configured).
         # Must happen before the dashboard starts listening so the first
         # request (e.g. via HA ingress) already sees ha_available=True.
         ha_client: HAClient | None = None
@@ -565,10 +659,17 @@ class SimulatorApp:
                 await ha_client.close()
                 ha_client = None
 
+        # 3b. Initialise Supervisor Discovery (add-on mode).
+        from span_panel_simulator.supervisor_discovery import SupervisorDiscovery
+
+        self._supervisor_discovery = SupervisorDiscovery()
+        if self._supervisor_discovery.is_available:
+            await self._supervisor_discovery.cleanup_stale()
+            _LOGGER.info("Supervisor Discovery: available (add-on mode)")
+
         # 3c. Start mDNS advertiser and panel browser before the dashboard
         # is reachable so discovery results are available on first load.
         advertiser = PanelAdvertiser(
-            http_port=self._advertise_http_port or self._http_port,
             advertise_address=self._advertise_address,
         )
         self._advertiser = advertiser
@@ -584,6 +685,7 @@ class SimulatorApp:
             config_dir=self._config_dir,
             config_filter=self._config_filter,
             get_panel_configs=self._get_panel_configs,
+            get_panel_ports=self._get_panel_ports,
             request_reload=self.request_reload,
             set_config_filter=self.set_config_filter,
             start_panel=self.request_start_panel,
@@ -632,17 +734,18 @@ class SimulatorApp:
 
         finally:
             self._running = False
-            # Stop all panels
+            # Stop all panels (this also stops per-panel HTTP servers)
             for path in list(self._panels):
                 await self._stop_panel(path)
+            # Cleanup Supervisor Discovery entries
+            if self._supervisor_discovery is not None:
+                await self._supervisor_discovery.cleanup_all()
             if self._panel_browser is not None:
                 await self._panel_browser.stop()
             if self._advertiser is not None:
                 await self._advertiser.stop()
             if self._dashboard_runner is not None:
                 await self._dashboard_runner.cleanup()
-            if self._http_server is not None:
-                await self._http_server.stop()
             if self._ha_client is not None:
                 await self._ha_client.close()
             _LOGGER.info("Simulator shut down")

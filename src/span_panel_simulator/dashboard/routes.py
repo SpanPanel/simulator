@@ -105,6 +105,9 @@ def _all_panels(request: web.Request) -> list[dict[str, object]]:
     for path, serial in ctx.get_panel_configs().items():
         running_map[path.name] = serial
 
+    # Port lookup: serial -> port
+    port_map = ctx.get_panel_ports()
+
     return [
         {
             "filename": fname,
@@ -112,6 +115,7 @@ def _all_panels(request: web.Request) -> list[dict[str, object]]:
             "running": fname in running_map,
             "active": fname == active_file,
             "is_default": fname.startswith("default_"),
+            "port": port_map.get(running_map.get(fname, ""), 0),
         }
         for fname in configs
     ]
