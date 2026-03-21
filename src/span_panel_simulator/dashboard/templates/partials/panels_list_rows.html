@@ -64,7 +64,7 @@
 {% endif %}
 
 <script>
-window._formDirty = false;
+if (window._formDirty === undefined) window._formDirty = false;
 function switchPanel(filename) {
   fetch('check-dirty')
     .then(function(r) { return r.json(); })
