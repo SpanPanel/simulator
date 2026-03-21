@@ -665,6 +665,10 @@ circuits:
     overrides:
       nameplate_capacity_w: 8000.0
 
+  - id: "battery_storage_1"
+    name: "Battery Storage"
+    template: "battery_storage"
+
 unmapped_tabs: [31, 32]
 
 # Global simulation parameters

@@ -799,6 +799,9 @@ circuits:
   - 36
   - 38
   breaker_rating: 30
+- id: battery_storage
+  name: Battery Storage
+  template: battery
 - id: new_circuit
   name: kitchen Lights
   template: new_circuit_tpl
