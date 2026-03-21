@@ -409,6 +409,21 @@ async def handle_get_entity_edit(request: web.Request) -> web.Response:
     )
 
 
+def _persist_config(request: web.Request) -> None:
+    """Write current in-memory config to disk and reload the running engine.
+
+    No-op when viewing a default template (read-only).
+    """
+    ctx = _ctx(request)
+    filename = ctx.config_filter
+    if not filename or filename.startswith("default_"):
+        return
+    output_path = ctx.config_dir / filename
+    _store(request).save_to_file(output_path)
+    _LOGGER.info("Config saved to %s", output_path)
+    ctx.start_panel(filename)
+
+
 async def handle_put_entity(request: web.Request) -> web.Response:
     entity_id = request.match_info["id"]
     data = await request.post()
@@ -416,6 +431,7 @@ async def handle_put_entity(request: web.Request) -> web.Response:
     # Push priority change to the running engine immediately
     if "priority" in data:
         _ctx(request).set_circuit_priority(entity_id, str(data["priority"]))
+    _persist_config(request)
     return _render(
         "partials/entity_list.html",
         request,
@@ -976,18 +992,12 @@ async def handle_clone(request: web.Request) -> web.Response:
 
 
 async def handle_save_reload(request: web.Request) -> web.Response:
-    store = _store(request)
     ctx = _ctx(request)
-
     filename = ctx.config_filter or "default_config.yaml"
     if filename.startswith("default_"):
         raise web.HTTPBadRequest(text="Cannot save changes to a default template. Clone it first.")
 
-    output_path = ctx.config_dir / filename
-    store.save_to_file(output_path)
-    _LOGGER.info("Config saved to %s", output_path)
-
-    ctx.start_panel(filename)
+    _persist_config(request)
 
     return web.Response(
         text='<div class="flash success">Config saved and reload triggered.</div>',
