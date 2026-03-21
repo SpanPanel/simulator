@@ -1,6 +1,6 @@
 name: "SPAN Panel Simulator"
 description: "Simulates a SPAN electrical panel for testing and upgrade modeling"
-version: "1.0.1"
+version: "1.0.2"
 slug: "span_panel_simulator"
 image: "ghcr.io/spanpanel/simulator/{arch}"
 arch:
@@ -23,17 +23,13 @@ backup_exclude:
   - "*.key"
   - "*.crt"
 options:
-  config_file: "span_simulator/default_MAIN_40.yaml"
   tick_interval: 1.0
   log_level: "INFO"
-  advertise_address: ""
   dashboard_enabled: true
   base_http_port: 8081
 schema:
-  config_file: str
   tick_interval: "float(0.5,60.0)"
   log_level: list(DEBUG|INFO|WARNING|ERROR)
-  advertise_address: str?
   dashboard_enabled: bool
   base_http_port: "int(1024,65535)?"
 startup: application

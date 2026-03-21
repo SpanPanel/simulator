@@ -1,16 +1,10 @@
 configuration:
-  config_file:
-    name: Fichier de configuration
-    description: Chemin vers le fichier YAML de simulation (relatif à /config)
   tick_interval:
     name: Intervalle de mise à jour
     description: Secondes entre les mises à jour de la simulation
   log_level:
     name: Niveau de journalisation
     description: Verbosité de la journalisation
-  advertise_address:
-    name: Adresse annoncée
-    description: Adresse IP à annoncer via mDNS (laisser vide pour la détection automatique)
   dashboard_enabled:
     name: Tableau de bord activé
     description: Activer le tableau de bord web pour contrôler la simulation
