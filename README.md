@@ -17,7 +17,27 @@ Home Assistant history replay, and energy "what-if" modeling.
 
 ![Modeling view — Before/After energy comparison with BESS, dual charts with range zoom and circuit overlays](docs/images/modeling.png)
 
-## Quick Start (macOS)
+## Home Assistant App
+
+The simulator can run as an HA App so users with the
+`span-panel` integration can spin up simulated panels directly in
+their HA environment.
+
+1. Go to **Settings > Add-ons > Add-on Store** > three-dot menu >
+   **Repositories**
+2. Add `https://github.com/SpanPanel/simulator`
+3. Install **SPAN Panel Simulator** from the store
+4. Start the App — a default panel config is included
+5. The `span-panel` integration discovers all running panels
+   automatically via the Supervisor Discovery API
+6. Open the web dashboard via **Open Web UI** to configure panels
+
+The App runs the simulator in a container with its own Mosquitto broker.
+No real SPAN hardware is needed. Each panel runs on its own HTTP port
+(starting from `base_http_port`, default 8081) and the dashboard shows
+the port next to each running panel's serial number.
+
+## Quick Start (macOS standalone)
 
 ```bash
 # Prerequisites
@@ -41,37 +61,7 @@ the simulator with mDNS advertising on your LAN IP. No `sudo` required.
 
 Open the dashboard at **http://localhost:18080**.
 
-## Home Assistant App
-
-The simulator can run as an HA app (add-on) so users with the
-`span-panel` integration can spin up a simulated panel directly in
-their HA environment.
-
-1. Go to **Settings > Add-ons > Add-on Store** > three-dot menu >
-   **Repositories**
-2. Add `https://github.com/SpanPanel/simulator`
-3. Install **SPAN Panel Simulator** from the store
-4. Start the app — a default panel config is included
-5. The `span-panel` integration discovers the simulated panel
-   automatically via mDNS
-6. Open the web dashboard on port **18080** to configure the panel
-
-The app runs the simulator in a container with its own Mosquitto broker.
-No real SPAN hardware is needed.
-
-## Multi-Panel Discovery
-
-Each simulated panel runs its own bootstrap HTTP server on a separate
-port (starting from `base_http_port`, default 8081). The dashboard
-shows the port next to each running panel's serial number.
-
-### HA App (add-on) mode
-
-The simulator registers each panel with the HA Supervisor Discovery
-API. The `span-panel` integration discovers all running panels
-automatically — no manual configuration needed.
-
-### Standalone mode
+### Multi-panel in standalone mode
 
 Home Assistant's zeroconf discovers **one panel per IP address**. When
 running multiple panels on the same host, the first panel is
