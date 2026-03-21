@@ -8,6 +8,8 @@ arch:
   - aarch64
 host_network: true
 homeassistant_api: true
+discovery:
+  - span_panel
 ingress: true
 ingress_port: 18080
 panel_icon: "mdi:flash"
