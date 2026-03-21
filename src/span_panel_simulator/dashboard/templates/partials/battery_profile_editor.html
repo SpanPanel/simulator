@@ -14,7 +14,8 @@
              hx-put="entities/{{ entity.id }}/battery-charge-mode"
              hx-target="#battery-profile-{{ entity.id }}"
              hx-swap="innerHTML"
-             hx-vals='{"charge_mode": "{{ mode }}"}'>
+             hx-vals='{"charge_mode": "{{ mode }}"}'
+             hx-disabled-elt="this">
         <input type="radio" name="charge_mode" value="{{ mode }}"
                {{ 'checked' if battery_charge_mode == mode }}>
         {{ label }}
@@ -40,7 +41,8 @@
              hx-post="entities/{{ entity.id }}/battery-profile/preset"
              hx-target="#battery-profile-{{ entity.id }}"
              hx-swap="innerHTML"
-             hx-vals='{"preset": "{{ key }}"}'>
+             hx-vals='{"preset": "{{ key }}"}'
+             hx-disabled-elt="this">
         {{ label }}
       </label>
       {% endfor %}
@@ -63,7 +65,8 @@
   </div>
 
   <form hx-put="entities/{{ entity.id }}/battery-profile"
-        hx-target="#battery-profile-{{ entity.id }}" hx-swap="innerHTML">
+        hx-target="#battery-profile-{{ entity.id }}" hx-swap="innerHTML"
+        hx-disabled-elt="find button">
     <div class="profile-grid{% if battery_charge_mode != 'custom' %} charge-hours-dimmed{% endif %}">
       {% for h in range(24) %}
       <div class="profile-hour">

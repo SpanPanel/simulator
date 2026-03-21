@@ -11,7 +11,8 @@
     <button type="button" class="btn btn-sm"
             hx-post="entities/{{ e.id }}/evse-schedule/preset"
             hx-target="#evse-schedule-{{ e.id }}" hx-swap="outerHTML"
-            hx-include="#evse-preset-form-{{ e.id }}">Apply</button>
+            hx-include="#evse-preset-form-{{ e.id }}"
+            hx-disabled-elt="this">Apply</button>
   </div>
 
   <div class="day-picker" id="days-{{ e.id }}">
@@ -30,7 +31,8 @@
   </div>
 
   <form hx-put="entities/{{ e.id }}/evse-schedule"
-        hx-target="#evse-schedule-{{ e.id }}" hx-swap="outerHTML">
+        hx-target="#evse-schedule-{{ e.id }}" hx-swap="outerHTML"
+        hx-disabled-elt="find button">
     <div class="form-row" style="margin:0.5rem 0">
       <label>Start:
         <select name="charge_start" style="width:5.5em">
