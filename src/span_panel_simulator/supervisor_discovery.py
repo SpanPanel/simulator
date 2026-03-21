@@ -10,10 +10,21 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 
 import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _container_hostname() -> str:
+    """Return the Docker container hostname for Supervisor discovery.
+
+    In add-on mode the Supervisor assigns a hostname that HA Core can
+    resolve via Docker DNS (e.g. ``f8c38f2b-span-panel-simulator``).
+    """
+    return socket.gethostname()
+
 
 _SUPERVISOR_DISCOVERY_URL = "http://supervisor/discovery"
 _SERVICE_NAME = "span_panel"
@@ -74,14 +85,16 @@ class SupervisorDiscovery:
         finally:
             await session.close()
 
-    async def register_panel(self, serial: str, host: str, port: int) -> None:
+    async def register_panel(self, serial: str, port: int) -> None:
         """Register a panel with the Supervisor Discovery API.
 
-        No-ops if not in add-on mode.  Errors are logged and swallowed.
+        The host is always the container hostname — HA Core resolves it
+        via Docker DNS.  No-ops if not in add-on mode.
         """
         if not self._token:
             return
 
+        host = _container_hostname()
         payload = {
             "service": _SERVICE_NAME,
             "config": {

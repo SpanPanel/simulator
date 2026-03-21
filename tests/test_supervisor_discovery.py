@@ -46,8 +46,14 @@ def _mock_session(response_status: int, response_json: dict | None = None) -> Ma
 async def test_register_panel_posts_to_supervisor(discovery: SupervisorDiscovery):
     """register_panel POSTs to /discovery and tracks the UUID."""
     mock_session = _mock_session(200, {"uuid": "disc-uuid-123"})
-    with patch("aiohttp.ClientSession", return_value=mock_session):
-        await discovery.register_panel("sim-001", "192.168.1.50", 8081)
+    with (
+        patch("aiohttp.ClientSession", return_value=mock_session),
+        patch(
+            "span_panel_simulator.supervisor_discovery._container_hostname",
+            return_value="f8c38f2b-span-panel-simulator",
+        ),
+    ):
+        await discovery.register_panel("sim-001", 8081)
 
     assert discovery._entries.get("sim-001") == "disc-uuid-123"
     mock_session.post.assert_called_once()
@@ -67,7 +73,7 @@ async def test_unregister_panel_deletes_from_supervisor(discovery: SupervisorDis
 
 async def test_no_op_without_token(discovery_no_token: SupervisorDiscovery):
     """All operations are no-ops when SUPERVISOR_TOKEN is not set."""
-    await discovery_no_token.register_panel("sim-001", "192.168.1.50", 8081)
+    await discovery_no_token.register_panel("sim-001", 8081)
     assert len(discovery_no_token._entries) == 0
     await discovery_no_token.unregister_panel("sim-001")  # Should not raise
 
@@ -75,8 +81,14 @@ async def test_no_op_without_token(discovery_no_token: SupervisorDiscovery):
 async def test_register_failure_logged_not_raised(discovery: SupervisorDiscovery):
     """Supervisor API failures are swallowed — panel startup must not be blocked."""
     mock_session = _mock_session(401)
-    with patch("aiohttp.ClientSession", return_value=mock_session):
-        await discovery.register_panel("sim-001", "192.168.1.50", 8081)
+    with (
+        patch("aiohttp.ClientSession", return_value=mock_session),
+        patch(
+            "span_panel_simulator.supervisor_discovery._container_hostname",
+            return_value="f8c38f2b-span-panel-simulator",
+        ),
+    ):
+        await discovery.register_panel("sim-001", 8081)
     assert "sim-001" not in discovery._entries
 
 
