@@ -118,14 +118,6 @@
       existing.destroy();
     }
 
-    // Force canvas width to match its container before Chart.js reads it
-    var wrap = ctx.parentElement;
-    if (wrap) {
-      var w = wrap.getBoundingClientRect().width;
-      ctx.style.width = w + 'px';
-      ctx.width = w;
-    }
-
     if (chartInstance) {
       chartInstance.data.labels = labels;
       chartInstance.data.datasets[0].data = values;
@@ -190,9 +182,25 @@
     fetchAndRender();
   });
 
-  // Defer initial render until browser completes layout — during an
-  // HTMX swap the container width is not yet determined, causing
-  // Chart.js to size the canvas to the wrong width.
-  requestAnimationFrame(function() { fetchAndRender(); });
+  // Wait for the chart container to have stable dimensions before
+  // initializing — during an HTMX swap getBoundingClientRect() can
+  // return 0 or stale values on the first animation frame.
+  var chartWrap = document.querySelector('.pv-chart-wrap');
+  if (chartWrap && typeof ResizeObserver !== 'undefined') {
+    var initRO = new ResizeObserver(function(entries) {
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].contentRect.width > 0) {
+          initRO.disconnect();
+          if (document.getElementById('pv-chart-canvas')) {
+            fetchAndRender();
+          }
+          return;
+        }
+      }
+    });
+    initRO.observe(chartWrap);
+  } else {
+    requestAnimationFrame(function() { fetchAndRender(); });
+  }
 })();
 </script>

@@ -743,6 +743,11 @@ legend {
 .pv-chart-wrap {
   position: relative;
   height: 280px;
+  overflow: hidden;
+}
+
+.pv-chart-wrap canvas {
+  display: block;
 }
 
 .text-muted {

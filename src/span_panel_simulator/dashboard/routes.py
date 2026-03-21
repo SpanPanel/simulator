@@ -435,7 +435,7 @@ async def handle_put_entity(request: web.Request) -> web.Response:
     return _render(
         "partials/entity_list.html",
         request,
-        _entity_list_context(request, editing_id=entity_id),
+        _entity_list_context(request),
     )
 
 
