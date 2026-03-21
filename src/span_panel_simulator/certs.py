@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime
 import ipaddress
 import logging
+import socket
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -38,15 +39,18 @@ class CertificateBundle:
     ca_cert_pem: bytes
 
 
-def _cert_has_ip(cert_path: Path, address: str) -> bool:
-    """Check whether an existing server certificate contains *address* in its SAN."""
+def _cert_has_san(cert_path: Path, address: str | None, dns_name: str | None) -> bool:
+    """Check whether an existing server certificate contains required SAN entries."""
     cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
     try:
         san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
     except x509.ExtensionNotFound:
         return False
-    target = ipaddress.ip_address(address)
-    return target in san.value.get_values_for_type(x509.IPAddress)
+    if address:
+        target = ipaddress.ip_address(address)
+        if target not in san.value.get_values_for_type(x509.IPAddress):
+            return False
+    return not (dns_name and dns_name not in san.value.get_values_for_type(x509.DNSName))
 
 
 def _load_existing(
@@ -67,10 +71,12 @@ def _load_existing(
     if not all(p.exists() for p in (ca_cert_path, ca_key_path, server_cert_path, server_key_path)):
         return None
 
-    if advertise_address and not _cert_has_ip(server_cert_path, advertise_address):
+    container_host = socket.gethostname()
+    if not _cert_has_san(server_cert_path, advertise_address, container_host):
         _LOGGER.info(
-            "Existing certificate missing SAN for %s — regenerating",
-            advertise_address,
+            "Existing certificate missing SAN for %s / %s — regenerating",
+            advertise_address or "(no IP)",
+            container_host,
         )
         return None
 
@@ -169,6 +175,7 @@ def generate_certificates(
                 [
                     x509.DNSName(hostname),
                     x509.DNSName("localhost"),
+                    x509.DNSName(socket.gethostname()),
                     x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
                 ]
                 + (
