@@ -73,8 +73,8 @@ single-element triggers) to all user-initiated HTMX forms and buttons. This
 adds the native `disabled` attribute during requests, blocking keyboard
 submission (Enter key) in addition to the CSS pointer-events block.
 
-Note: `hx-disabled-elt="this"` on non-form elements like `<label>` has no
-HTML effect (only `<button>`, `<input>`, `<select>`, `<textarea>` support
+Note: `hx-disabled-elt="this"` on non-form elements like `<label>` or `<span>`
+has no HTML effect (only `<button>`, `<input>`, `<select>`, `<textarea>` support
 `disabled`). For those elements the CSS `.htmx-request` layer provides the
 actual blocking.
 
