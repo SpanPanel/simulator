@@ -222,6 +222,7 @@ fieldset {
   border-radius: var(--radius);
   padding: 0.75rem;
   margin-top: 0.75rem;
+  min-width: 0;
 }
 
 legend {
