@@ -180,6 +180,9 @@
     fetchAndRender();
   });
 
-  fetchAndRender();
+  // Defer initial render until browser completes layout — during an
+  // HTMX swap the container width is not yet determined, causing
+  // Chart.js to size the canvas to the wrong width.
+  requestAnimationFrame(function() { fetchAndRender(); });
 })();
 </script>
