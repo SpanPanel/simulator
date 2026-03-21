@@ -59,10 +59,8 @@ class PanelAdvertiser:
 
     def __init__(
         self,
-        http_port: int = 443,
         advertise_address: str | None = None,
     ) -> None:
-        self._http_port = http_port
         self._advertise_address = advertise_address
         self._zeroconf: AsyncZeroconf | None = None
         self._services: dict[str, list[ServiceInfo]] = {}  # serial → [ServiceInfo]
@@ -84,7 +82,9 @@ class PanelAdvertiser:
         self._zeroconf = None
         _LOGGER.info("mDNS advertiser stopped")
 
-    async def register_panel(self, serial: str, firmware: str, *, model: str = "MAIN_32") -> None:
+    async def register_panel(
+        self, serial: str, firmware: str, *, model: str = "MAIN_32", port: int = 80
+    ) -> None:
         """Advertise a panel on the local network.
 
         Registers two service types per panel:
@@ -111,8 +111,8 @@ class PanelAdvertiser:
 
         # Include httpPort when serving on a non-standard port so that
         # the HA integration discovers the correct HTTP bootstrap address
-        if self._http_port != 80:
-            ebus_properties["httpPort"] = str(self._http_port)
+        if port != 80:
+            ebus_properties["httpPort"] = str(port)
 
         # _span._tcp properties
         span_properties: dict[str, str] = {
@@ -127,7 +127,7 @@ class PanelAdvertiser:
             # isn't used for service connection — MQTT broker details come
             # from the /api/v2/auth/register HTTP response instead)
             (SERVICE_TYPE_EBUS, ebus_properties, 0),
-            (SERVICE_TYPE_SPAN, span_properties, self._http_port),
+            (SERVICE_TYPE_SPAN, span_properties, port),
         ):
             name = f"SPAN-{serial}.{svc_type}"
             info = ServiceInfo(
@@ -154,7 +154,7 @@ class PanelAdvertiser:
             "Advertised panel %s on %s (ebus SRV port 0, HTTP port %d)",
             serial,
             ", ".join(addresses),
-            self._http_port,
+            port,
         )
 
     async def unregister_panel(self, serial: str) -> None:

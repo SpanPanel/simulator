@@ -1,16 +1,14 @@
-"""Bootstrap HTTP server — multi-panel aware.
+"""Bootstrap HTTP server — single-panel per instance.
 
-Serves the eBus bootstrap endpoints with response formats matching
-the real SPAN panel v2 API, plus admin endpoints for reload and
-panel listing.
+Each simulated panel gets its own ``BootstrapHttpServer`` bound to a
+unique port, matching real SPAN hardware where each panel is a separate
+device on a different IP.
 
 Endpoints:
-  GET  /api/v2/status           → panel identity (serialNumber, firmwareVersion)
-  POST /api/v2/auth/register    → JWT + MQTT credentials (camelCase fields)
-  GET  /api/v2/certificate/ca   → self-signed CA PEM
-  GET  /api/v2/homie/schema     → Homie property schema JSON
-  POST /admin/reload            → trigger config reload
-  GET  /admin/panels            → list running panels
+  GET  /api/v2/status           -> panel identity (serialNumber, firmwareVersion)
+  POST /api/v2/auth/register    -> JWT + MQTT credentials (camelCase fields)
+  GET  /api/v2/certificate/ca   -> self-signed CA PEM
+  GET  /api/v2/homie/schema     -> Homie property schema JSON
 """
 
 from __future__ import annotations
@@ -36,8 +34,6 @@ from span_panel_simulator.const import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from span_panel_simulator.certs import CertificateBundle
     from span_panel_simulator.schema import HomieSchemaRegistry
 
@@ -45,10 +41,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class BootstrapHttpServer:
-    """HTTP server for eBus bootstrap and simulator admin."""
+    """HTTP server for a single panel's eBus bootstrap endpoints."""
 
     def __init__(
         self,
+        serial: str,
+        firmware: str,
         certs: CertificateBundle,
         schema: HomieSchemaRegistry,
         *,
@@ -57,22 +55,19 @@ class BootstrapHttpServer:
         broker_host: str = "localhost",
         host: str = "0.0.0.0",
         port: int = 443,
-        reload_callback: Callable[[], None] | None = None,
     ) -> None:
+        self._serial = serial
+        self._firmware = firmware
         self._certs = certs
         self._broker_username = broker_username
         self._broker_password = broker_password
         self._broker_host = broker_host
         self._host = host
         self._port = port
-        self._reload_callback = reload_callback
 
         self._homie_schema = schema.raw_json
         self._app = web.Application()
         self._runner: web.AppRunner | None = None
-
-        # Panel registry: serial → firmware version
-        self._panels: dict[str, str] = {}
 
         # Bootstrap endpoints
         self._app.router.add_get(PATH_STATUS, self._handle_status)
@@ -80,60 +75,22 @@ class BootstrapHttpServer:
         self._app.router.add_get(PATH_CA_CERT, self._handle_ca_cert)
         self._app.router.add_get(PATH_HOMIE_SCHEMA, self._handle_schema)
 
-        # Admin endpoints
-        self._app.router.add_post("/admin/reload", self._handle_reload)
-        self._app.router.add_get("/admin/panels", self._handle_list_panels)
-
-    # ------------------------------------------------------------------
-    # Panel registry
-    # ------------------------------------------------------------------
-
-    def register_panel(self, serial: str, firmware: str) -> None:
-        """Add a panel to the registry."""
-        self._panels[serial] = firmware
-
-    def unregister_panel(self, serial: str) -> None:
-        """Remove a panel from the registry."""
-        self._panels.pop(serial, None)
-
     # ------------------------------------------------------------------
     # Bootstrap handlers — field names match real SPAN v2 API
     # ------------------------------------------------------------------
 
-    async def _handle_status(self, request: web.Request) -> web.Response:
-        """GET /api/v2/status — return panel identity.
+    async def _handle_status(self, _request: web.Request) -> web.Response:
+        """GET /api/v2/status — return this panel's identity.
 
-        Query params:
-          ?serial=XXX  → return that specific panel
-          (no param)   → return first panel (single-panel compatible)
+        The ``?serial=`` query parameter is accepted but ignored — each
+        server only knows about one panel.
 
         Response matches real panel: ``{"serialNumber": "...", "firmwareVersion": "..."}``
         """
-        serial_filter = request.query.get("serial")
-
-        if serial_filter:
-            firmware = self._panels.get(serial_filter)
-            if firmware is None:
-                raise web.HTTPNotFound(text=f"Panel {serial_filter} not found")
-            return web.json_response(
-                {
-                    "serialNumber": serial_filter,
-                    "firmwareVersion": firmware,
-                    "proximityProven": True,
-                }
-            )
-
-        if not self._panels:
-            raise web.HTTPServiceUnavailable(text="No panels running")
-
-        # Return the first panel — mirrors a real SPAN panel which only
-        # has one identity.  Use ?serial=XXX for a specific panel or
-        # /admin/panels for the full list.
-        serial, firmware = next(iter(self._panels.items()))
         return web.json_response(
             {
-                "serialNumber": serial,
-                "firmwareVersion": firmware,
+                "serialNumber": self._serial,
+                "firmwareVersion": self._firmware,
                 "proximityProven": True,
             }
         )
@@ -149,15 +106,6 @@ class BootstrapHttpServer:
         body: dict[str, str] = {}
         with contextlib.suppress(Exception):
             body = await request.json()
-
-        # Determine which panel this is for (use first panel as default)
-        serial_hint = body.get("serial", "")
-        if serial_hint and serial_hint in self._panels:
-            serial = serial_hint
-        elif self._panels:
-            serial = next(iter(self._panels))
-        else:
-            raise web.HTTPServiceUnavailable(text="No panels running")
 
         token = f"sim.{secrets.token_urlsafe(32)}.{secrets.token_urlsafe(16)}"
         passphrase = body.get("hopPassphrase", "sim-passphrase")
@@ -177,8 +125,8 @@ class BootstrapHttpServer:
             "ebusBrokerMqttsPort": MQTTS_PORT,
             "ebusBrokerWsPort": WS_PORT,
             "ebusBrokerWssPort": WSS_PORT,
-            "hostname": f"span-sim-{serial}",
-            "serialNumber": serial,
+            "hostname": f"span-sim-{self._serial}",
+            "serialNumber": self._serial,
             "hopPassphrase": passphrase,
         }
 
@@ -197,26 +145,6 @@ class BootstrapHttpServer:
         )
 
     # ------------------------------------------------------------------
-    # Admin handlers
-    # ------------------------------------------------------------------
-
-    async def _handle_reload(self, _request: web.Request) -> web.Response:
-        if self._reload_callback is not None:
-            self._reload_callback()
-            return web.json_response({"status": "reload_requested"})
-        return web.json_response({"status": "no_reload_handler"}, status=503)
-
-    async def _handle_list_panels(self, _request: web.Request) -> web.Response:
-        return web.json_response(
-            {
-                "panels": [
-                    {"serialNumber": serial, "firmwareVersion": fw}
-                    for serial, fw in self._panels.items()
-                ]
-            }
-        )
-
-    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
@@ -226,7 +154,12 @@ class BootstrapHttpServer:
         await self._runner.setup()
         site = web.TCPSite(self._runner, self._host, self._port)
         await site.start()
-        _LOGGER.info("Bootstrap HTTP server listening on %s:%d", self._host, self._port)
+        _LOGGER.info(
+            "Bootstrap HTTP server for %s listening on %s:%d",
+            self._serial,
+            self._host,
+            self._port,
+        )
 
     async def stop(self) -> None:
         """Stop the HTTP server."""
