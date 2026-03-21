@@ -346,8 +346,7 @@ class SimulatorApp:
 
         # Register with Supervisor Discovery
         if self._supervisor_discovery is not None and self._supervisor_discovery.is_available:
-            advertise_host = self._advertise_address or "127.0.0.1"
-            await self._supervisor_discovery.register_panel(serial, advertise_host, port)
+            await self._supervisor_discovery.register_panel(serial, port)
 
         _LOGGER.info("Registered panel %s from %s on port %d", serial, config_path.name, port)
         return panel
