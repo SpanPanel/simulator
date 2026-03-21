@@ -116,6 +116,14 @@
       existing.destroy();
     }
 
+    // Force canvas width to match its container before Chart.js reads it
+    var wrap = ctx.parentElement;
+    if (wrap) {
+      var w = wrap.getBoundingClientRect().width;
+      ctx.style.width = w + 'px';
+      ctx.width = w;
+    }
+
     if (chartInstance) {
       chartInstance.data.labels = labels;
       chartInstance.data.datasets[0].data = values;
