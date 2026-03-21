@@ -312,6 +312,7 @@ legend {
   border-radius: var(--radius);
   padding: 1rem;
   min-width: 0;
+  overflow-x: hidden;
 }
 
 .edit-header {
