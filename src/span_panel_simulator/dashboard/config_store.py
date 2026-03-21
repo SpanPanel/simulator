@@ -188,6 +188,52 @@ class ConfigStore:
         if template is not None and template.get("recorder_entity"):
             template["user_modified"] = True
 
+    def get_recorder_map(self) -> dict[str, str]:
+        """Return the backup template_name → recorder_entity mapping."""
+        ps = self._state.get("panel_source")
+        if isinstance(ps, dict):
+            rm = ps.get("recorder_map")
+            if isinstance(rm, dict):
+                return dict(rm)
+        return {}
+
+    def restore_recorder(self, entity_id: str) -> bool:
+        """Restore a template to its original recorder state.
+
+        Reverts the full template from the snapshot taken at clone/sync
+        time.  Falls back to just restoring the recorder_entity link if
+        no snapshot exists.  Returns False for entities that never had
+        recorder data.
+        """
+        circuit = self._find_circuit(entity_id)
+        if circuit is None:
+            return False
+        template_name = circuit["template"]
+        templates = self._templates()
+        if template_name not in templates:
+            return False
+
+        recorder_map = self.get_recorder_map()
+        rec_entity = recorder_map.get(template_name)
+        if not rec_entity:
+            return False
+
+        # Restore full template from snapshot if available
+        ps = self._state.get("panel_source")
+        snapshots = ps.get("recorder_snapshots", {}) if isinstance(ps, dict) else {}
+        snapshot = snapshots.get(template_name)
+        if isinstance(snapshot, dict):
+            import copy
+
+            templates[template_name] = copy.deepcopy(snapshot)
+        else:
+            template = templates[template_name]
+            template["recorder_entity"] = rec_entity
+            template.pop("user_modified", None)
+
+        self._dirty = True
+        return True
+
     def toggle_user_modified(self, entity_id: str) -> bool:
         """Toggle the user_modified flag on a template. Returns the new value.
 

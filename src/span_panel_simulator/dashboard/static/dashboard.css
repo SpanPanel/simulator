@@ -253,6 +253,7 @@ legend {
 .badge-data-source { font-size: 0.6rem; padding: 0.1rem 0.35rem; letter-spacing: 0.03em; }
 .badge-replay { background: #3b82f6; }
 .badge-override { background: #f97316; }
+.badge-restore { background: #6b7280; }
 
 /* Entity table */
 .entity-table {
