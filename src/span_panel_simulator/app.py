@@ -11,6 +11,7 @@ removed panels, and restarts panels whose configs have changed.
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import logging
 from pathlib import Path
@@ -279,6 +280,8 @@ class SimulatorApp:
             serial = f"{base_serial}-{suffix}"
             if panel.engine is not None:
                 panel.engine.override_serial_number(serial)
+            if panel.publisher is not None:
+                panel.publisher.override_serial(serial)
             _LOGGER.warning(
                 "Duplicate serial %s detected — renamed to %s",
                 base_serial,
@@ -305,11 +308,14 @@ class SimulatorApp:
             broker_host=self._broker_host,
             port=port,
         )
-        while True:
+        max_port_retries = 20
+        for _attempt in range(max_port_retries):
             try:
                 await server.start()
                 break
-            except OSError:
+            except OSError as exc:
+                if exc.errno != errno.EADDRINUSE:
+                    raise
                 _LOGGER.warning("Port %d in use for panel %s, trying next port", port, serial)
                 self._release_port(port)
                 port = self._allocate_port()
@@ -323,6 +329,11 @@ class SimulatorApp:
                     broker_host=self._broker_host,
                     port=port,
                 )
+        else:
+            raise OSError(
+                f"Could not find an available port for panel {serial} "
+                f"after {max_port_retries} attempts"
+            )
 
         self._panel_servers[serial] = server
         self._panel_ports[serial] = port

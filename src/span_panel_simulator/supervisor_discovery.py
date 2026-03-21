@@ -100,13 +100,20 @@ class SupervisorDiscovery:
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    uuid = data.get("uuid", "")
-                    self._entries[serial] = uuid
-                    _LOGGER.info(
-                        "Supervisor discovery: registered %s (uuid=%s)",
-                        serial,
-                        uuid,
-                    )
+                    uuid = data.get("uuid")
+                    if isinstance(uuid, str) and uuid:
+                        self._entries[serial] = uuid
+                        _LOGGER.info(
+                            "Supervisor discovery: registered %s (uuid=%s)",
+                            serial,
+                            uuid,
+                        )
+                    else:
+                        _LOGGER.warning(
+                            "Supervisor discovery: register %s returned invalid uuid: %s",
+                            serial,
+                            data,
+                        )
                 else:
                     text = await resp.text()
                     _LOGGER.warning(
@@ -129,8 +136,10 @@ class SupervisorDiscovery:
 
         No-ops if not in add-on mode or if the serial was never registered.
         """
-        uuid = self._entries.pop(serial, None)
-        if not uuid or not self._token:
+        if not self._token:
+            return
+        uuid = self._entries.get(serial)
+        if not uuid:
             return
 
         session = aiohttp.ClientSession()
@@ -140,6 +149,7 @@ class SupervisorDiscovery:
                 headers=self._headers(),
             ) as resp:
                 if resp.status == 200:
+                    self._entries.pop(serial, None)
                     _LOGGER.info(
                         "Supervisor discovery: unregistered %s (uuid=%s)",
                         serial,
