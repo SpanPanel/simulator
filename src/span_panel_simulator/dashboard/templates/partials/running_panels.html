@@ -4,6 +4,7 @@
     <span class="running-count">{{ panels | length }} config{{ 's' if panels | length != 1 else '' }}</span>
     <form method="post" enctype="multipart/form-data"
           hx-post="import" hx-target="#main-content" hx-encoding="multipart/form-data"
+          hx-disabled-elt="find label"
           style="display:inline; margin-left:auto">
       <label class="btn btn-sm btn-secondary">
         Import

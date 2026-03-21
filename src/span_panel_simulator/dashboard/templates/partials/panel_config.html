@@ -1,6 +1,6 @@
 <div class="card">
   <h2>Panel Config</h2>
-  <form hx-put="panel-config" hx-target="#panel-config-section" hx-swap="innerHTML">
+  <form hx-put="panel-config" hx-target="#panel-config-section" hx-swap="innerHTML" hx-disabled-elt="find button">
     <div class="form-row">
       <label>Serial:
         <input type="text" name="serial_number" value="{{ panel_config.serial_number }}" size="20" {{ 'disabled' if readonly else '' }}>

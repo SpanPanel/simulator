@@ -18,7 +18,8 @@
   <form hx-post="clone-from-panel"
         hx-target="#clone-panel-section"
         hx-swap="outerHTML"
-        hx-indicator="#clone-spinner">
+        hx-indicator="#clone-spinner"
+        hx-disabled-elt="find button">
     <div class="form-row">
       <label>Panel
         <select id="panel-selector" name="panel-select">

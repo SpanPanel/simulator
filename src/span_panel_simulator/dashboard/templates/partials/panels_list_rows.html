@@ -31,12 +31,14 @@
           hx-post="restart-panel"
           hx-vals='{"filename": "{{ p.filename }}"}'
           hx-target="#flash-area" hx-swap="innerHTML"
+          hx-disabled-elt="this"
           title="Restart engine">Restart</button>
   <button class="btn btn-sm btn-danger"
           onclick="event.stopPropagation()"
           hx-post="stop-panel"
           hx-vals='{"filename": "{{ p.filename }}"}'
           hx-target="#flash-area" hx-swap="innerHTML"
+          hx-disabled-elt="this"
           title="Stop engine">Stop</button>
   {% else %}
   <button class="btn btn-sm btn-primary"
@@ -44,6 +46,7 @@
           hx-post="start-panel"
           hx-vals='{"filename": "{{ p.filename }}"}'
           hx-target="#flash-area" hx-swap="innerHTML"
+          hx-disabled-elt="this"
           title="Start engine">Start</button>
   {% if not p.is_default and not p.running %}
   <button class="btn btn-sm btn-danger"
@@ -52,6 +55,7 @@
           hx-vals='{"filename": "{{ p.filename }}"}'
           hx-target="#flash-area" hx-swap="innerHTML"
           hx-confirm="Delete {{ p.filename }}? This cannot be undone."
+          hx-disabled-elt="this"
           title="Delete config file">Del</button>
   {% endif %}
   {% endif %}
