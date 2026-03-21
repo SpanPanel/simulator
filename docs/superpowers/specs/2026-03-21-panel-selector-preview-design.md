@@ -35,19 +35,26 @@ Clicking any panel row in the panels list loads that config into the entity list
   - `update_panel_config`
   - `update_simulation_params`
   - `update_entity_profile`
-  - `apply_profile_preset`
+  - `apply_preset`
   - `update_battery_profile` / `update_battery_charge_mode` / `apply_battery_preset`
   - `update_evse_schedule` / `apply_evse_preset`
   - `update_active_days`
   - `toggle_user_modified`
+- Note: setting `_dirty = True` is idempotent. Composite methods (e.g. `apply_preset` calls `update_entity_profile`) may set it multiple times — this is harmless.
 - Clear `_dirty = False` in:
   - `load_from_file`
   - `load_from_yaml`
-  - `save_to_file` (called by save-reload)
+- Add a `save_to_file(path: Path)` method that calls `export_yaml()`, writes the file, and clears `_dirty`. Refactor `handle_save_reload` in routes.py to call `store.save_to_file(path)` instead of doing export + write inline.
 - Expose via `@property def dirty(self) -> bool`.
 
 **New route (`routes.py`):**
-- `GET /check-dirty` — returns `{"dirty": true/false}`.
+- `GET /check-dirty` — returns `{"dirty": true/false}`. This is a deliberate departure from the HTMX-first pattern used elsewhere: the response drives a JS `confirm()` dialog, not an HTMX swap.
+
+**Guard on `handle_save_reload`:**
+- Add an explicit guard: if `config_filter` starts with `default_`, return 400. This prevents accidental overwrite of default templates when viewing them (the UI already hides Save+Reload when readonly, but a server-side guard is defense-in-depth).
+
+**Import flow (`handle_import`):**
+- `handle_import` calls `load_from_yaml` which clears `_dirty`. This is intentional — importing a file is an explicit user action that replaces the entire config. The import flow does not need a dirty guard because the user explicitly chose to import, and the replaced state becomes the new baseline.
 
 ### 3. Client-Side Switch Flow
 
@@ -77,16 +84,16 @@ The confirm dialog uses a simple `confirm()` or a small inline prompt — no mod
 
 **Active panel indication:**
 - The currently viewed panel row gets the `active-panel` CSS class (already exists).
-- Badge text: "editing" for user configs, "viewing" for defaults.
+- Badge text: "editing" for user configs, "viewing" for defaults. The template uses `p.is_default` (already available) to conditionally render the badge text.
 - The `config_filter` context variable already tracks which file is loaded; `_all_panels` already sets `active` based on this.
 
 ### 5. Files Changed
 
 | File | Change |
 |------|--------|
-| `dashboard/config_store.py` | Add `_dirty` flag, set in mutations, clear on load/save |
-| `dashboard/routes.py` | Remove default rejection in `handle_load_config`; add `GET /check-dirty` route |
-| `dashboard/templates/partials/panels_list_rows.html` | Make rows clickable, remove Edit button, add switchPanel JS, update badge text |
+| `dashboard/config_store.py` | Add `_dirty` flag, set in mutations, clear on load/save; add `save_to_file` method |
+| `dashboard/routes.py` | Remove default rejection in `handle_load_config`; add `GET /check-dirty` route; add default guard to `handle_save_reload`; refactor save-reload to use `store.save_to_file()` |
+| `dashboard/templates/partials/panels_list_rows.html` | Make rows clickable, remove Edit button, add `switchPanel` JS, update badge text using `p.is_default` |
 
 ### 6. What Does NOT Change
 
@@ -94,12 +101,14 @@ The confirm dialog uses a simple `confirm()` or a small inline prompt — no mod
 - Entity row template (`entity_row.html`) — already hides Edit/Del when `readonly`
 - Clone, Start, Stop, Restart buttons — unchanged
 - Modeling mode — unchanged
-- Save+Reload flow — unchanged
 - Unmapped tabs card — already hidden when `readonly`
 
 ## Edge Cases
 
 - **Switching to the already-active panel:** No-op, skip the dirty check.
 - **Switching while a panel is running:** Allowed. Viewing a config doesn't affect the running engine. The entity list shows the config file contents, not the live engine state.
-- **Dirty state after save-reload:** Cleared. The `save_to_file` call resets `_dirty`.
-- **Browser refresh:** ConfigStore reloads from file, `_dirty` starts `False`. Any unsaved in-memory changes are lost — same as current behavior.
+- **Dirty state after save-reload:** Cleared. The `store.save_to_file()` call resets `_dirty`.
+- **Browser refresh:** ConfigStore reloads from file via the bootstrap path, which calls `load_from_file` and clears `_dirty`. Any unsaved in-memory changes are lost — same as current behavior.
+- **Clone of active config with dirty edits:** Clone copies the in-memory state (via `export_yaml`), so the clone captures unsaved edits. This is the existing behavior and is intentional — the user explicitly chose to clone what they see.
+- **`switchPanel` error handling:** If `/load-config` returns an error (e.g. file deleted from disk between list render and click), the JS function should display a flash message rather than silently failing.
+- **Save-reload while viewing a default:** The server-side guard on `handle_save_reload` rejects this with a 400. The UI already hides the button via the `readonly` flag, so this is defense-in-depth only.
