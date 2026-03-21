@@ -64,11 +64,13 @@
 {% endif %}
 
 <script>
+window._formDirty = false;
 function switchPanel(filename) {
   fetch('check-dirty')
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data.dirty) {
+      var hasUnsaved = data.dirty || window._formDirty;
+      if (hasUnsaved) {
         if (!confirm('You have unsaved changes that will be lost. Switch anyway?')) {
           return;
         }

@@ -2,7 +2,8 @@
 {% set entity = e %}
 {% set profile = editing_profile if editing_profile is defined else {} %}
 <div class="entity-edit" id="entity-{{ e.id }}">
-  <form hx-put="entities/{{ e.id }}" hx-target="#entity-list-section" hx-swap="innerHTML">
+  <form hx-put="entities/{{ e.id }}" hx-target="#entity-list-section" hx-swap="innerHTML"
+        onchange="window._formDirty=true" oninput="window._formDirty=true">
     <div class="edit-header">
       <span class="badge badge-{{ e.entity_type }}">{{ e.entity_type|upper }}</span>
       <h3>Editing: {{ e.name }}</h3>
