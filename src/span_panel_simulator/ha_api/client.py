@@ -407,8 +407,16 @@ class HAClient:
         Looks up the device, finds all associated entity IDs, and calls
         ``recorder.purge_entities`` to remove long-term statistics.
 
+        Safety: refuses to purge unless the serial has a ``sim-`` prefix
+        so that real panel history is never accidentally deleted — even
+        if a clone's ``recorder_entity`` fields reference the original.
+
         Returns the number of entities purged (0 if panel not found in HA).
         """
+        if not serial.lower().startswith("sim-"):
+            _LOGGER.warning("Refusing to purge recorder data for non-simulator serial %s", serial)
+            return 0
+
         device_id = await self.async_get_device_id_for_serial(serial)
         if device_id is None:
             _LOGGER.debug("No HA device found for serial %s — nothing to purge", serial)
