@@ -1398,6 +1398,17 @@ async def handle_clone_from_panel(request: web.Request) -> web.Response:
             _clone_panel_context(request, clone_error="Panel IP or hostname is required."),
         )
 
+    if not passphrase:
+        return _render(
+            "partials/clone_panel.html",
+            request,
+            _clone_panel_context(
+                request,
+                clone_error="Passphrase is required.",
+                clone_host=host,
+            ),
+        )
+
     try:
         creds, ca_pem = await register_with_panel(host, passphrase)
         scraped = await scrape_ebus(creds, ca_pem)

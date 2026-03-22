@@ -35,9 +35,9 @@
                value="{{ clone_host | default('', true) }}">
       </label>
       {% endif %}
-      <label>Passphrase <span class="hint">(blank for door-bypass)</span>
-        <input type="text" name="passphrase" placeholder="optional"
-               value="{{ clone_passphrase | default('', true) }}">
+      <label>Passphrase
+        <input type="text" name="passphrase" placeholder="required"
+               value="{{ clone_passphrase | default('', true) }}" required>
       </label>
       <button type="submit" class="btn btn-sm btn-primary">Clone</button>
       <span id="clone-spinner" class="htmx-indicator">&#x23F3;</span>
