@@ -160,7 +160,7 @@ _CIRCUIT_EXTRACTORS: Sequence[tuple[str, Callable[[SpanCircuitSnapshot], str | N
     ("active-power", lambda c: _format_float(-c.instant_power_w)),
     ("exported-energy", lambda c: _format_float(c.consumed_energy_wh)),
     ("imported-energy", lambda c: _format_float(c.produced_energy_wh)),
-    ("space", lambda c: str(c.tabs[0]) if c.tabs else None),
+    ("space", lambda c: str(c.tabs[0]) if c.tabs else "0"),
     ("dipole", lambda c: _format_bool(c.is_240v)),
     ("shed-priority", lambda c: _PRIORITY_V1_TO_V2.get(c.priority, c.priority)),
     ("pcs-managed", lambda _: _format_bool(False)),
