@@ -313,6 +313,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/stop-panel", handle_stop_panel)
     app.router.add_post("/restart-panel", handle_restart_panel)
     app.router.add_post("/delete-config", handle_delete_config)
+    app.router.add_post("/purge-recorder", handle_purge_recorder)
 
     # Clone from real panel + HA profile import
     app.router.add_post("/clone-from-panel", handle_clone_from_panel)
@@ -1272,6 +1273,41 @@ async def _purge_recorder_for_config(ctx: DashboardContext, config_path: Path) -
             _LOGGER.info("Purged recorder data for %d entities (serial=%s)", count, serial)
     except Exception:
         _LOGGER.warning("Failed to purge HA recorder data for serial %s", serial, exc_info=True)
+
+
+async def handle_purge_recorder(request: web.Request) -> web.Response:
+    """Purge HA recorder data for a config file without deleting it."""
+    data = await request.post()
+    filename = str(data.get("filename", "")).strip()
+    if not filename:
+        return web.Response(
+            text='<div class="flash error">No filename specified.</div>',
+            content_type="text/html",
+        )
+
+    ctx = _ctx(request)
+    config_path = ctx.config_dir / filename
+
+    if not config_path.exists() or config_path.resolve().parent != ctx.config_dir.resolve():
+        return web.Response(
+            text='<div class="flash error">Config file not found.</div>',
+            content_type="text/html",
+        )
+
+    # Refuse if the panel is currently running
+    running = {p.name for p in ctx.get_panel_configs()}
+    if filename in running:
+        return web.Response(
+            text='<div class="flash error">Cannot purge while the panel is running.'
+            " Stop it first.</div>",
+            content_type="text/html",
+        )
+
+    await _purge_recorder_for_config(ctx, config_path)
+    return web.Response(
+        text='<div class="flash success">Recorder history purged.</div>',
+        content_type="text/html",
+    )
 
 
 async def handle_delete_config(request: web.Request) -> web.Response:

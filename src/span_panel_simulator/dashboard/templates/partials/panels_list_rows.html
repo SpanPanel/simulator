@@ -58,6 +58,14 @@
           hx-disabled-elt="this"
           title="Delete config file">Del</button>
   {% endif %}
+  <button class="btn btn-sm btn-danger"
+          onclick="event.stopPropagation()"
+          hx-post="purge-recorder"
+          hx-vals='{"filename": "{{ p.filename }}"}'
+          hx-target="#flash-area" hx-swap="innerHTML"
+          hx-confirm="Purge all HA historical data for {{ p.filename }}?"
+          hx-disabled-elt="this"
+          title="Remove HA recorder history for this profile">Purge</button>
   {% endif %}
 </div>
 {% endfor %}
