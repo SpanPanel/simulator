@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Fix markdown formatting",
+      "type": "shell",
+      "command": "/Users/bflood/projects/scripts/fix-markdown.sh",
+      "args": [
+        "${workspaceFolder}"
+      ],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": [],
+      "detail": "Markdown formatting using shared script (Prettier + markdownlint)"
+    },
+    {
+      "label": "Format and Lint Markdown",
+      "type": "shell",
+      "command": "/Users/bflood/projects/scripts/fix-markdown.sh",
+      "args": [
+        "${workspaceFolder}"
+      ],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": [],
+      "detail": "Format and lint markdown files using shared script (Prettier + markdownlint)"
+    }
+  ]
+}

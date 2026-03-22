@@ -18,6 +18,8 @@ venv/
 .superpowers/
 .last_config
 
-# Roadmap (not published yet)
+# Roadmap and planning docs (not published yet)
 span_panel_simulator/docs/roadmap/
 **/roadmap/
+span_panel_simulator/docs/2026-03-*-*.md
+span_panel_simulator/docs/cost-and-montecarlo-specs.md
