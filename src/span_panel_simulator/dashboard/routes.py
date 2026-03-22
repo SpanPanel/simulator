@@ -1213,6 +1213,7 @@ async def handle_start_panel(request: web.Request) -> web.Response:
     return web.Response(
         text=f'<div class="flash success">Starting {filename}…</div>',
         content_type="text/html",
+        headers={"HX-Trigger": "refreshPanels"},
     )
 
 
@@ -1225,6 +1226,7 @@ async def handle_stop_panel(request: web.Request) -> web.Response:
     return web.Response(
         text=f'<div class="flash success">Stopping {filename}…</div>',
         content_type="text/html",
+        headers={"HX-Trigger": "refreshPanels"},
     )
 
 
@@ -1237,6 +1239,7 @@ async def handle_restart_panel(request: web.Request) -> web.Response:
     return web.Response(
         text=f'<div class="flash success">Restarting {filename}…</div>',
         content_type="text/html",
+        headers={"HX-Trigger": "refreshPanels"},
     )
 
 
@@ -1294,6 +1297,7 @@ async def handle_delete_config(request: web.Request) -> web.Response:
     return web.Response(
         text=f'<div class="flash success">Deleted {filename}</div>',
         content_type="text/html",
+        headers={"HX-Trigger": "refreshPanels"},
     )
 
 

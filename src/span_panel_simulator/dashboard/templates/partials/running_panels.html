@@ -13,7 +13,7 @@
       </label>
     </form>
   </div>
-  <div id="panels-list" hx-get="panels-list" hx-trigger="every 5s" hx-swap="innerHTML">
+  <div id="panels-list" hx-get="panels-list" hx-trigger="every 5s, refreshPanels from:body" hx-swap="innerHTML">
     {% include "partials/panels_list_rows.html" %}
   </div>
 </section>
