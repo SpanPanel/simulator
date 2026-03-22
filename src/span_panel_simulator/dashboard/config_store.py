@@ -67,6 +67,7 @@ class ConfigStore:
     """In-memory config state: load, mutate, validate, export."""
 
     def __init__(self) -> None:
+        self._dirty: bool = False
         self._state: dict[str, Any] = {
             "panel_config": {
                 "serial_number": "SPAN-SIM-001",
@@ -85,6 +86,11 @@ class ConfigStore:
             },
         }
 
+    @property
+    def dirty(self) -> bool:
+        """Whether in-memory state has unsaved changes."""
+        return self._dirty
+
     def load_from_yaml(self, content: str) -> None:
         """Parse, validate, and replace state from YAML string."""
         data = yaml.safe_load(content)
@@ -92,6 +98,7 @@ class ConfigStore:
             raise ValueError("YAML content must be a mapping")
         validate_yaml_config(data)
         self._state = data
+        self._dirty = False
 
     def load_from_file(self, path: Path) -> None:
         """Read a file and load its content."""
@@ -105,6 +112,11 @@ class ConfigStore:
             sort_keys=False,
             allow_unicode=True,
         )
+
+    def save_to_file(self, path: Path) -> None:
+        """Serialize current state to YAML and write to disk."""
+        path.write_text(self.export_yaml(), encoding="utf-8")
+        self._dirty = False
 
     # -- Panel config --
 
@@ -124,6 +136,7 @@ class ConfigStore:
         for key in ("latitude", "longitude", "soc_shed_threshold"):
             if key in data:
                 cfg[key] = float(data[key])
+        self._dirty = True
 
     def get_panel_source(self) -> dict[str, Any] | None:
         """Return the panel_source block, or None if absent."""
@@ -151,6 +164,7 @@ class ConfigStore:
         if "enable_realistic_behaviors" in data:
             val = data["enable_realistic_behaviors"]
             params["enable_realistic_behaviors"] = val in (True, "true", "on", "1")
+        self._dirty = True
 
     # -- Entities --
 
@@ -174,6 +188,52 @@ class ConfigStore:
         if template is not None and template.get("recorder_entity"):
             template["user_modified"] = True
 
+    def get_recorder_map(self) -> dict[str, str]:
+        """Return the backup template_name → recorder_entity mapping."""
+        ps = self._state.get("panel_source")
+        if isinstance(ps, dict):
+            rm = ps.get("recorder_map")
+            if isinstance(rm, dict):
+                return dict(rm)
+        return {}
+
+    def restore_recorder(self, entity_id: str) -> bool:
+        """Restore a template to its original recorder state.
+
+        Reverts the full template from the snapshot taken at clone/sync
+        time.  Falls back to just restoring the recorder_entity link if
+        no snapshot exists.  Returns False for entities that never had
+        recorder data.
+        """
+        circuit = self._find_circuit(entity_id)
+        if circuit is None:
+            return False
+        template_name = circuit["template"]
+        templates = self._templates()
+        if template_name not in templates:
+            return False
+
+        recorder_map = self.get_recorder_map()
+        rec_entity = recorder_map.get(template_name)
+        if not rec_entity:
+            return False
+
+        # Restore full template from snapshot if available
+        ps = self._state.get("panel_source")
+        snapshots = ps.get("recorder_snapshots", {}) if isinstance(ps, dict) else {}
+        snapshot = snapshots.get(template_name)
+        if isinstance(snapshot, dict):
+            import copy
+
+            templates[template_name] = copy.deepcopy(snapshot)
+        else:
+            template = templates[template_name]
+            template["recorder_entity"] = rec_entity
+            template.pop("user_modified", None)
+
+        self._dirty = True
+        return True
+
     def toggle_user_modified(self, entity_id: str) -> bool:
         """Toggle the user_modified flag on a template. Returns the new value.
 
@@ -192,6 +252,7 @@ class ConfigStore:
             return False
         current = bool(template.get("user_modified"))
         template["user_modified"] = not current
+        self._dirty = True
         return not current
 
     def _merge_entity(self, circuit: dict[str, Any]) -> EntityView:
@@ -242,7 +303,13 @@ class ConfigStore:
         return self._merge_entity(circuit)
 
     def update_entity(self, entity_id: str, data: dict[str, Any]) -> None:
-        """Update circuit and template fields from form data."""
+        """Update circuit and template fields from form data.
+
+        The ``_dirty`` key (set by a hidden form field) controls whether
+        the template is flagged as user-modified.  When the user opens
+        the editor and clicks Save without touching anything, ``_dirty``
+        is absent and ``_mark_user_modified`` is skipped.
+        """
         circuit = self._find_circuit(entity_id)
         if circuit is None:
             raise KeyError(f"Entity not found: {entity_id}")
@@ -259,13 +326,18 @@ class ConfigStore:
                 tabs_raw = [int(t.strip()) for t in tabs_raw.split(",") if t.strip()]
             circuit["tabs"] = tabs_raw
 
-        if "priority" in data:
+        if "inverter_type" in data:
+            template["priority"] = "MUST_HAVE" if data["inverter_type"] == "hybrid" else "OFF_GRID"
+        elif "priority" in data:
             template["priority"] = data["priority"]
         if "relay_behavior" in data:
             template["relay_behavior"] = data["relay_behavior"]
 
         overrides: dict[str, Any] = circuit.get("overrides", {})
         ep = template.get("energy_profile", {})
+
+        if "efficiency" in data:
+            ep["efficiency"] = float(data["efficiency"])
 
         # PV nameplate: update the template directly and derive power_range
         if "nameplate_capacity_w" in data:
@@ -290,12 +362,17 @@ class ConfigStore:
                 else:
                     overrides.pop("power_range", None)
 
-        if "nameplate_capacity_kwh" in data or "backup_reserve_pct" in data:
+        battery_keys = (
+            "nameplate_capacity_kwh",
+            "backup_reserve_pct",
+            "max_charge_power",
+            "max_discharge_power",
+        )
+        if any(k in data for k in battery_keys):
             bb: dict[str, Any] = template.setdefault("battery_behavior", {})
-            if "nameplate_capacity_kwh" in data:
-                bb["nameplate_capacity_kwh"] = float(data["nameplate_capacity_kwh"])
-            if "backup_reserve_pct" in data:
-                bb["backup_reserve_pct"] = float(data["backup_reserve_pct"])
+            for k in battery_keys:
+                if k in data:
+                    bb[k] = float(data[k])
 
         if "breaker_rating" in data:
             br_val = str(data["breaker_rating"]).strip()
@@ -316,7 +393,9 @@ class ConfigStore:
         else:
             circuit.pop("overrides", None)
 
-        self._mark_user_modified(template_name)
+        if data.get("_dirty"):
+            self._mark_user_modified(template_name)
+        self._dirty = True
 
     def add_entity(self, entity_type: str) -> EntityView:
         """Create a new entity with type-appropriate defaults."""
@@ -332,6 +411,7 @@ class ConfigStore:
 
         self._templates()[template_name] = template_dict
         self._circuits().append(circuit_dict)
+        self._dirty = True
         return self._merge_entity(circuit_dict)
 
     def get_unmapped_tabs(self) -> list[int]:
@@ -386,6 +466,7 @@ class ConfigStore:
 
         self._templates()[template_name] = template_dict
         self._circuits().append(circuit_dict)
+        self._dirty = True
         return self._merge_entity(circuit_dict)
 
     def delete_entity(self, entity_id: str) -> None:
@@ -403,6 +484,7 @@ class ConfigStore:
         still_used = any(c.get("template") == template_name for c in circuits)
         if not still_used:
             self._templates().pop(template_name, None)
+        self._dirty = True
 
     # -- Active days --
 
@@ -451,6 +533,7 @@ class ConfigStore:
                 tod.pop("active_days", None)
 
         self._mark_user_modified(template_name)
+        self._dirty = True
 
     # -- Profile --
 
@@ -514,6 +597,7 @@ class ConfigStore:
             tod["active_days"] = preserved_days
 
         self._mark_user_modified(template_name)
+        self._dirty = True
 
     def apply_preset(
         self,
@@ -546,6 +630,7 @@ class ConfigStore:
             count = _rng.randint(3, 6)
             days = sorted(_rng.sample(range(7), count))
             self.update_active_days(entity_id, days)
+        self._dirty = True
         return multipliers
 
     # -- Battery charge mode --
@@ -572,6 +657,7 @@ class ConfigStore:
         bb["charge_mode"] = mode
 
         self._mark_user_modified(template_name)
+        self._dirty = True
 
     # -- Battery profile --
 
@@ -610,11 +696,13 @@ class ConfigStore:
         bb["idle_hours"] = sorted(h for h, m in hour_modes.items() if m == "idle")
 
         self._mark_user_modified(template_name)
+        self._dirty = True
 
     def apply_battery_preset(self, entity_id: str, preset_name: str) -> dict[int, str]:
         """Apply a named battery preset and return the schedule."""
         hour_modes = get_battery_preset(preset_name)
         self.update_battery_profile(entity_id, hour_modes)
+        self._dirty = True
         return hour_modes
 
     # -- EVSE schedule --
@@ -688,6 +776,7 @@ class ConfigStore:
             tod["active_days"] = preserved_days
 
         self._mark_user_modified(template_name)
+        self._dirty = True
 
     def apply_evse_preset(self, entity_id: str, preset_name: str) -> dict[int, float]:
         """Apply an EVSE charging preset and return the schedule factors."""
@@ -704,6 +793,7 @@ class ConfigStore:
         tod["hour_factors"] = factors
 
         self._mark_user_modified(template_name)
+        self._dirty = True
         return factors
 
     # -- Energy projection --

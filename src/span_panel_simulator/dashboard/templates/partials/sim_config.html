@@ -5,13 +5,13 @@
       <a href="export" class="btn btn-sm btn-secondary">Export</a>
       {% if not readonly %}
       <button class="btn btn-sm btn-primary"
-              hx-post="save-reload" hx-target="#flash-area" hx-swap="innerHTML">
+              hx-post="save-reload" hx-target="#flash-area" hx-swap="innerHTML" hx-disabled-elt="this">
         Save &amp; Reload
       </button>
       {% endif %}
     </div>
   </div>
-  <form hx-put="sim-params" hx-target="#sim-config-section" hx-swap="innerHTML">
+  <form hx-put="sim-params" hx-target="#sim-config-section" hx-swap="innerHTML" hx-disabled-elt="find button">
     <div class="form-row">
       <label>Interval (s):
         <input type="number" name="update_interval" value="{{ sim_params.update_interval }}" min="1" max="60" style="width:4em" {{ 'disabled' if readonly else '' }}>

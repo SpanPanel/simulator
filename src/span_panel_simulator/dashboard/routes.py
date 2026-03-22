@@ -163,12 +163,14 @@ def _entity_list_context(request: web.Request, editing_id: str | None = None) ->
     """
     store = _store(request)
     dash_ctx = _ctx(request)
+    recorder_map = store.get_recorder_map()
     ctx: dict[str, Any] = {
         "entities": store.list_entities(),
         "entity_types": _available_entity_types(store),
         "editing_id": editing_id,
         "unmapped_tabs": store.get_unmapped_tabs(),
         "readonly": _is_readonly(dash_ctx),
+        "restorable_templates": set(recorder_map.keys()),
     }
     if editing_id is not None:
         entity = store.get_entity(editing_id)
@@ -284,6 +286,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/set-grid-islandable", handle_set_grid_islandable)
     app.router.add_post("/entities/{id}/relay", handle_set_relay)
     app.router.add_post("/entities/{id}/toggle-replay", handle_toggle_replay)
+    app.router.add_post("/entities/{id}/restore-recorder", handle_restore_recorder)
 
     # Energy projection
     app.router.add_get("/energy-projection", handle_energy_projection)
@@ -297,6 +300,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/load-config", handle_load_config)
     app.router.add_post("/clone", handle_clone)
     app.router.add_post("/save-reload", handle_save_reload)
+    app.router.add_get("/check-dirty", handle_check_dirty)
 
     # Panel source provenance
     app.router.add_get("/panel-source", handle_get_panel_source)
@@ -408,6 +412,21 @@ async def handle_get_entity_edit(request: web.Request) -> web.Response:
     )
 
 
+def _persist_config(request: web.Request) -> None:
+    """Write current in-memory config to disk and reload the running engine.
+
+    No-op when viewing a default template (read-only).
+    """
+    ctx = _ctx(request)
+    filename = ctx.config_filter
+    if not filename or filename.startswith("default_"):
+        return
+    output_path = ctx.config_dir / filename
+    _store(request).save_to_file(output_path)
+    _LOGGER.info("Config saved to %s", output_path)
+    ctx.start_panel(filename)
+
+
 async def handle_put_entity(request: web.Request) -> web.Response:
     entity_id = request.match_info["id"]
     data = await request.post()
@@ -415,10 +434,11 @@ async def handle_put_entity(request: web.Request) -> web.Response:
     # Push priority change to the running engine immediately
     if "priority" in data:
         _ctx(request).set_circuit_priority(entity_id, str(data["priority"]))
+    _persist_config(request)
     return _render(
         "partials/entity_list.html",
         request,
-        _entity_list_context(request, editing_id=entity_id),
+        _entity_list_context(request),
     )
 
 
@@ -831,17 +851,107 @@ async def handle_set_relay(request: web.Request) -> web.Response:
 async def handle_toggle_replay(request: web.Request) -> web.Response:
     """Toggle a circuit between recorder replay and synthetic mode.
 
-    This stages the change in the ConfigStore.  The running engine is
-    unaffected until the user clicks Save (which writes YAML to disk
-    and triggers a panel reload).
+    When going SYN → REC, fully restores the template from the
+    snapshot (re-scrapes if needed).  REC → SYN just flips the flag.
     """
     entity_id = request.match_info["id"]
     store = _store(request)
     try:
-        store.toggle_user_modified(entity_id)
+        entity = store.get_entity(entity_id)
     except KeyError:
         raise web.HTTPNotFound(text=f"Entity not found: {entity_id}") from None
+
+    if entity.user_modified:
+        # SYN → REC: full restore
+        if not store.restore_recorder(entity_id):
+            await _rescrape_snapshots(request)
+            store.restore_recorder(entity_id)
+        _persist_config(request)
+    else:
+        # REC → SYN: flip the flag and persist so the engine matches the UI
+        store.toggle_user_modified(entity_id)
+        _persist_config(request)
     return _render("partials/entity_list.html", request, _entity_list_context(request))
+
+
+async def handle_restore_recorder(request: web.Request) -> web.Response:
+    """Restore a single entity to its original recorder state.
+
+    Uses the snapshot if available.  Otherwise re-scrapes the source
+    panel, rebuilds a fresh config, and extracts only the one template
+    needed — no other templates are touched.
+    """
+    entity_id = request.match_info["id"]
+    store = _store(request)
+
+    if not store.restore_recorder(entity_id):
+        # No snapshot — try a targeted re-scrape
+        await _rescrape_snapshots(request)
+        store.restore_recorder(entity_id)
+
+    _persist_config(request)
+    return _render("partials/entity_list.html", request, _entity_list_context(request))
+
+
+async def _rescrape_snapshots(request: web.Request) -> None:
+    """Re-scrape source panel and store snapshots without modifying templates."""
+    import copy
+
+    from span_panel_simulator.clone import translate_scraped_panel
+    from span_panel_simulator.scraper import register_with_panel, scrape_ebus
+
+    store = _store(request)
+    panel_source = store.get_panel_source()
+    if not panel_source:
+        return
+
+    host = panel_source.get("host", "")
+    passphrase = panel_source.get("passphrase")
+
+    try:
+        creds, ca_pem = await register_with_panel(host, passphrase)
+        scraped = await scrape_ebus(creds, ca_pem)
+    except Exception:
+        return
+
+    # Build a fresh config to get original template values
+    fresh = translate_scraped_panel(scraped, host=host, passphrase=passphrase)
+    fresh_templates = fresh.get("circuit_templates")
+    if not isinstance(fresh_templates, dict):
+        return
+
+    # Build recorder_map and snapshots from the fresh config
+    from span_panel_simulator.ha_api.manifest import fetch_all_manifests
+
+    recorder_map: dict[str, str] = {}
+    snapshots: dict[str, object] = {}
+
+    ha_client = request.app.get("ha_client")
+    if ha_client:
+        try:
+            manifests = await fetch_all_manifests(ha_client)
+            origin = store.get_origin_serial()
+            matched = next((m for m in manifests if m.serial == origin), None)
+            if matched:
+                recorder_map = {c.template: c.entity_id for c in matched.circuits}
+        except Exception:
+            pass
+
+    # Store recorder_entity on fresh templates and snapshot them
+    for tpl_name, tpl in fresh_templates.items():
+        if isinstance(tpl, dict):
+            rec = recorder_map.get(tpl_name)
+            if rec:
+                tpl["recorder_entity"] = rec
+            snapshots[tpl_name] = copy.deepcopy(tpl)
+
+    # Persist map and snapshots without touching current templates
+    ps = store._state.setdefault("panel_source", {})
+    if isinstance(ps, dict):
+        if recorder_map:
+            ps["recorder_map"] = recorder_map
+        ps["recorder_snapshots"] = snapshots
+    store._dirty = True
 
 
 # -- Energy projection --
@@ -914,10 +1024,6 @@ async def handle_load_config(request: web.Request) -> web.Response:
     filename = str(data.get("config_file", ""))
     if not filename:
         raise web.HTTPBadRequest(text="No config file selected")
-    if filename.startswith("default_"):
-        raise web.HTTPBadRequest(
-            text="Default templates cannot be edited. Clone to create your own."
-        )
     ctx = _ctx(request)
     config_path = ctx.config_dir / filename
     if not config_path.exists() or not config_path.is_file():
@@ -979,25 +1085,23 @@ async def handle_clone(request: web.Request) -> web.Response:
 
 
 async def handle_save_reload(request: web.Request) -> web.Response:
-    store = _store(request)
     ctx = _ctx(request)
-
-    yaml_content = store.export_yaml()
-
     filename = ctx.config_filter or "default_config.yaml"
-    output_path = ctx.config_dir / filename
+    if filename.startswith("default_"):
+        raise web.HTTPBadRequest(text="Cannot save changes to a default template. Clone it first.")
 
-    output_path.write_text(yaml_content, encoding="utf-8")
-    _LOGGER.info("Config saved to %s", output_path)
-
-    # Ensure the panel is running (removes from stopped set if needed)
-    # and trigger reload so the engine picks up the new config.
-    ctx.start_panel(filename)
+    _persist_config(request)
 
     return web.Response(
         text='<div class="flash success">Config saved and reload triggered.</div>',
         content_type="text/html",
     )
+
+
+async def handle_check_dirty(request: web.Request) -> web.Response:
+    """GET /check-dirty — return JSON dirty state for JS fetch."""
+    store = _store(request)
+    return web.json_response({"dirty": store.dirty})
 
 
 # -- Panel source provenance --
@@ -1110,6 +1214,7 @@ async def handle_start_panel(request: web.Request) -> web.Response:
     return web.Response(
         text=f'<div class="flash success">Starting {filename}…</div>',
         content_type="text/html",
+        headers={"HX-Trigger": "refreshPanels"},
     )
 
 
@@ -1122,6 +1227,7 @@ async def handle_stop_panel(request: web.Request) -> web.Response:
     return web.Response(
         text=f'<div class="flash success">Stopping {filename}…</div>',
         content_type="text/html",
+        headers={"HX-Trigger": "refreshPanels"},
     )
 
 
@@ -1134,6 +1240,7 @@ async def handle_restart_panel(request: web.Request) -> web.Response:
     return web.Response(
         text=f'<div class="flash success">Restarting {filename}…</div>',
         content_type="text/html",
+        headers={"HX-Trigger": "refreshPanels"},
     )
 
 
@@ -1191,6 +1298,7 @@ async def handle_delete_config(request: web.Request) -> web.Response:
     return web.Response(
         text=f'<div class="flash success">Deleted {filename}</div>',
         content_type="text/html",
+        headers={"HX-Trigger": "refreshPanels"},
     )
 
 
@@ -1288,6 +1396,17 @@ async def handle_clone_from_panel(request: web.Request) -> web.Response:
             "partials/clone_panel.html",
             request,
             _clone_panel_context(request, clone_error="Panel IP or hostname is required."),
+        )
+
+    if not passphrase:
+        return _render(
+            "partials/clone_panel.html",
+            request,
+            _clone_panel_context(
+                request,
+                clone_error="Passphrase is required.",
+                clone_host=host,
+            ),
         )
 
     try:

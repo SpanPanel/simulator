@@ -12,18 +12,29 @@
         hx-post="entities/{{ entity.id }}/toggle-replay"
         hx-target="#entity-list-section"
         hx-swap="innerHTML"
+        hx-disabled-elt="this"
         title="{{ 'Overridden — click to resume replay' if entity.user_modified else 'Replaying recorded data — click for synthetic' }}"
         style="cursor:pointer">{{ 'SYN' if entity.user_modified else 'REC' }}</span>
+  {% elif not readonly and restorable_templates is defined and entity.template_name in restorable_templates %}
+  <span class="badge badge-data-source badge-restore"
+        hx-post="entities/{{ entity.id }}/restore-recorder"
+        hx-target="#entity-list-section"
+        hx-swap="innerHTML"
+        hx-disabled-elt="this"
+        title="Recorder link lost — click to restore"
+        style="cursor:pointer">REC?</span>
   {% endif %}
   <span class="entity-name">{{ entity.name }}</span>
   {% if entity.tabs %}<span class="entity-tabs">tabs: {{ entity.tabs|join(', ') }}</span>{% endif %}
   <span class="entity-power">{{ entity.energy_profile.typical_power }}W</span>
   {% if not readonly %}
   <button class="btn btn-sm"
+          hx-disabled-elt="this"
           hx-get="entities/{{ entity.id }}/edit"
           hx-target="#entity-list-section"
           hx-swap="innerHTML">Edit</button>
   <button class="btn btn-sm btn-danger"
+          hx-disabled-elt="this"
           hx-delete="entities/{{ entity.id }}"
           hx-target="#entity-list-section"
           hx-swap="innerHTML"

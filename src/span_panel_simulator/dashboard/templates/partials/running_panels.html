@@ -4,6 +4,7 @@
     <span class="running-count">{{ panels | length }} config{{ 's' if panels | length != 1 else '' }}</span>
     <form method="post" enctype="multipart/form-data"
           hx-post="import" hx-target="#main-content" hx-encoding="multipart/form-data"
+          hx-disabled-elt="find label"
           style="display:inline; margin-left:auto">
       <label class="btn btn-sm btn-secondary">
         Import
@@ -12,7 +13,7 @@
       </label>
     </form>
   </div>
-  <div id="panels-list" hx-get="panels-list" hx-trigger="every 5s" hx-swap="innerHTML">
+  <div id="panels-list" hx-get="panels-list" hx-trigger="every 5s, refreshPanels from:body" hx-swap="innerHTML">
     {% include "partials/panels_list_rows.html" %}
   </div>
 </section>

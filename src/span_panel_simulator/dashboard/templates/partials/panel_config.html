@@ -1,6 +1,6 @@
 <div class="card">
   <h2>Panel Config</h2>
-  <form hx-put="panel-config" hx-target="#panel-config-section" hx-swap="innerHTML">
+  <form hx-put="panel-config" hx-target="#panel-config-section" hx-swap="innerHTML" hx-disabled-elt="find button">
     <div class="form-row">
       <label>Serial:
         <input type="text" name="serial_number" value="{{ panel_config.serial_number }}" size="20" {{ 'disabled' if readonly else '' }}>
@@ -94,7 +94,7 @@
 
   function fetchWeather(lat, lon) {
     weatherStatus.textContent = 'Fetching historical weather data...';
-    fetch('fetch-weather?lat=' + lat + '&lon=' + lon)
+    busyFetch(weatherStatus, 'fetch-weather?lat=' + lat + '&lon=' + lon)
       .then(function(r) {
         if (!r.ok) return r.json().then(function(d) { throw new Error(d.error || 'Failed'); });
         return r.json();
@@ -102,8 +102,7 @@
       .then(function(data) {
         weatherStatus.innerHTML =
           '<span style="color:var(--success)">&#10003;</span> ' +
-          escapeHtml(data.summary) +
-          ' <span style="color:var(--text-muted)">(' + escapeHtml(data.source) + ')</span>';
+          escapeHtml(data.summary);
       })
       .catch(function(err) {
         weatherStatus.innerHTML =

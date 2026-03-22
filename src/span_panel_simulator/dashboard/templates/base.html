@@ -41,6 +41,15 @@
       if (el) el.style.display = sel.value === 'random' ? 'inline-flex' : 'none';
     }
 
+    // Busy-state wrapper for manual fetch() calls (non-HTMX).
+    // Adds .busy class to trigger element during request.
+    function busyFetch(trigger, url, options) {
+      trigger.classList.add('busy');
+      return fetch(url, options).finally(function() {
+        trigger.classList.remove('busy');
+      });
+    }
+
     // Theme switcher
     (function() {
       var sel = document.getElementById('theme-select');

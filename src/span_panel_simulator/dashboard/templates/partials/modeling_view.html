@@ -139,7 +139,7 @@
     spinner.style.display = '';
     chartsWrap.style.display = 'none';
 
-    fetch('modeling-data?horizon=' + horizon)
+    busyFetch(horizonSelect, 'modeling-data?horizon=' + horizon)
       .then(function(r) { return r.json(); })
       .then(function(data) {
         spinner.style.display = 'none';

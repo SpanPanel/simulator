@@ -231,7 +231,7 @@
     var mm = ('0' + (mins % 60)).slice(-2);
     var year = md.year || currentSimYear;
     var iso = year + '-' + ('0' + md.month).slice(-2) + '-' + ('0' + md.day).slice(-2) + 'T' + hh + ':' + mm + ':00';
-    fetch('set-sim-time', {
+    busyFetch(timeSlider, 'set-sim-time', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({time: iso})
@@ -257,7 +257,7 @@
   accelSlider.noUiSlider.on('end', function(values) {
     var idx = Math.round(Number(values[0]));
     var accel = ACCEL_STOPS[idx];
-    fetch('set-acceleration', {
+    busyFetch(accelSlider, 'set-acceleration', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({acceleration: accel})
@@ -276,34 +276,38 @@
 
   gridBtn.addEventListener('click', function() {
     var isOnline = gridBtn.classList.contains('grid-online');
-    fetch('set-grid-state', {
+    busyFetch(gridBtn, 'set-grid-state', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({online: !isOnline})
     });
-    // Immediate visual feedback
+    // Immediate visual feedback (use classList to preserve .busy)
     if (isOnline) {
-      gridBtn.className = 'btn btn-sm grid-btn grid-offline';
+      gridBtn.classList.remove('grid-online');
+      gridBtn.classList.add('grid-offline');
       gridBtn.textContent = 'Grid Offline';
     } else {
-      gridBtn.className = 'btn btn-sm grid-btn grid-online';
+      gridBtn.classList.remove('grid-offline');
+      gridBtn.classList.add('grid-online');
       gridBtn.textContent = 'Grid Online';
     }
   });
 
   islandableBtn.addEventListener('click', function() {
     var isIslandable = islandableBtn.classList.contains('islandable-on');
-    fetch('set-grid-islandable', {
+    busyFetch(islandableBtn, 'set-grid-islandable', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({islandable: !isIslandable})
     });
-    // Immediate visual feedback
+    // Immediate visual feedback (use classList to preserve .busy)
     if (isIslandable) {
-      islandableBtn.className = 'btn btn-sm grid-btn islandable-off';
+      islandableBtn.classList.remove('islandable-on');
+      islandableBtn.classList.add('islandable-off');
       islandableBtn.textContent = 'Not Islandable';
     } else {
-      islandableBtn.className = 'btn btn-sm grid-btn islandable-on';
+      islandableBtn.classList.remove('islandable-off');
+      islandableBtn.classList.add('islandable-on');
       islandableBtn.textContent = 'Islandable';
     }
   });
@@ -317,14 +321,16 @@
                 dot.classList.contains('status-open') ||
                 dot.classList.contains('status-off');
     var newState = isOff ? 'CLOSED' : 'OPEN';
-    fetch('entities/' + encodeURIComponent(cid) + '/relay', {
+    busyFetch(dot, 'entities/' + encodeURIComponent(cid) + '/relay', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({relay_state: newState})
     });
-    // Immediate visual feedback
-    dot.className = 'circuit-status circuit-status-toggle' +
-      (newState === 'OPEN' ? ' status-open' : '');
+    // Immediate visual feedback (use classList to preserve .busy)
+    dot.classList.remove('status-off', 'status-shed', 'status-open');
+    if (newState === 'OPEN') {
+      dot.classList.add('status-open');
+    }
   });
 
   // -- Runtime: Live power chart --
@@ -524,20 +530,24 @@
         // Sync grid control buttons
         if (data.grid_online !== undefined) {
           if (data.grid_online) {
-            gridBtn.className = 'btn btn-sm grid-btn grid-online';
+            gridBtn.classList.remove('grid-offline');
+            gridBtn.classList.add('grid-online');
             gridBtn.textContent = 'Grid Online';
           } else {
-            gridBtn.className = 'btn btn-sm grid-btn grid-offline';
+            gridBtn.classList.remove('grid-online');
+            gridBtn.classList.add('grid-offline');
             gridBtn.textContent = 'Grid Offline';
           }
         }
         if (data.has_battery) {
           islandableBtn.style.display = '';
           if (data.is_islandable) {
-            islandableBtn.className = 'btn btn-sm grid-btn islandable-on';
+            islandableBtn.classList.remove('islandable-off');
+            islandableBtn.classList.add('islandable-on');
             islandableBtn.textContent = 'Islandable';
           } else {
-            islandableBtn.className = 'btn btn-sm grid-btn islandable-off';
+            islandableBtn.classList.remove('islandable-on');
+            islandableBtn.classList.add('islandable-off');
             islandableBtn.textContent = 'Not Islandable';
           }
         } else {
@@ -561,15 +571,14 @@
         var dots = document.querySelectorAll('.circuit-status');
         dots.forEach(function(dot) {
           var cid = dot.dataset.cid;
-          var cls = 'circuit-status circuit-status-toggle';
+          dot.classList.remove('status-off', 'status-shed', 'status-open');
           if (data.all_off) {
-            cls += ' status-off';
+            dot.classList.add('status-off');
           } else if (shedIds.indexOf(cid) >= 0) {
-            cls += ' status-shed';
+            dot.classList.add('status-shed');
           } else if (userOpenIds.indexOf(cid) >= 0) {
-            cls += ' status-open';
+            dot.classList.add('status-open');
           }
-          dot.className = cls;
         });
 
         powerChart.update('none');

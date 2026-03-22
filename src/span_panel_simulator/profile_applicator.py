@@ -163,6 +163,12 @@ def store_recorder_entities(
         _LOGGER.warning("No circuit_templates in %s", config_path)
         return 0
 
+    # Persist the full mapping as a backup in panel_source so individual
+    # entities can be restored without a full re-sync.
+    ps = raw.get("panel_source")
+    if isinstance(ps, dict):
+        ps["recorder_map"] = dict(entity_map)
+
     updated = 0
     for template_name, entity_id in entity_map.items():
         template = templates.get(template_name)
@@ -172,7 +178,20 @@ def store_recorder_entities(
             template["recorder_entity"] = entity_id
             updated += 1
 
-    if updated:
+    # Snapshot original templates so restore_recorder can fully revert
+    if isinstance(ps, dict):
+        import copy
+
+        snapshots: dict[str, object] = {}
+        for tpl_name in entity_map:
+            tpl = templates.get(tpl_name)
+            if isinstance(tpl, dict):
+                snapshots[tpl_name] = copy.deepcopy(tpl)
+        ps["recorder_snapshots"] = snapshots
+
+    # Always write when we have a mapping — even if no templates changed,
+    # the recorder_map backup in panel_source may be new.
+    if updated or (isinstance(ps, dict) and "recorder_map" in ps):
         config_path.write_text(
             yaml.dump(raw, default_flow_style=False, sort_keys=False),
             encoding="utf-8",

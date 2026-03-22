@@ -1,42 +1,44 @@
-<fieldset class="pv-profile">
-  <legend>Solar Production Profile</legend>
+<div class="pv-profile-section" style="overflow:hidden">
+  <fieldset class="pv-profile">
+    <legend>Solar Production Profile</legend>
 
-  {% if monthly_weather is defined and monthly_weather %}
-  <div class="pv-monthly-degradation">
-    <h4>Monthly Weather Degradation
-      <span class="weather-source-note">{{ weather_source | default('Open-Meteo') }}</span>
-    </h4>
-    <div class="monthly-factors-grid">
-      {% set month_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
-      {% for m in range(1, 13) %}
-      <div class="month-factor">
-        <span class="month-label">{{ month_names[m - 1] }}</span>
-        <span class="month-bar-bg">
-          <span class="month-bar-fill" style="width:{{ (monthly_weather[m] * 100)|int }}%"></span>
-        </span>
-        <span class="month-value">{{ (monthly_weather[m] * 100)|round(0)|int }}%</span>
+    {% if monthly_weather is defined and monthly_weather %}
+    <div class="pv-monthly-degradation">
+      <h4>Monthly Weather Degradation
+        <span class="weather-source-note">{{ weather_source | default('Open-Meteo') }}</span>
+      </h4>
+      <div class="monthly-factors-grid">
+        {% set month_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
+        {% for m in range(1, 13) %}
+        <div class="month-factor">
+          <span class="month-label">{{ month_names[m - 1] }}</span>
+          <span class="month-bar-bg">
+            <span class="month-bar-fill" style="width:{{ (monthly_weather[m] * 100)|int }}%"></span>
+          </span>
+          <span class="month-value">{{ (monthly_weather[m] * 100)|round(0)|int }}%</span>
+        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
     </div>
-  </div>
-  {% else %}
-  <p class="text-muted" style="font-size:0.82rem; margin-bottom:0.5rem">
-    No historical weather data available. Set a location and weather data will be fetched automatically.
-  </p>
-  {% endif %}
+    {% else %}
+    <p class="text-muted" style="font-size:0.82rem; margin-bottom:0.5rem">
+      No historical weather data available. Set a location and weather data will be fetched automatically.
+    </p>
+    {% endif %}
 
-  <div class="pv-month-slider-row">
-    <span id="pv-month-label" class="pv-month-label"></span>
-    <span id="pv-chart-info" class="text-muted" style="font-size:0.8rem"></span>
-  </div>
-  <div class="pv-month-slider-wrap">
-    <div id="pv-month-slider"></div>
-  </div>
+    <div class="pv-month-slider-row">
+      <span id="pv-month-label" class="pv-month-label"></span>
+      <span id="pv-chart-info" class="text-muted" style="font-size:0.8rem"></span>
+    </div>
+    <div class="pv-month-slider-wrap">
+      <div id="pv-month-slider"></div>
+    </div>
 
-  <div class="pv-chart-wrap">
-    <canvas id="pv-chart-canvas" height="220"></canvas>
-  </div>
-</fieldset>
+    <div class="pv-chart-wrap">
+      <canvas id="pv-chart-canvas" height="280"></canvas>
+    </div>
+  </fieldset>
+</div>
 
 <script>
 (function() {
@@ -84,7 +86,7 @@
   function fetchAndRender() {
     monthLabel.textContent = MONTH_NAMES[currentMonth - 1];
     var url = 'pv-curve-data?month=' + currentMonth + '&nameplate=' + nameplate;
-    fetch(url)
+    busyFetch(sliderEl, url)
       .then(function(r) { return r.json(); })
       .then(function(data) {
         var labels = [];
@@ -109,6 +111,12 @@
   function renderChart(labels, values, nameplateW) {
     var ctx = document.getElementById('pv-chart-canvas');
     if (!ctx) return;
+
+    // Destroy any stale Chart.js instance left after HTMX swap
+    var existing = Chart.getChart(ctx);
+    if (existing && existing !== chartInstance) {
+      existing.destroy();
+    }
 
     if (chartInstance) {
       chartInstance.data.labels = labels;
@@ -174,6 +182,25 @@
     fetchAndRender();
   });
 
-  fetchAndRender();
+  // Wait for the chart container to have stable dimensions before
+  // initializing — during an HTMX swap getBoundingClientRect() can
+  // return 0 or stale values on the first animation frame.
+  var chartWrap = document.querySelector('.pv-chart-wrap');
+  if (chartWrap && typeof ResizeObserver !== 'undefined') {
+    var initRO = new ResizeObserver(function(entries) {
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].contentRect.width > 0) {
+          initRO.disconnect();
+          if (document.getElementById('pv-chart-canvas')) {
+            fetchAndRender();
+          }
+          return;
+        }
+      }
+    });
+    initRO.observe(chartWrap);
+  } else {
+    requestAnimationFrame(function() { fetchAndRender(); });
+  }
 })();
 </script>

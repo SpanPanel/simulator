@@ -2,7 +2,11 @@
 {% set entity = e %}
 {% set profile = editing_profile if editing_profile is defined else {} %}
 <div class="entity-edit" id="entity-{{ e.id }}">
-  <form hx-put="entities/{{ e.id }}" hx-target="#entity-list-section" hx-swap="innerHTML">
+  <form hx-put="entities/{{ e.id }}" hx-target="#entity-list-section" hx-swap="innerHTML"
+        hx-disabled-elt="find button"
+        onchange="window._formDirty=true;this.querySelector('#_dirty').value='1'"
+        oninput="window._formDirty=true;this.querySelector('#_dirty').value='1'">
+    <input type="hidden" name="_dirty" id="_dirty" value="">
     <div class="edit-header">
       <span class="badge badge-{{ e.entity_type }}">{{ e.entity_type|upper }}</span>
       <h3>Editing: {{ e.name }}</h3>
@@ -17,16 +21,7 @@
         <input type="text" name="tabs" value="{{ e.tabs|join(', ') }}">
       </label>
       {% endif %}
-      {% if e.entity_type in ('pv', 'battery') and e.recorder_entity %}
-      <label>Priority:
-        <input type="text" value="{{ e.priority }}" disabled style="width:8em">
-        <input type="hidden" name="priority" value="{{ e.priority }}">
-      </label>
-      <label>Relay Behavior:
-        <input type="text" value="{{ e.relay_behavior }}" disabled style="width:10em">
-        <input type="hidden" name="relay_behavior" value="{{ e.relay_behavior }}">
-      </label>
-      {% else %}
+      {% if e.entity_type != 'pv' %}
       <label>Priority:
         <select name="priority">
           {% for p in priorities %}
@@ -34,6 +29,7 @@
           {% endfor %}
         </select>
       </label>
+      {% endif %}
       <label>Relay Behavior:
         <select name="relay_behavior">
           {% for r in relay_behaviors %}
@@ -41,7 +37,6 @@
           {% endfor %}
         </select>
       </label>
-      {% endif %}
       {% if e.entity_type != 'battery' %}
       <label>Breaker (A):
         <input type="number" name="breaker_rating"
@@ -59,11 +54,18 @@
         <label>Nameplate Rating (W):
           <input type="number" name="nameplate_capacity_w" id="pv-nameplate-{{ e.id }}"
                  value="{{ e.energy_profile.nameplate_capacity_w | default(e.energy_profile.power_range[0]|abs) }}"
-                 min="100" max="50000" step="100">
+                 min="100" max="50000" step="1">
         </label>
         <label>Efficiency:
-          <input type="number" value="{{ e.energy_profile.efficiency | default(0.85) }}"
-                 disabled step="0.01" style="width:5em">
+          <input type="number" name="efficiency"
+                 value="{{ e.energy_profile.efficiency | default(0.85) }}"
+                 min="0.75" max="0.90" step="0.01" style="width:5em">
+        </label>
+        <label>Inverter Type:
+          <select name="inverter_type">
+            <option value="grid_tied" {{ 'selected' if e.priority != 'MUST_HAVE' }}>Grid-Tied</option>
+            <option value="hybrid" {{ 'selected' if e.priority == 'MUST_HAVE' }}>Hybrid</option>
+          </select>
         </label>
       </div>
     </fieldset>
@@ -141,8 +143,16 @@
                  min="5" max="80" step="5"
                  title="Normal discharge stops here; grid outages can draw deeper">
         </label>
-        <label>Charge Power (W): <input type="number" value="{{ e.battery_behavior.max_charge_power }}" disabled></label>
-        <label>Discharge Power (W): <input type="number" value="{{ e.battery_behavior.max_discharge_power }}" disabled></label>
+        <label>Charge Power (W):
+          <input type="number" name="max_charge_power"
+                 value="{{ e.battery_behavior.max_charge_power | default(3500) }}"
+                 min="0" max="20000" step="100">
+        </label>
+        <label>Discharge Power (W):
+          <input type="number" name="max_discharge_power"
+                 value="{{ e.battery_behavior.max_discharge_power | default(3500) }}"
+                 min="0" max="20000" step="100">
+        </label>
       </div>
     </fieldset>
     {% endif %}
@@ -150,6 +160,7 @@
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">Save</button>
       <button type="button" class="btn btn-secondary"
+              hx-disabled-elt="this"
               hx-get="entities" hx-target="#entity-list-section" hx-swap="innerHTML">Cancel</button>
     </div>
   </form>
