@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import aiohttp
 import aiohttp_jinja2
+import yaml
 from aiohttp import web
 
 if TYPE_CHECKING:
@@ -1244,6 +1245,35 @@ async def handle_restart_panel(request: web.Request) -> web.Response:
     )
 
 
+async def _purge_recorder_for_config(ctx: DashboardContext, config_path: Path) -> None:
+    """Purge HA recorder data for a panel config (best-effort).
+
+    Reads the serial number from the YAML file, looks up the
+    corresponding HA device, and calls ``recorder.purge_entities``
+    for all entities belonging to that device.  Failures are logged
+    but never prevent deletion.
+    """
+    from span_panel_simulator.ha_api.client import HAClient
+
+    ha_client = ctx.ha_client
+    if not isinstance(ha_client, HAClient):
+        return
+
+    try:
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        serial: str = raw["panel_config"]["serial_number"]
+    except Exception:
+        _LOGGER.debug("Could not read serial from %s — skipping recorder purge", config_path)
+        return
+
+    try:
+        count = await ha_client.async_purge_panel_recorder_data(serial)
+        if count:
+            _LOGGER.info("Purged recorder data for %d entities (serial=%s)", count, serial)
+    except Exception:
+        _LOGGER.warning("Failed to purge HA recorder data for serial %s", serial, exc_info=True)
+
+
 async def handle_delete_config(request: web.Request) -> web.Response:
     """Delete a config file from disk.  Refuses if the panel is running or being edited."""
     data = await request.post()
@@ -1279,6 +1309,10 @@ async def handle_delete_config(request: web.Request) -> web.Response:
             text='<div class="flash error">Cannot delete a running panel. Stop it first.</div>',
             content_type="text/html",
         )
+
+    # Best-effort: purge HA recorder data for this panel's entities
+    # before removing the config file.
+    await _purge_recorder_for_config(ctx, config_path)
 
     config_path.unlink()
     _LOGGER.info("Deleted config %s", filename)
