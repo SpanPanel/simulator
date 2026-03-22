@@ -106,7 +106,6 @@ class SimulatorApp:
         *,
         config_filter: str | None = None,
         tick_interval: float = DEFAULT_TICK_INTERVAL_S,
-        firmware_version: str = DEFAULT_FIRMWARE_VERSION,
         broker_username: str = DEFAULT_BROKER_USERNAME,
         broker_password: str = DEFAULT_BROKER_PASSWORD,
         broker_host: str = "localhost",
@@ -121,7 +120,7 @@ class SimulatorApp:
         self._config_dir = config_dir
         self._config_filter = config_filter
         self._tick_interval = tick_interval
-        self._firmware = firmware_version
+        self._firmware = DEFAULT_FIRMWARE_VERSION
         self._broker_username = broker_username
         self._broker_password = broker_password
         self._broker_host = broker_host
@@ -187,6 +186,17 @@ class SimulatorApp:
                 return panel.engine
         return None
 
+    def _get_engine_for_config_file(
+        self, config_filename: str | None
+    ) -> DynamicSimulationEngine | None:
+        """Resolve the running engine for a dashboard YAML filename, if any."""
+        if config_filename:
+            path = self._config_dir / config_filename
+            panel = self._panels.get(path)
+            if panel is not None and panel.engine is not None:
+                return panel.engine
+        return self._get_first_engine()
+
     def _get_power_summary(self) -> dict[str, object] | None:
         """Return current power flows from the first running panel."""
         engine = self._get_first_engine()
@@ -232,9 +242,11 @@ class SimulatorApp:
                 circuit_overrides={circuit_id: {"relay_state": relay_state}}
             )
 
-    async def _get_modeling_data(self, horizon_hours: int) -> dict[str, Any] | None:
-        """Compute modeling data from the first running engine."""
-        engine = self._get_first_engine()
+    async def _get_modeling_data(
+        self, horizon_hours: int, config_filename: str | None = None
+    ) -> dict[str, Any] | None:
+        """Compute modeling data from the engine for the active dashboard config."""
+        engine = self._get_engine_for_config_file(config_filename)
         if engine is None:
             return None
         return await engine.compute_modeling_data(horizon_hours)
@@ -516,6 +528,15 @@ class SimulatorApp:
         except OSError:
             pass  # Best-effort; don't break the simulator
 
+    def _clear_last_config_if_match(self, filename: str) -> None:
+        """Remove .last_config if it currently names *filename*."""
+        state_file = self._config_dir / ".last_config"
+        try:
+            if state_file.exists() and state_file.read_text(encoding="utf-8").strip() == filename:
+                state_file.unlink()
+        except OSError:
+            pass
+
     # ------------------------------------------------------------------
     # Explicit per-panel lifecycle (called from dashboard)
     # ------------------------------------------------------------------
@@ -547,6 +568,10 @@ class SimulatorApp:
         """Stop the engine for a specific config."""
         self._transition_to_explicit_control()
         self._stopped_configs.add(filename)
+        # Clear the boot config if the stopped panel was the one persisted,
+        # so the simulator starts idle on next reboot instead of restarting
+        # a panel the user explicitly stopped.
+        self._clear_last_config_if_match(filename)
         self._reload_event.set()
 
     def request_restart_panel(self, filename: str) -> None:

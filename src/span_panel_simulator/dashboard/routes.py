@@ -10,11 +10,15 @@ from typing import TYPE_CHECKING, Any
 
 import aiohttp
 import aiohttp_jinja2
+import yaml
 from aiohttp import web
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import multidict
 
+from span_panel_simulator.dashboard.modeling_config import resolve_modeling_config_filename
 from span_panel_simulator.dashboard.presets import (
     PresetRegistry,
     is_random_days_preset,
@@ -24,8 +28,6 @@ from span_panel_simulator.solar import compute_solar_curve
 from span_panel_simulator.weather import fetch_historical_weather, get_cached_weather
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from span_panel_simulator.dashboard import DashboardContext
     from span_panel_simulator.dashboard.config_store import ConfigStore
 
@@ -312,6 +314,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/stop-panel", handle_stop_panel)
     app.router.add_post("/restart-panel", handle_restart_panel)
     app.router.add_post("/delete-config", handle_delete_config)
+    app.router.add_post("/purge-recorder", handle_purge_recorder)
 
     # Clone from real panel + HA profile import
     app.router.add_post("/clone-from-panel", handle_clone_from_panel)
@@ -984,7 +987,8 @@ async def handle_modeling_data(request: web.Request) -> web.Response:
     horizon_key = request.query.get("horizon", "1mo")
     horizon_hours = _HORIZON_MAP.get(horizon_key, 730)
 
-    result = await ctx.get_modeling_data(horizon_hours)
+    config_file = resolve_modeling_config_filename(ctx, request.query.get("config"))
+    result = await ctx.get_modeling_data(horizon_hours, config_file)
     if result is None:
         return web.json_response({"error": "No running simulation"}, status=503)
     if "error" in result:
@@ -1244,6 +1248,70 @@ async def handle_restart_panel(request: web.Request) -> web.Response:
     )
 
 
+async def _purge_recorder_for_config(ctx: DashboardContext, config_path: Path) -> None:
+    """Purge HA recorder data for a panel config (best-effort).
+
+    Reads the serial number from the YAML file, looks up the
+    corresponding HA device, and calls ``recorder.purge_entities``
+    for all entities belonging to that device.  Failures are logged
+    but never prevent deletion.
+    """
+    from span_panel_simulator.ha_api.client import HAClient
+
+    ha_client = ctx.ha_client
+    if not isinstance(ha_client, HAClient):
+        return
+
+    try:
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        serial: str = raw["panel_config"]["serial_number"]
+    except Exception:
+        _LOGGER.debug("Could not read serial from %s — skipping recorder purge", config_path)
+        return
+
+    try:
+        count = await ha_client.async_purge_panel_recorder_data(serial)
+        if count:
+            _LOGGER.info("Purged recorder data for %d entities (serial=%s)", count, serial)
+    except Exception:
+        _LOGGER.warning("Failed to purge HA recorder data for serial %s", serial, exc_info=True)
+
+
+async def handle_purge_recorder(request: web.Request) -> web.Response:
+    """Purge HA recorder data for a config file without deleting it."""
+    data = await request.post()
+    filename = str(data.get("filename", "")).strip()
+    if not filename:
+        return web.Response(
+            text='<div class="flash error">No filename specified.</div>',
+            content_type="text/html",
+        )
+
+    ctx = _ctx(request)
+    config_path = ctx.config_dir / filename
+
+    if not config_path.exists() or config_path.resolve().parent != ctx.config_dir.resolve():
+        return web.Response(
+            text='<div class="flash error">Config file not found.</div>',
+            content_type="text/html",
+        )
+
+    # Refuse if the panel is currently running
+    running = {p.name for p in ctx.get_panel_configs()}
+    if filename in running:
+        return web.Response(
+            text='<div class="flash error">Cannot purge while the panel is running.'
+            " Stop it first.</div>",
+            content_type="text/html",
+        )
+
+    await _purge_recorder_for_config(ctx, config_path)
+    return web.Response(
+        text='<div class="flash success">Recorder history purged.</div>',
+        content_type="text/html",
+    )
+
+
 async def handle_delete_config(request: web.Request) -> web.Response:
     """Delete a config file from disk.  Refuses if the panel is running or being edited."""
     data = await request.post()
@@ -1279,6 +1347,10 @@ async def handle_delete_config(request: web.Request) -> web.Response:
             text='<div class="flash error">Cannot delete a running panel. Stop it first.</div>',
             content_type="text/html",
         )
+
+    # Best-effort: purge HA recorder data for this panel's entities
+    # before removing the config file.
+    await _purge_recorder_for_config(ctx, config_path)
 
     config_path.unlink()
     _LOGGER.info("Deleted config %s", filename)

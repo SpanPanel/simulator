@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 from aiohttp.test_utils import TestClient, TestServer
 
 from span_panel_simulator.bootstrap import BootstrapHttpServer
+from span_panel_simulator.const import DEFAULT_FIRMWARE_VERSION
 
 
 def _make_server() -> BootstrapHttpServer:
@@ -19,7 +20,7 @@ def _make_server() -> BootstrapHttpServer:
 
     return BootstrapHttpServer(
         serial="sim-test-001",
-        firmware="spanos2/sim/01",
+        firmware=DEFAULT_FIRMWARE_VERSION,
         certs=certs,
         schema=schema,
         broker_username="span",
@@ -36,7 +37,7 @@ async def test_status_returns_single_panel() -> None:
         assert resp.status == 200
         data = await resp.json()
         assert data["serialNumber"] == "sim-test-001"
-        assert data["firmwareVersion"] == "spanos2/sim/01"
+        assert data["firmwareVersion"] == DEFAULT_FIRMWARE_VERSION
         assert data["proximityProven"] is True
 
 

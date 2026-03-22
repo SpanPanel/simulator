@@ -25,7 +25,9 @@ from span_panel_simulator.dashboard.presets import init_presets
 from span_panel_simulator.dashboard.routes import setup_routes
 
 
-async def _noop_modeling_data(_hours: int) -> dict[str, Any] | None:
+async def _noop_modeling_data(
+    _hours: int, _config_filename: str | None = None
+) -> dict[str, Any] | None:
     return None
 
 
@@ -49,7 +51,9 @@ class DashboardContext:
     set_grid_islandable: Callable[[bool], None] = lambda _: None
     set_circuit_priority: Callable[[str, str], None] = lambda _id, _pri: None
     set_circuit_relay: Callable[[str, str], None] = lambda _id, _state: None
-    get_modeling_data: Callable[[int], Awaitable[dict[str, Any] | None]] = _noop_modeling_data
+    get_modeling_data: Callable[[int, str | None], Awaitable[dict[str, Any] | None]] = (
+        _noop_modeling_data
+    )
     ha_client: Any = None  # HAClient | None — optional, set when HA API is available
     history_provider: HistoryProvider | None = None
     panel_browser: Any = None  # PanelBrowser | None — mDNS discovery for standalone mode

@@ -22,9 +22,11 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
+from span_panel_simulator.behavior_mutable_state import BehaviorEngineMutableState
 from span_panel_simulator.bsee import BatteryStorageEquipment
 from span_panel_simulator.circuit import SimulatedCircuit
 from span_panel_simulator.clock import SimulationClock
+from span_panel_simulator.const import DEFAULT_FIRMWARE_VERSION
 from span_panel_simulator.exceptions import SimulationConfigurationError
 
 if TYPE_CHECKING:
@@ -147,35 +149,111 @@ class RealisticBehaviorEngine:
         """Propagate grid state so battery behaviour overrides schedules."""
         self._grid_offline = offline
 
+    def capture_mutable_state(self) -> BehaviorEngineMutableState:
+        """Return a deep snapshot of tick-local mutable fields."""
+        return BehaviorEngineMutableState(
+            circuit_cycle_states=copy.deepcopy(self._circuit_cycle_states),
+            last_battery_direction=self._last_battery_direction,
+            solar_excess_w=self._solar_excess_w,
+            grid_offline=self._grid_offline,
+        )
+
+    def restore_mutable_state(self, state: BehaviorEngineMutableState) -> None:
+        """Restore fields previously captured with :meth:`capture_mutable_state`."""
+        self._circuit_cycle_states = copy.deepcopy(state.circuit_cycle_states)
+        self._last_battery_direction = state.last_battery_direction
+        self._solar_excess_w = state.solar_excess_w
+        self._grid_offline = state.grid_offline
+
+    def copy_mutable_state_from(self, other: RealisticBehaviorEngine) -> None:
+        """Replace this engine's mutable tick state with a copy of *other*'s."""
+        self.restore_mutable_state(other.capture_mutable_state())
+
     def get_circuit_power(
         self,
         circuit_id: str,
         template: CircuitTemplateExtended,
         current_time: float,
         relay_state: str = "CLOSED",
+        *,
+        modeling_recorder_baseline: bool = False,
+        modeling_deterministic: bool = False,
     ) -> float:
         """Get realistic power for a circuit based on its template and current conditions."""
         if relay_state == "OPEN":
             return 0.0
 
-        # Recorder replay: if the circuit has a recorder_entity and recorded
-        # data is available for this timestamp, use it instead of the
-        # synthetic modulation chain.  A small measurement-noise jitter
-        # is applied so the value isn't a flat line when the recorder
-        # holds the same 5-minute mean across consecutive ticks.
+        rec = self._power_from_recorder_if_applicable(
+            template,
+            current_time,
+            modeling_recorder_baseline=modeling_recorder_baseline,
+            modeling_deterministic=modeling_deterministic,
+        )
+        if rec is not None:
+            return rec
+
+        return self._synthetic_circuit_power(
+            circuit_id,
+            template,
+            current_time,
+            stochastic_noise=not modeling_deterministic,
+        )
+
+    def _power_from_recorder_if_applicable(
+        self,
+        template: CircuitTemplateExtended,
+        current_time: float,
+        *,
+        modeling_recorder_baseline: bool,
+        modeling_deterministic: bool,
+    ) -> float | None:
+        """Return recorder watts when replay applies; otherwise ``None``.
+
+        A small measurement-noise jitter is applied unless *modeling_deterministic*
+        so the value is not a flat line when the recorder holds the same mean.
+
+        *modeling_recorder_baseline*: when True (modeling "Before" pass only),
+        replay whenever data exists, ignoring ``user_modified``.
+        """
         recorder_entity = template.get("recorder_entity")
-        if recorder_entity and self._recorder is not None and not template.get("user_modified"):
-            recorded = self._recorder.get_power(str(recorder_entity), current_time)
+        recorder = self._recorder
+        if (
+            recorder_entity
+            and recorder is not None
+            and (modeling_recorder_baseline or not template.get("user_modified"))
+        ):
+            recorded = recorder.get_power(str(recorder_entity), current_time)
             if recorded is not None:
+                if modeling_deterministic:
+                    return float(recorded)
                 noise = self._config["simulation_params"].get("noise_factor", 0.02)
                 return recorded * (1.0 + random.uniform(-noise, noise))  # nosec B311
+        return None
 
+    def _synthetic_circuit_power(
+        self,
+        circuit_id: str,
+        template: CircuitTemplateExtended,
+        current_time: float,
+        *,
+        stochastic_noise: bool,
+    ) -> float:
+        """Template-driven power when recorder replay does not apply."""
         energy_profile = template["energy_profile"]
         base_power = energy_profile["typical_power"]
 
-        # Apply time-of-day modulation: producers always use the solar model
+        # Apply time-of-day modulation: producers always use the solar model.
+        # Scale by nameplate when set so raising array/inverter rating increases
+        # modeled peaks; typical_power alone is ~60% of nameplate and makes
+        # charts look unchanged after a nameplate edit.
         if template["energy_profile"]["mode"] == "producer":
-            base_power = self._apply_solar_day_night_cycle(base_power, current_time)
+            ep = energy_profile
+            nameplate = ep.get("nameplate_capacity_w")
+            if nameplate is not None and float(nameplate) > 0:
+                solar_scale = float(abs(nameplate))
+            else:
+                solar_scale = abs(float(base_power))
+            base_power = self._apply_solar_day_night_cycle(solar_scale, current_time)
         elif template.get("time_of_day_profile", {}).get("enabled", False):
             base_power = self._apply_time_of_day_modulation(base_power, template, current_time)
 
@@ -191,7 +269,12 @@ class RealisticBehaviorEngine:
         # Apply battery behavior
         battery_behavior = template.get("battery_behavior", {})
         if isinstance(battery_behavior, dict) and battery_behavior.get("enabled", False):
-            base_power = self._apply_battery_behavior(base_power, template, current_time)
+            base_power = self._apply_battery_behavior(
+                base_power,
+                template,
+                current_time,
+                stochastic_noise=stochastic_noise,
+            )
 
         # Apply smart behavior
         if template.get("smart_behavior", {}).get("responds_to_grid", False):
@@ -206,7 +289,10 @@ class RealisticBehaviorEngine:
         noise_factor = self._config["simulation_params"].get("noise_factor", 0.02)
         total_variation = min(variation + noise_factor, 0.15)
 
-        power_multiplier = 1.0 + random.uniform(-total_variation, total_variation)  # nosec B311
+        if stochastic_noise:
+            power_multiplier = 1.0 + random.uniform(-total_variation, total_variation)  # nosec B311
+        else:
+            power_multiplier = 1.0
         final_power = base_power * power_multiplier
 
         # Clamp to template range
@@ -371,7 +457,12 @@ class RealisticBehaviorEngine:
         return base_power
 
     def _apply_battery_behavior(
-        self, base_power: float, template: CircuitTemplateExtended, current_time: float
+        self,
+        base_power: float,
+        template: CircuitTemplateExtended,
+        current_time: float,
+        *,
+        stochastic_noise: bool = True,
     ) -> float:
         """Apply battery behavior with charge mode support."""
         battery_config = template.get("battery_behavior", {})
@@ -392,7 +483,7 @@ class RealisticBehaviorEngine:
         active_days: list[int] = battery_config.get("active_days", [])
         if active_days and self.local_weekday(current_time) not in active_days:
             self._last_battery_direction = "idle"
-            return self._get_idle_power(battery_config)
+            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
         discharge_hours: list[int] = battery_config.get("discharge_hours", [])
         idle_hours: list[int] = battery_config.get("idle_hours", [])
@@ -404,15 +495,19 @@ class RealisticBehaviorEngine:
 
         if current_hour in idle_hours:
             self._last_battery_direction = "idle"
-            return self._get_idle_power(battery_config)
+            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
         charge_mode: str = battery_config.get("charge_mode", "custom")
 
         if charge_mode == "solar-gen":
-            return self._get_solar_gen_charge_power(battery_config, current_time)
+            return self._get_solar_gen_charge_power(
+                battery_config, current_time, stochastic_noise=stochastic_noise
+            )
 
         if charge_mode == "solar-excess":
-            return self._get_solar_excess_charge_power(battery_config)
+            return self._get_solar_excess_charge_power(
+                battery_config, stochastic_noise=stochastic_noise
+            )
 
         # "custom" — original schedule-based logic
         custom_charge_hours: list[int] = battery_config.get("charge_hours", [])
@@ -435,7 +530,12 @@ class RealisticBehaviorEngine:
         demand_factor = self._get_demand_factor_from_config(current_hour, battery_config)
         return abs(max_discharge_power) * demand_factor
 
-    def _get_idle_power(self, battery_config: BatteryBehavior) -> float:
+    def _get_idle_power(
+        self,
+        battery_config: BatteryBehavior,
+        *,
+        stochastic_noise: bool = True,
+    ) -> float:
         """Get idle power (minimal power flow during low activity hours)."""
         idle_range: list[float] = battery_config.get("idle_power_range", [-100.0, 100.0])
         min_val, max_val = idle_range[0], idle_range[1]
@@ -446,6 +546,8 @@ class RealisticBehaviorEngine:
         else:
             min_idle, max_idle = min_val, max_val
 
+        if not stochastic_noise:
+            return (min_idle + max_idle) / 2.0
         return random.uniform(min_idle, max_idle)  # nosec B311
 
     def _get_solar_intensity_from_config(
@@ -461,7 +563,11 @@ class RealisticBehaviorEngine:
         return demand_profile.get(hour, 0.3)
 
     def _get_solar_gen_charge_power(
-        self, battery_config: BatteryBehavior, current_time: float
+        self,
+        battery_config: BatteryBehavior,
+        current_time: float,
+        *,
+        stochastic_noise: bool = True,
     ) -> float:
         """Charge at max_charge_power * solar_factor * weather_factor."""
         lat = self._config["panel_config"].get("latitude", 37.7)
@@ -470,7 +576,7 @@ class RealisticBehaviorEngine:
 
         if factor <= 0.0:
             self._last_battery_direction = "idle"
-            return self._get_idle_power(battery_config)
+            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
         monthly_factors: dict[int, float] | None = None
         cached = get_cached_weather(lat, lon)
@@ -487,11 +593,16 @@ class RealisticBehaviorEngine:
         self._last_battery_direction = "charging"
         return abs(max_charge) * factor * weather
 
-    def _get_solar_excess_charge_power(self, battery_config: BatteryBehavior) -> float:
+    def _get_solar_excess_charge_power(
+        self,
+        battery_config: BatteryBehavior,
+        *,
+        stochastic_noise: bool = True,
+    ) -> float:
         """Charge from surplus solar after loads are met."""
         if self._solar_excess_w <= 0.0:
             self._last_battery_direction = "idle"
-            return self._get_idle_power(battery_config)
+            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
         max_charge: float = battery_config.get("max_charge_power", 3000.0)
         self._last_battery_direction = "charging"
@@ -1254,7 +1365,7 @@ class DynamicSimulationEngine:
                     vendor_name="Simulated",
                     product_name="Virtual PV Inverter",
                     nameplate_capacity_w=5000.0,
-                    software_version="1.0.0-sim",
+                    software_version=DEFAULT_FIRMWARE_VERSION,
                 )
                 pv_power = circ.instant_power_w
                 break
@@ -1273,7 +1384,7 @@ class DynamicSimulationEngine:
                     product_name="SPAN Drive",
                     part_number="SPN-DRV-001",
                     serial_number=f"SIM-EVSE-{cid.upper()}",
-                    software_version="1.0.0-sim",
+                    software_version=DEFAULT_FIRMWARE_VERSION,
                 )
 
         # 9. Build panel snapshot
@@ -1295,7 +1406,7 @@ class DynamicSimulationEngine:
 
         return SpanPanelSnapshot(
             serial_number=self._config["panel_config"]["serial_number"],
-            firmware_version="sim/v1.0.0",
+            firmware_version=DEFAULT_FIRMWARE_VERSION,
             main_relay_state=main_relay,
             instant_grid_power_w=grid_power,
             feedthrough_power_w=feedthrough_power,
@@ -1342,15 +1453,70 @@ class DynamicSimulationEngine:
     # Modeling computation
     # ------------------------------------------------------------------
 
+    def _aggregate_modeling_at_ts(
+        self,
+        ts: float,
+        behavior: RealisticBehaviorEngine,
+        solar_excess_ids: set[str],
+        *,
+        modeling_recorder_baseline: bool,
+    ) -> tuple[dict[str, float], float, float, float]:
+        """Return circuit powers, site power, sum of producer output, raw battery W."""
+        total_consumption = 0.0
+        total_production = 0.0
+        raw_battery_power = 0.0
+        circuit_powers: dict[str, float] = {}
+
+        for cid, circuit in self._circuits.items():
+            if cid in solar_excess_ids:
+                continue
+            power = behavior.get_circuit_power(
+                cid,
+                circuit.template,
+                ts,
+                modeling_recorder_baseline=modeling_recorder_baseline,
+                modeling_deterministic=True,
+            )
+            circuit_powers[cid] = power
+
+            if circuit.energy_mode == "producer":
+                total_production += power
+            elif circuit.energy_mode == "bidirectional":
+                raw_battery_power = power
+            else:
+                total_consumption += power
+
+        if solar_excess_ids:
+            excess = max(0.0, total_production - total_consumption)
+            behavior.set_solar_excess(excess)
+            for cid in solar_excess_ids:
+                circuit = self._circuits[cid]
+                power = behavior.get_circuit_power(
+                    cid,
+                    circuit.template,
+                    ts,
+                    modeling_recorder_baseline=modeling_recorder_baseline,
+                    modeling_deterministic=True,
+                )
+                circuit_powers[cid] = power
+                raw_battery_power = power
+
+        site_power = total_consumption - total_production
+        return circuit_powers, site_power, total_production, raw_battery_power
+
     async def compute_modeling_data(self, horizon_hours: int) -> dict[str, Any]:
         """Compute Before/After modeling data over recorder history.
 
-        Performs a **read-only** simulation pass — no runtime state is mutated.
-        Clones the behaviour engine and creates a temporary BSEE so the
-        iteration across the horizon doesn't affect the live simulation.
+        Performs **read-only** passes — no runtime state is mutated.
+        **Before** uses HA recorder replay wherever ``recorder_entity`` data
+        exists (ignores ``user_modified``), with site power **without** BESS.
+        **After** uses current templates (SYN / overrides) and applies BSEE
+        for grid and battery traces.
 
-        Returns the response dict matching the ``GET /modeling-data`` schema,
-        or an error dict ``{"error": "..."}`` when recorder data is missing.
+        Returns the response dict matching the ``GET /modeling-data`` schema
+        (including ``pv_power_before``, ``pv_power_after``, and legacy
+        ``pv_power`` equal to ``pv_power_after``), or an error dict
+        ``{"error": "..."}`` when recorder data is missing.
         """
         if not self._config:
             raise SimulationConfigurationError("Configuration not loaded")
@@ -1393,10 +1559,7 @@ class DynamicSimulationEngine:
                 config=be._config,
                 recorder=be._recorder,
             )
-            cloned_behavior._circuit_cycle_states = copy.deepcopy(be._circuit_cycle_states)
-            cloned_behavior._last_battery_direction = be._last_battery_direction
-            cloned_behavior._solar_excess_w = be._solar_excess_w
-            cloned_behavior._grid_offline = be._grid_offline
+            cloned_behavior.copy_mutable_state_from(be)
 
         # Identify solar-excess battery circuits
         solar_excess_ids: set[str] = set()
@@ -1409,7 +1572,7 @@ class DynamicSimulationEngine:
             ):
                 solar_excess_ids.add(cid)
 
-        # Create temporary BSEE if battery is configured
+        # Create temporary BSEE if battery is configured (After pass only)
         cloned_bsee: BatteryStorageEquipment | None = None
         battery_circuit = self._find_battery_circuit()
         if self._bsee is not None and battery_circuit is not None:
@@ -1425,53 +1588,42 @@ class DynamicSimulationEngine:
                     panel_timezone=(cloned_behavior.panel_timezone if cloned_behavior else None),
                 )
 
+        if cloned_behavior is None:
+            return {"error": "Simulation not initialised"}
+
         # Result arrays
         site_power_arr: list[float] = []
         grid_power_arr: list[float] = []
-        pv_power_arr: list[float] = []
+        pv_before_arr: list[float] = []
+        pv_after_arr: list[float] = []
         battery_power_arr: list[float] = []
-        circuit_arrays: dict[str, list[float]] = {cid: [] for cid in self._circuits}
+        circuit_arrays_before: dict[str, list[float]] = {cid: [] for cid in self._circuits}
+        circuit_arrays_after: dict[str, list[float]] = {cid: [] for cid in self._circuits}
 
         for ts in timestamps:
-            total_consumption = 0.0
-            total_production = 0.0
-            raw_battery_power = 0.0
-            circuit_powers: dict[str, float] = {}
+            # Baseline vs after use the same engine; restore mutable state between
+            # passes so cycling / solar-excess bookkeeping does not cross-contaminate.
+            modeling_checkpoint = cloned_behavior.capture_mutable_state()
 
-            # Pass 1: non-solar-excess circuits
-            for cid, circuit in self._circuits.items():
-                if cid in solar_excess_ids:
-                    continue
-                power = (
-                    cloned_behavior.get_circuit_power(cid, circuit.template, ts)
-                    if cloned_behavior
-                    else circuit.template["energy_profile"]["typical_power"]
-                )
-                circuit_powers[cid] = power
+            powers_b, site_b, prod_b, _raw_b = self._aggregate_modeling_at_ts(
+                ts,
+                cloned_behavior,
+                solar_excess_ids,
+                modeling_recorder_baseline=True,
+            )
 
-                if circuit.energy_mode == "producer":
-                    total_production += power
-                elif circuit.energy_mode == "bidirectional":
-                    raw_battery_power = power
-                else:
-                    total_consumption += power
+            cloned_behavior.restore_mutable_state(modeling_checkpoint)
 
-            # Pass 2: solar-excess circuits
-            if solar_excess_ids and cloned_behavior is not None:
-                excess = max(0.0, total_production - total_consumption)
-                cloned_behavior.set_solar_excess(excess)
-                for cid in solar_excess_ids:
-                    circuit = self._circuits[cid]
-                    power = cloned_behavior.get_circuit_power(cid, circuit.template, ts)
-                    circuit_powers[cid] = power
-                    raw_battery_power = power
+            powers_a, site_a, prod_a, raw_batt_a = self._aggregate_modeling_at_ts(
+                ts,
+                cloned_behavior,
+                solar_excess_ids,
+                modeling_recorder_baseline=False,
+            )
 
-            site_power = total_consumption - total_production
-
-            # BSEE step — determine actual battery power and state
             signed_battery = 0.0
             if cloned_bsee is not None:
-                cloned_bsee.update(ts, raw_battery_power)
+                cloned_bsee.update(ts, raw_batt_a)
                 effective_power = cloned_bsee.battery_power_w
                 state = cloned_bsee.battery_state
                 if state == "discharging":
@@ -1479,26 +1631,28 @@ class DynamicSimulationEngine:
                 elif state == "charging":
                     signed_battery = effective_power
 
-            # Grid power: charging adds to grid import, discharging reduces it
-            grid_power = site_power + signed_battery
+            grid_after = site_a + signed_battery
 
-            site_power_arr.append(round(site_power, 1))
-            grid_power_arr.append(round(grid_power, 1))
-            pv_power_arr.append(round(total_production, 1))
+            site_power_arr.append(round(site_b, 1))
+            pv_before_arr.append(round(prod_b, 1))
+            grid_power_arr.append(round(grid_after, 1))
+            pv_after_arr.append(round(prod_a, 1))
             battery_power_arr.append(round(signed_battery, 1))
 
             for cid in self._circuits:
-                circuit_arrays[cid].append(round(circuit_powers.get(cid, 0.0), 1))
+                circuit_arrays_before[cid].append(round(powers_b.get(cid, 0.0), 1))
+                circuit_arrays_after[cid].append(round(powers_a.get(cid, 0.0), 1))
 
         # Build per-circuit response
         circuits_response: dict[str, dict[str, Any]] = {}
         for cid, circuit in self._circuits.items():
             circuits_response[cid] = {
                 "name": circuit.name,
-                "power": circuit_arrays[cid],
+                "power": circuit_arrays_after[cid],
+                "power_before": circuit_arrays_before[cid],
             }
 
-        tz_str = str(cloned_behavior.panel_timezone) if cloned_behavior else "UTC"
+        tz_str = str(cloned_behavior.panel_timezone)
 
         return {
             "horizon_start": int(horizon_start),
@@ -1508,7 +1662,10 @@ class DynamicSimulationEngine:
             "timestamps": [int(t) for t in timestamps],
             "site_power": site_power_arr,
             "grid_power": grid_power_arr,
-            "pv_power": pv_power_arr,
+            "pv_power_before": pv_before_arr,
+            "pv_power_after": pv_after_arr,
+            # Legacy alias — same series as ``pv_power_after`` (current / SYN view).
+            "pv_power": pv_after_arr,
             "battery_power": battery_power_arr,
             "circuits": circuits_response,
         }

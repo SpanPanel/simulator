@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.0.4 — 2026-03-22
+
+### Features
+- Purge button to clear HA recorder history for stopped profiles
+- Recorder data automatically purged when deleting a simulator profile
+- Per-entity restore to original recorder state
+- Editable PV inverter type, efficiency, battery charge/discharge parameters
+- Loading indicators and disabled controls during all dashboard operations
+
+### Fixes
+- Fix modeling baseline comparison and per-panel config resolution
+- Resume explicitly-started panels on reboot, including defaults
+- Clear last config when user explicitly stops a panel
+- Require passphrase for clone-from-panel
+- Refresh panels list immediately after start/stop/restart/delete
+- Fix unsaved-changes tracking across entity and PV editors
+- Fix PV chart overflow and clipping in entity editor
+- Keep recorder association when editing PV/battery entities
+- Remove duplicate Open-Meteo source label in weather status
+
+## 1.0.3 — 2026-03-21
+
+### Features
+- Clickable panel rows with hover styling in panel selector
+- Unsaved-changes guard when switching panels or loading defaults
+
+## 1.0.2 — 2026-03-21
+
+### Features
+- Per-panel HTTP servers with automatic port allocation
+- Configurable base HTTP port for add-on and CLI
+- Per-panel HTTP port shown in dashboard panel list
+- Automatic Supervisor Discovery registration for add-on panels
+
+### Fixes
+- Fix panel discovery when running as HA add-on
+- Restore battery circuit entries removed when tabs were stripped
+- Auto-rename duplicate serials when cloned configs run concurrently
+- Fix 16-tab default config missing unmapped tabs
+
 ## 1.0.1 — 2026-03-20
 
 ### Translations

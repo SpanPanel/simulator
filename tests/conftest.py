@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from span_panel_simulator.const import DEFAULT_FIRMWARE_VERSION
 from span_panel_simulator.models import (
     SpanBatterySnapshot,
     SpanCircuitSnapshot,
@@ -68,7 +69,7 @@ def sample_snapshot() -> SpanPanelSnapshot:
 
     return SpanPanelSnapshot(
         serial_number="SPAN-TEST-001",
-        firmware_version="spanos2/sim/01",
+        firmware_version=DEFAULT_FIRMWARE_VERSION,
         main_relay_state="CLOSED",
         instant_grid_power_w=950.0,
         feedthrough_power_w=0.0,

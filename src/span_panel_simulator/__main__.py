@@ -15,7 +15,6 @@ from span_panel_simulator.const import (
     DEFAULT_BASE_HTTP_PORT,
     DEFAULT_BROKER_PASSWORD,
     DEFAULT_BROKER_USERNAME,
-    DEFAULT_FIRMWARE_VERSION,
     DEFAULT_TICK_INTERVAL_S,
     MQTTS_PORT,
 )
@@ -43,11 +42,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=float(os.environ.get("TICK_INTERVAL", str(DEFAULT_TICK_INTERVAL_S))),
         help="Seconds between simulation ticks",
-    )
-    parser.add_argument(
-        "--firmware",
-        default=os.environ.get("FIRMWARE_VERSION", DEFAULT_FIRMWARE_VERSION),
-        help="Simulated firmware version",
     )
     parser.add_argument(
         "--broker-host",
@@ -147,8 +141,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # Resolve which config(s) to load.
     # When --config is given explicitly, that panel auto-starts.
-    # Otherwise, resume the last-used config if saved — but never
-    # auto-start a default_ template (those are clone-only).
+    # Otherwise, resume the last-used config if saved.
     # If nothing to resume, start idle (empty filter) so the dashboard
     # is ready for the user to choose a config.
     config_filter: str | None = args.config
@@ -162,17 +155,13 @@ def main(argv: list[str] | None = None) -> None:
         last_config_file = config_dir / ".last_config"
         if last_config_file.exists():
             last_name = last_config_file.read_text(encoding="utf-8").strip()
-            if (
-                last_name
-                and not last_name.startswith("default_")
-                and (config_dir / last_name).exists()
-            ):
+            if last_name and (config_dir / last_name).exists():
                 config_filter = last_name
                 logging.info("Resuming last config: %s", last_name)
 
         if config_filter is None:
             config_filter = ""  # idle — no panel until user picks one
-            logging.info("No user config to resume — dashboard ready, no panel running")
+            logging.info("No config to resume — dashboard ready, no panel running")
 
     # Resolve HA API connection (add-on mode auto-detects via env var)
     from span_panel_simulator.ha_api.client import HAConnectionConfig
@@ -190,7 +179,6 @@ def main(argv: list[str] | None = None) -> None:
         config_dir=config_dir,
         config_filter=config_filter,
         tick_interval=args.tick_interval,
-        firmware_version=args.firmware,
         broker_host=args.broker_host,
         broker_port=args.broker_port,
         base_http_port=base_http_port,

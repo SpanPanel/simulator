@@ -238,7 +238,7 @@ class HAClient:
     # HA WebSocket API
     # ------------------------------------------------------------------
 
-    async def _ws_command(self, payload: dict[str, object]) -> dict[str, object]:
+    async def _ws_send(self, payload: dict[str, object]) -> dict[str, object] | list[object]:
         """Execute a single command over the HA WebSocket API.
 
         Opens a connection, authenticates, sends the command, reads the
@@ -246,6 +246,9 @@ class HAClient:
         independent.  For high-frequency use, a persistent connection
         would be better, but for profile building (called once on clone
         or on-demand) this is sufficient.
+
+        Returns the raw ``result`` field from the response — may be a
+        dict or a list depending on the command type.
         """
         session = self._ensure_session()
         self._ws_id += 1
@@ -290,8 +293,18 @@ class HAClient:
                 msg = f"HA WebSocket command failed: {error_msg}"
                 raise RuntimeError(msg)
 
-            raw = result.get("result", {})
-            return raw if isinstance(raw, dict) else {}
+            raw: dict[str, object] | list[object] = result.get("result", {})
+            return raw
+
+    async def _ws_command(self, payload: dict[str, object]) -> dict[str, object]:
+        """Execute a WS command that returns a dict result."""
+        raw = await self._ws_send(payload)
+        return raw if isinstance(raw, dict) else {}
+
+    async def _ws_command_list(self, payload: dict[str, object]) -> list[dict[str, object]]:
+        """Execute a WS command that returns a list result."""
+        raw = await self._ws_send(payload)
+        return raw if isinstance(raw, list) else []  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
     # HA WebSocket API: recorder statistics
@@ -348,6 +361,79 @@ class HAClient:
         """Fetch a single entity's current state."""
         result = await self._get(f"states/{entity_id}")
         return result if isinstance(result, dict) else {}
+
+    # ------------------------------------------------------------------
+    # HA REST API: location
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # HA WebSocket API: device & entity registries
+    # ------------------------------------------------------------------
+
+    async def async_get_device_id_for_serial(self, serial: str) -> str | None:
+        """Find the HA device ID for a SPAN panel by its serial number.
+
+        Searches the device registry for a device whose identifiers
+        include ``("span_panel", serial)``.
+        """
+        devices = await self._ws_command_list({"type": "config/device_registry/list"})
+        for dev in devices:
+            identifiers = dev.get("identifiers")
+            if not isinstance(identifiers, list):
+                continue
+            for ident in identifiers:
+                if (
+                    isinstance(ident, list)
+                    and len(ident) == 2
+                    and ident[0] == "span_panel"
+                    and ident[1] == serial
+                ):
+                    device_id = dev.get("id")
+                    return str(device_id) if device_id else None
+        return None
+
+    async def async_get_entity_ids_for_device(self, device_id: str) -> list[str]:
+        """Return all entity IDs belonging to a given device ID."""
+        entities = await self._ws_command_list({"type": "config/entity_registry/list"})
+        return [
+            str(e["entity_id"])
+            for e in entities
+            if e.get("device_id") == device_id and isinstance(e.get("entity_id"), str)
+        ]
+
+    async def async_purge_panel_recorder_data(self, serial: str) -> int:
+        """Purge all recorder data for a SPAN panel identified by serial.
+
+        Looks up the device, finds all associated entity IDs, and calls
+        ``recorder.purge_entities`` to remove long-term statistics.
+
+        Safety: refuses to purge unless the serial has a ``sim-`` prefix
+        so that real panel history is never accidentally deleted — even
+        if a clone's ``recorder_entity`` fields reference the original.
+
+        Returns the number of entities purged (0 if panel not found in HA).
+        """
+        if not serial.lower().startswith("sim-"):
+            _LOGGER.warning("Refusing to purge recorder data for non-simulator serial %s", serial)
+            return 0
+
+        device_id = await self.async_get_device_id_for_serial(serial)
+        if device_id is None:
+            _LOGGER.debug("No HA device found for serial %s — nothing to purge", serial)
+            return 0
+
+        entity_ids = await self.async_get_entity_ids_for_device(device_id)
+        if not entity_ids:
+            _LOGGER.debug("No entities found for device %s — nothing to purge", device_id)
+            return 0
+
+        await self.async_call_service(
+            "recorder",
+            "purge_entities",
+            {"entity_id": entity_ids},
+        )
+        _LOGGER.info("Purged recorder data for %d entities (serial=%s)", len(entity_ids), serial)
+        return len(entity_ids)
 
     # ------------------------------------------------------------------
     # HA REST API: location

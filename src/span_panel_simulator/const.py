@@ -21,8 +21,16 @@ PATH_REGISTER = "/api/v2/auth/register"
 PATH_CA_CERT = "/api/v2/certificate/ca"
 PATH_HOMIE_SCHEMA = "/api/v2/homie/schema"
 
-# Simulated firmware version
-DEFAULT_FIRMWARE_VERSION = "spanos2/sim/01"
+
+# Simulated firmware version — derived from the package version so that
+# HTTP bootstrap, MQTT snapshots, and mDNS all report the same value.
+def _firmware_version() -> str:
+    from span_panel_simulator import __version__
+
+    return f"sim/v{__version__}"
+
+
+DEFAULT_FIRMWARE_VERSION = _firmware_version()
 
 # Default MQTT credentials (returned by /register)
 DEFAULT_BROKER_USERNAME = "span"

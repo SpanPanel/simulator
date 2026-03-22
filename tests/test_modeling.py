@@ -9,11 +9,28 @@ from unittest.mock import AsyncMock
 import pytest
 
 from span_panel_simulator.dashboard import DashboardContext, create_dashboard_app
+from span_panel_simulator.dashboard.modeling_config import resolve_modeling_config_filename
 from span_panel_simulator.engine import DynamicSimulationEngine
 from span_panel_simulator.recorder import RecorderDataSource
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def test_resolve_modeling_config_filename_uses_query_when_valid(tmp_path: Path) -> None:
+    """Explicit ?config= must select the engine YAML when the file exists."""
+    (tmp_path / "panel.yaml").write_text("panel_config:\n  serial_number: x\n")
+    ctx = DashboardContext(
+        config_dir=tmp_path,
+        config_filter="stale.yaml",
+        get_panel_configs=lambda: {},
+        get_panel_ports=lambda: {},
+        request_reload=lambda: None,
+    )
+    assert resolve_modeling_config_filename(ctx, "panel.yaml") == "panel.yaml"
+    assert resolve_modeling_config_filename(ctx, "missing.yaml") == "stale.yaml"
+    assert resolve_modeling_config_filename(ctx, "../panel.yaml") == "stale.yaml"
+    assert resolve_modeling_config_filename(ctx, None) == "stale.yaml"
 
 
 @pytest.fixture
@@ -203,7 +220,10 @@ async def test_compute_modeling_data_returns_expected_structure(
     assert "timestamps" in result
     assert "site_power" in result
     assert "grid_power" in result
+    assert "pv_power_before" in result
+    assert "pv_power_after" in result
     assert "pv_power" in result
+    assert result["pv_power"] == result["pv_power_after"]
     assert "battery_power" in result
     assert "circuits" in result
     assert "resolution_s" in result
@@ -216,13 +236,16 @@ async def test_compute_modeling_data_returns_expected_structure(
     assert n > 0
     assert len(result["site_power"]) == n
     assert len(result["grid_power"]) == n
-    assert len(result["pv_power"]) == n
+    assert len(result["pv_power_before"]) == n
+    assert len(result["pv_power_after"]) == n
     assert len(result["battery_power"]) == n
 
     for _cid, cdata in result["circuits"].items():
         assert "name" in cdata
         assert "power" in cdata
+        assert "power_before" in cdata
         assert len(cdata["power"]) == n
+        assert len(cdata["power_before"]) == n
 
 
 async def test_compute_modeling_data_no_recorder() -> None:
@@ -256,6 +279,61 @@ async def test_compute_modeling_data_no_recorder() -> None:
     assert result.get("error") == "No recorder data available"
 
 
+async def test_producer_solar_uses_nameplate_for_curve_scale(
+    simple_config: Path,
+    recorder_for_engine: RecorderDataSource,
+) -> None:
+    """Synthetic PV peaks scale with nameplate_capacity_w, not only typical_power."""
+    engine = DynamicSimulationEngine(
+        config_path=simple_config,
+        recorder=recorder_for_engine,
+    )
+    await engine.initialize_async()
+    pv = engine._circuits["pv"]
+    pv.template["user_modified"] = True
+    ep = pv.template["energy_profile"]
+    ep["typical_power"] = -3000.0
+    ep["nameplate_capacity_w"] = 5000.0
+    ep["power_range"] = [-5000.0, 0.0]
+    low = await engine.compute_modeling_data(horizon_hours=168)
+    assert low is not None
+    max_low = max(low["pv_power_after"])
+
+    ep["nameplate_capacity_w"] = 10000.0
+    ep["power_range"] = [-10000.0, 0.0]
+    high = await engine.compute_modeling_data(horizon_hours=168)
+    assert high is not None
+    max_high = max(high["pv_power_after"])
+    assert max_high > max_low * 1.5
+
+
+async def test_compute_modeling_data_uses_synthetic_when_user_modified(
+    simple_config: Path,
+    recorder_for_engine: RecorderDataSource,
+) -> None:
+    """Modeling must not replay recorder for circuits flagged user_modified."""
+    engine = DynamicSimulationEngine(
+        config_path=simple_config,
+        recorder=recorder_for_engine,
+    )
+    await engine.initialize_async()
+
+    baseline = await engine.compute_modeling_data(horizon_hours=168)
+    assert baseline is not None
+    assert baseline["pv_power_before"] == baseline["pv_power_after"]
+
+    pv = engine._circuits["pv"]
+    pv.template["user_modified"] = True
+    pv.template["energy_profile"]["typical_power"] = -12000.0
+    pv.template["energy_profile"]["power_range"] = [-12000.0, 0.0]
+
+    after = await engine.compute_modeling_data(horizon_hours=168)
+    assert after is not None
+    max_pv_before = max(after["pv_power_before"])
+    max_pv_after = max(after["pv_power_after"])
+    assert max_pv_after > max_pv_before * 1.2
+
+
 async def test_compute_modeling_does_not_mutate_runtime_state(
     simple_config: Path,
     recorder_for_engine: RecorderDataSource,
@@ -269,15 +347,11 @@ async def test_compute_modeling_does_not_mutate_runtime_state(
 
     be = engine._behavior_engine
     assert be is not None
-    direction_before = be._last_battery_direction
-    excess_before = be._solar_excess_w
-    cycle_keys_before = set(be._circuit_cycle_states.keys())
+    before = be.capture_mutable_state()
 
     await engine.compute_modeling_data(horizon_hours=168)
 
-    assert be._last_battery_direction == direction_before
-    assert be._solar_excess_w == excess_before
-    assert set(be._circuit_cycle_states.keys()) == cycle_keys_before
+    assert be.capture_mutable_state() == before
 
 
 async def test_modeling_data_route_no_engine(tmp_path: Path) -> None:
@@ -312,7 +386,9 @@ async def test_modeling_data_route_returns_data(
     )
     await engine.initialize_async()
 
-    async def mock_get_modeling_data(horizon_hours: int) -> dict[str, Any] | None:
+    async def mock_get_modeling_data(
+        horizon_hours: int, _config_filename: str | None = None
+    ) -> dict[str, Any] | None:
         return await engine.compute_modeling_data(horizon_hours)
 
     ctx = DashboardContext(

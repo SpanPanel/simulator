@@ -37,6 +37,12 @@ class SimulatedCircuit:
         self._template = deepcopy(template)
         self._behavior_engine = behavior_engine
 
+        # Per-circuit recorder link lives on the circuit definition in YAML;
+        # merge it so behaviour engine / modeling see ``recorder_entity``.
+        rec_entity = circuit_def.get("recorder_entity")
+        if rec_entity is not None:
+            self._template["recorder_entity"] = rec_entity
+
         # Apply circuit-level overrides to the template, routing
         # energy-profile keys into the nested ``energy_profile`` dict.
         if "overrides" in circuit_def:
