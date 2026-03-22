@@ -186,6 +186,17 @@ class SimulatorApp:
                 return panel.engine
         return None
 
+    def _get_engine_for_config_file(
+        self, config_filename: str | None
+    ) -> DynamicSimulationEngine | None:
+        """Resolve the running engine for a dashboard YAML filename, if any."""
+        if config_filename:
+            path = self._config_dir / config_filename
+            panel = self._panels.get(path)
+            if panel is not None and panel.engine is not None:
+                return panel.engine
+        return self._get_first_engine()
+
     def _get_power_summary(self) -> dict[str, object] | None:
         """Return current power flows from the first running panel."""
         engine = self._get_first_engine()
@@ -231,9 +242,11 @@ class SimulatorApp:
                 circuit_overrides={circuit_id: {"relay_state": relay_state}}
             )
 
-    async def _get_modeling_data(self, horizon_hours: int) -> dict[str, Any] | None:
-        """Compute modeling data from the first running engine."""
-        engine = self._get_first_engine()
+    async def _get_modeling_data(
+        self, horizon_hours: int, config_filename: str | None = None
+    ) -> dict[str, Any] | None:
+        """Compute modeling data from the engine for the active dashboard config."""
+        engine = self._get_engine_for_config_file(config_filename)
         if engine is None:
             return None
         return await engine.compute_modeling_data(horizon_hours)

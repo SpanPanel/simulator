@@ -147,6 +147,7 @@ class CircuitDefinitionExtended(CircuitDefinition, total=False):
 
     overrides: dict[str, Any]
     breaker_rating: int  # Per-circuit breaker rating in Amps (overrides template)
+    recorder_entity: str  # HA entity for recorder replay (also merged onto resolved template)
 
 
 class TabSynchronization(TypedDict):

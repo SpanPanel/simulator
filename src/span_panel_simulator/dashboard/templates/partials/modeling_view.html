@@ -88,6 +88,8 @@
   var visibleEnd = 0;
   var overlayCircuits = {};
   var colorIndex = 0;
+  /** YAML filename for the panel being modeled — must match /modeling-data ?config= */
+  var modelingConfigFile = '';
 
   var OVERLAY_COLORS = ['#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#e879f9'];
 
@@ -110,6 +112,7 @@
   // ---------------------------------------------------------------
   function enterModelingMode(panelFilename, panelSerial) {
     document.body.classList.add('modeling-mode');
+    modelingConfigFile = (panelFilename && String(panelFilename).trim()) || '';
     document.getElementById('modeling-panel-name').textContent = panelSerial || panelFilename;
     overlayCircuits = {};
     colorIndex = 0;
@@ -124,6 +127,7 @@
 
   function exitModelingMode() {
     document.body.classList.remove('modeling-mode');
+    modelingConfigFile = '';
     if (beforeChart) { beforeChart.destroy(); beforeChart = null; }
     if (afterChart) { afterChart.destroy(); afterChart = null; }
     modelingData = null;
@@ -133,13 +137,21 @@
   // ---------------------------------------------------------------
   // Data fetching
   // ---------------------------------------------------------------
+  function modelingDataQuery(horizon) {
+    var q = 'modeling-data?horizon=' + encodeURIComponent(horizon);
+    if (modelingConfigFile) {
+      q += '&config=' + encodeURIComponent(modelingConfigFile);
+    }
+    return q;
+  }
+
   function fetchModelingData(horizon) {
     if (beforeChart) { beforeChart.destroy(); beforeChart = null; }
     if (afterChart) { afterChart.destroy(); afterChart = null; }
     spinner.style.display = '';
     chartsWrap.style.display = 'none';
 
-    busyFetch(horizonSelect, 'modeling-data?horizon=' + horizon)
+    busyFetch(horizonSelect, modelingDataQuery(horizon))
       .then(function(r) { return r.json(); })
       .then(function(data) {
         spinner.style.display = 'none';
@@ -207,7 +219,8 @@
     var ts = d.timestamps.slice(visibleStart, visibleEnd + 1);
     var sitePower = d.site_power.slice(visibleStart, visibleEnd + 1);
     var gridPower = d.grid_power.slice(visibleStart, visibleEnd + 1);
-    var pvPower = d.pv_power.slice(visibleStart, visibleEnd + 1);
+    var pvBefore = (d.pv_power_before || d.pv_power || []).slice(visibleStart, visibleEnd + 1);
+    var pvAfter = (d.pv_power_after || d.pv_power || []).slice(visibleStart, visibleEnd + 1);
     var batteryPower = d.battery_power.slice(visibleStart, visibleEnd + 1);
 
     // Energy summaries — split import/export for distinct cost treatment
@@ -241,7 +254,7 @@
     var labels = buildLabels(ts, d.time_zone);
 
     // Shared Y-axis max
-    var allVals = sitePower.concat(gridPower);
+    var allVals = sitePower.concat(gridPower).concat(pvBefore).concat(pvAfter);
     var yMax = 0;
     for (var i = 0; i < allVals.length; i++) {
       if (Math.abs(allVals[i]) > yMax) yMax = Math.abs(allVals[i]);
@@ -257,36 +270,39 @@
       var cid = circuitIds[j];
       var cdata = d.circuits[cid];
       if (!cdata) continue;
-      var cPower = cdata.power.slice(visibleStart, visibleEnd + 1);
+      var pb = (cdata.power_before || cdata.power).slice(visibleStart, visibleEnd + 1);
+      var pa = cdata.power.slice(visibleStart, visibleEnd + 1);
       var color = overlayCircuits[cid];
-      var ds = {
+      var dsB = {
         label: cdata.name,
-        data: cPower,
+        data: pb,
         borderColor: color,
         borderWidth: 1.2,
         pointRadius: 0,
         fill: false,
         tension: 0.3,
       };
-      overlayBefore.push(Object.assign({}, ds));
-      overlayAfter.push(Object.assign({}, ds));
+      var dsA = Object.assign({}, dsB, { data: pa });
+      overlayBefore.push(dsB);
+      overlayAfter.push(dsA);
     }
 
-    // Before chart datasets
-    var pvDs = { label: 'Solar', data: pvPower, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(245,158,11,0.08)' }, tension: 0.3 };
+    // Before chart datasets (recorder baseline); After (current SYN / edited circuits)
+    var pvDsBefore = { label: 'Solar', data: pvBefore, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(245,158,11,0.08)' }, tension: 0.3 };
+    var pvDsAfter = { label: 'Solar', data: pvAfter, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(245,158,11,0.08)' }, tension: 0.3 };
     var battDs = { label: 'Battery', data: batteryPower, borderColor: '#10b981', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(16,185,129,0.08)' }, tension: 0.3 };
 
     var beforeDatasets = [
       { label: 'Site Power', data: sitePower, borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(239,68,68,0.08)' }, tension: 0.3 },
     ];
-    if (pvCheckbox.checked) beforeDatasets.push(Object.assign({}, pvDs));
+    if (pvCheckbox.checked) beforeDatasets.push(Object.assign({}, pvDsBefore));
     beforeDatasets = beforeDatasets.concat(overlayBefore);
 
     // After chart datasets
     var afterDatasets = [
       { label: 'Grid Power', data: gridPower, borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(239,68,68,0.08)' }, tension: 0.3 },
     ];
-    if (pvCheckbox.checked) afterDatasets.push(Object.assign({}, pvDs));
+    if (pvCheckbox.checked) afterDatasets.push(Object.assign({}, pvDsAfter));
     if (batteryCheckbox.checked) afterDatasets.push(Object.assign({}, battDs));
     afterDatasets = afterDatasets.concat(overlayAfter);
 
@@ -488,7 +504,7 @@
           chartsWrap.style.display = '';
           return;
         }
-        fetch('modeling-data?horizon=' + horizonSelect.value)
+        fetch(modelingDataQuery(horizonSelect.value))
           .then(function(r) { return r.json(); })
           .then(function(data) {
             if (data.error && data.error === 'No running simulation') {

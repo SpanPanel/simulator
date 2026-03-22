@@ -14,6 +14,8 @@ import yaml
 from aiohttp import web
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import multidict
 
 from span_panel_simulator.dashboard.presets import (
@@ -25,8 +27,6 @@ from span_panel_simulator.solar import compute_solar_curve
 from span_panel_simulator.weather import fetch_historical_weather, get_cached_weather
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from span_panel_simulator.dashboard import DashboardContext
     from span_panel_simulator.dashboard.config_store import ConfigStore
 
@@ -980,13 +980,32 @@ _HORIZON_MAP: dict[str, int] = {
 }
 
 
+def _modeling_config_filename(ctx: DashboardContext, query_value: str | None) -> str | None:
+    """Resolve YAML filename for modeling: explicit ?config= then editor state."""
+    if query_value:
+        raw = query_value.strip()
+        path = ctx.config_dir / raw
+        if (
+            raw
+            and "/" not in raw
+            and "\\" not in raw
+            and raw not in (".", "..")
+            and path.is_file()
+            and path.suffix.lower() in (".yaml", ".yml")
+            and path.resolve().parent == ctx.config_dir.resolve()
+        ):
+            return raw
+    return ctx.config_filter
+
+
 async def handle_modeling_data(request: web.Request) -> web.Response:
     """Return time-series for Before/After energy comparison."""
     ctx = _ctx(request)
     horizon_key = request.query.get("horizon", "1mo")
     horizon_hours = _HORIZON_MAP.get(horizon_key, 730)
 
-    result = await ctx.get_modeling_data(horizon_hours)
+    config_file = _modeling_config_filename(ctx, request.query.get("config"))
+    result = await ctx.get_modeling_data(horizon_hours, config_file)
     if result is None:
         return web.json_response({"error": "No running simulation"}, status=503)
     if "error" in result:

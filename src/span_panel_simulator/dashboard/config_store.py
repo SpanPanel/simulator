@@ -347,6 +347,9 @@ class ConfigStore:
             ep["typical_power"] = -nameplate * 0.6
             overrides.pop("typical_power", None)
             overrides.pop("power_range", None)
+            # Nameplate always implies leaving HA replay — same as other edits
+            if template.get("recorder_entity"):
+                self._mark_user_modified(template_name)
         else:
             if "typical_power" in data:
                 val = float(data["typical_power"])
