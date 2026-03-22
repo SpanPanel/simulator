@@ -86,7 +86,7 @@
   function fetchAndRender() {
     monthLabel.textContent = MONTH_NAMES[currentMonth - 1];
     var url = 'pv-curve-data?month=' + currentMonth + '&nameplate=' + nameplate;
-    fetch(url)
+    busyFetch(sliderEl, url)
       .then(function(r) { return r.json(); })
       .then(function(data) {
         var labels = [];

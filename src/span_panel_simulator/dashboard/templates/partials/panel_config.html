@@ -94,7 +94,7 @@
 
   function fetchWeather(lat, lon) {
     weatherStatus.textContent = 'Fetching historical weather data...';
-    fetch('fetch-weather?lat=' + lat + '&lon=' + lon)
+    busyFetch(weatherStatus, 'fetch-weather?lat=' + lat + '&lon=' + lon)
       .then(function(r) {
         if (!r.ok) return r.json().then(function(d) { throw new Error(d.error || 'Failed'); });
         return r.json();
