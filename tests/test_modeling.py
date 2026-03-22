@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from span_panel_simulator.dashboard import DashboardContext, create_dashboard_app
-from span_panel_simulator.dashboard.routes import _modeling_config_filename
+from span_panel_simulator.dashboard.modeling_config import resolve_modeling_config_filename
 from span_panel_simulator.engine import DynamicSimulationEngine
 from span_panel_simulator.recorder import RecorderDataSource
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def test_modeling_config_filename_uses_query_when_valid(tmp_path: Path) -> None:
+def test_resolve_modeling_config_filename_uses_query_when_valid(tmp_path: Path) -> None:
     """Explicit ?config= must select the engine YAML when the file exists."""
     (tmp_path / "panel.yaml").write_text("panel_config:\n  serial_number: x\n")
     ctx = DashboardContext(
@@ -27,10 +27,10 @@ def test_modeling_config_filename_uses_query_when_valid(tmp_path: Path) -> None:
         get_panel_ports=lambda: {},
         request_reload=lambda: None,
     )
-    assert _modeling_config_filename(ctx, "panel.yaml") == "panel.yaml"
-    assert _modeling_config_filename(ctx, "missing.yaml") == "stale.yaml"
-    assert _modeling_config_filename(ctx, "../panel.yaml") == "stale.yaml"
-    assert _modeling_config_filename(ctx, None) == "stale.yaml"
+    assert resolve_modeling_config_filename(ctx, "panel.yaml") == "panel.yaml"
+    assert resolve_modeling_config_filename(ctx, "missing.yaml") == "stale.yaml"
+    assert resolve_modeling_config_filename(ctx, "../panel.yaml") == "stale.yaml"
+    assert resolve_modeling_config_filename(ctx, None) == "stale.yaml"
 
 
 @pytest.fixture
@@ -222,6 +222,8 @@ async def test_compute_modeling_data_returns_expected_structure(
     assert "grid_power" in result
     assert "pv_power_before" in result
     assert "pv_power_after" in result
+    assert "pv_power" in result
+    assert result["pv_power"] == result["pv_power_after"]
     assert "battery_power" in result
     assert "circuits" in result
     assert "resolution_s" in result
@@ -345,15 +347,11 @@ async def test_compute_modeling_does_not_mutate_runtime_state(
 
     be = engine._behavior_engine
     assert be is not None
-    direction_before = be._last_battery_direction
-    excess_before = be._solar_excess_w
-    cycle_keys_before = set(be._circuit_cycle_states.keys())
+    before = be.capture_mutable_state()
 
     await engine.compute_modeling_data(horizon_hours=168)
 
-    assert be._last_battery_direction == direction_before
-    assert be._solar_excess_w == excess_before
-    assert set(be._circuit_cycle_states.keys()) == cycle_keys_before
+    assert be.capture_mutable_state() == before
 
 
 async def test_modeling_data_route_no_engine(tmp_path: Path) -> None:

@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
+from span_panel_simulator.behavior_mutable_state import BehaviorEngineMutableState
 from span_panel_simulator.bsee import BatteryStorageEquipment
 from span_panel_simulator.circuit import SimulatedCircuit
 from span_panel_simulator.clock import SimulationClock
@@ -90,7 +91,6 @@ class RealisticBehaviorEngine:
         self._last_battery_direction: str = "idle"
         self._solar_excess_w: float = 0.0
         self._grid_offline: bool = False
-        self._modeling_deterministic_depth: int = 0
         self._tz = self._resolve_timezone(config)
 
     # ------------------------------------------------------------------
@@ -149,6 +149,26 @@ class RealisticBehaviorEngine:
         """Propagate grid state so battery behaviour overrides schedules."""
         self._grid_offline = offline
 
+    def capture_mutable_state(self) -> BehaviorEngineMutableState:
+        """Return a deep snapshot of tick-local mutable fields."""
+        return BehaviorEngineMutableState(
+            circuit_cycle_states=copy.deepcopy(self._circuit_cycle_states),
+            last_battery_direction=self._last_battery_direction,
+            solar_excess_w=self._solar_excess_w,
+            grid_offline=self._grid_offline,
+        )
+
+    def restore_mutable_state(self, state: BehaviorEngineMutableState) -> None:
+        """Restore fields previously captured with :meth:`capture_mutable_state`."""
+        self._circuit_cycle_states = copy.deepcopy(state.circuit_cycle_states)
+        self._last_battery_direction = state.last_battery_direction
+        self._solar_excess_w = state.solar_excess_w
+        self._grid_offline = state.grid_offline
+
+    def copy_mutable_state_from(self, other: RealisticBehaviorEngine) -> None:
+        """Replace this engine's mutable tick state with a copy of *other*'s."""
+        self.restore_mutable_state(other.capture_mutable_state())
+
     def get_circuit_power(
         self,
         circuit_id: str,
@@ -163,41 +183,38 @@ class RealisticBehaviorEngine:
         if relay_state == "OPEN":
             return 0.0
 
-        if modeling_deterministic:
-            self._modeling_deterministic_depth += 1
-        try:
-            return self._get_circuit_power_inner(
-                circuit_id,
-                template,
-                current_time,
-                relay_state,
-                modeling_recorder_baseline=modeling_recorder_baseline,
-                modeling_deterministic=modeling_deterministic,
-            )
-        finally:
-            if modeling_deterministic:
-                self._modeling_deterministic_depth -= 1
+        rec = self._power_from_recorder_if_applicable(
+            template,
+            current_time,
+            modeling_recorder_baseline=modeling_recorder_baseline,
+            modeling_deterministic=modeling_deterministic,
+        )
+        if rec is not None:
+            return rec
 
-    def _get_circuit_power_inner(
+        return self._synthetic_circuit_power(
+            circuit_id,
+            template,
+            current_time,
+            stochastic_noise=not modeling_deterministic,
+        )
+
+    def _power_from_recorder_if_applicable(
         self,
-        circuit_id: str,
         template: CircuitTemplateExtended,
         current_time: float,
-        relay_state: str,
         *,
         modeling_recorder_baseline: bool,
         modeling_deterministic: bool,
-    ) -> float:
-        """Core power computation (see ``get_circuit_power``)."""
-        # Recorder replay: if the circuit has a recorder_entity and recorded
-        # data is available for this timestamp, use it instead of the
-        # synthetic modulation chain.  A small measurement-noise jitter
-        # is applied so the value isn't a flat line when the recorder
-        # holds the same 5-minute mean across consecutive ticks.
-        #
-        # modeling_recorder_baseline: when True (modeling "Before" pass only),
-        # replay recorder whenever data exists, ignoring user_modified so the
-        # baseline matches HA history before local SYN overrides.
+    ) -> float | None:
+        """Return recorder watts when replay applies; otherwise ``None``.
+
+        A small measurement-noise jitter is applied unless *modeling_deterministic*
+        so the value is not a flat line when the recorder holds the same mean.
+
+        *modeling_recorder_baseline*: when True (modeling "Before" pass only),
+        replay whenever data exists, ignoring ``user_modified``.
+        """
         recorder_entity = template.get("recorder_entity")
         recorder = self._recorder
         if (
@@ -211,7 +228,17 @@ class RealisticBehaviorEngine:
                     return float(recorded)
                 noise = self._config["simulation_params"].get("noise_factor", 0.02)
                 return recorded * (1.0 + random.uniform(-noise, noise))  # nosec B311
+        return None
 
+    def _synthetic_circuit_power(
+        self,
+        circuit_id: str,
+        template: CircuitTemplateExtended,
+        current_time: float,
+        *,
+        stochastic_noise: bool,
+    ) -> float:
+        """Template-driven power when recorder replay does not apply."""
         energy_profile = template["energy_profile"]
         base_power = energy_profile["typical_power"]
 
@@ -242,7 +269,12 @@ class RealisticBehaviorEngine:
         # Apply battery behavior
         battery_behavior = template.get("battery_behavior", {})
         if isinstance(battery_behavior, dict) and battery_behavior.get("enabled", False):
-            base_power = self._apply_battery_behavior(base_power, template, current_time)
+            base_power = self._apply_battery_behavior(
+                base_power,
+                template,
+                current_time,
+                stochastic_noise=stochastic_noise,
+            )
 
         # Apply smart behavior
         if template.get("smart_behavior", {}).get("responds_to_grid", False):
@@ -257,10 +289,10 @@ class RealisticBehaviorEngine:
         noise_factor = self._config["simulation_params"].get("noise_factor", 0.02)
         total_variation = min(variation + noise_factor, 0.15)
 
-        if modeling_deterministic:
-            power_multiplier = 1.0
-        else:
+        if stochastic_noise:
             power_multiplier = 1.0 + random.uniform(-total_variation, total_variation)  # nosec B311
+        else:
+            power_multiplier = 1.0
         final_power = base_power * power_multiplier
 
         # Clamp to template range
@@ -425,7 +457,12 @@ class RealisticBehaviorEngine:
         return base_power
 
     def _apply_battery_behavior(
-        self, base_power: float, template: CircuitTemplateExtended, current_time: float
+        self,
+        base_power: float,
+        template: CircuitTemplateExtended,
+        current_time: float,
+        *,
+        stochastic_noise: bool = True,
     ) -> float:
         """Apply battery behavior with charge mode support."""
         battery_config = template.get("battery_behavior", {})
@@ -446,7 +483,7 @@ class RealisticBehaviorEngine:
         active_days: list[int] = battery_config.get("active_days", [])
         if active_days and self.local_weekday(current_time) not in active_days:
             self._last_battery_direction = "idle"
-            return self._get_idle_power(battery_config)
+            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
         discharge_hours: list[int] = battery_config.get("discharge_hours", [])
         idle_hours: list[int] = battery_config.get("idle_hours", [])
@@ -458,15 +495,19 @@ class RealisticBehaviorEngine:
 
         if current_hour in idle_hours:
             self._last_battery_direction = "idle"
-            return self._get_idle_power(battery_config)
+            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
         charge_mode: str = battery_config.get("charge_mode", "custom")
 
         if charge_mode == "solar-gen":
-            return self._get_solar_gen_charge_power(battery_config, current_time)
+            return self._get_solar_gen_charge_power(
+                battery_config, current_time, stochastic_noise=stochastic_noise
+            )
 
         if charge_mode == "solar-excess":
-            return self._get_solar_excess_charge_power(battery_config)
+            return self._get_solar_excess_charge_power(
+                battery_config, stochastic_noise=stochastic_noise
+            )
 
         # "custom" — original schedule-based logic
         custom_charge_hours: list[int] = battery_config.get("charge_hours", [])
@@ -489,7 +530,12 @@ class RealisticBehaviorEngine:
         demand_factor = self._get_demand_factor_from_config(current_hour, battery_config)
         return abs(max_discharge_power) * demand_factor
 
-    def _get_idle_power(self, battery_config: BatteryBehavior) -> float:
+    def _get_idle_power(
+        self,
+        battery_config: BatteryBehavior,
+        *,
+        stochastic_noise: bool = True,
+    ) -> float:
         """Get idle power (minimal power flow during low activity hours)."""
         idle_range: list[float] = battery_config.get("idle_power_range", [-100.0, 100.0])
         min_val, max_val = idle_range[0], idle_range[1]
@@ -500,7 +546,7 @@ class RealisticBehaviorEngine:
         else:
             min_idle, max_idle = min_val, max_val
 
-        if self._modeling_deterministic_depth > 0:
+        if not stochastic_noise:
             return (min_idle + max_idle) / 2.0
         return random.uniform(min_idle, max_idle)  # nosec B311
 
@@ -517,7 +563,11 @@ class RealisticBehaviorEngine:
         return demand_profile.get(hour, 0.3)
 
     def _get_solar_gen_charge_power(
-        self, battery_config: BatteryBehavior, current_time: float
+        self,
+        battery_config: BatteryBehavior,
+        current_time: float,
+        *,
+        stochastic_noise: bool = True,
     ) -> float:
         """Charge at max_charge_power * solar_factor * weather_factor."""
         lat = self._config["panel_config"].get("latitude", 37.7)
@@ -526,7 +576,7 @@ class RealisticBehaviorEngine:
 
         if factor <= 0.0:
             self._last_battery_direction = "idle"
-            return self._get_idle_power(battery_config)
+            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
         monthly_factors: dict[int, float] | None = None
         cached = get_cached_weather(lat, lon)
@@ -543,11 +593,16 @@ class RealisticBehaviorEngine:
         self._last_battery_direction = "charging"
         return abs(max_charge) * factor * weather
 
-    def _get_solar_excess_charge_power(self, battery_config: BatteryBehavior) -> float:
+    def _get_solar_excess_charge_power(
+        self,
+        battery_config: BatteryBehavior,
+        *,
+        stochastic_noise: bool = True,
+    ) -> float:
         """Charge from surplus solar after loads are met."""
         if self._solar_excess_w <= 0.0:
             self._last_battery_direction = "idle"
-            return self._get_idle_power(battery_config)
+            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
         max_charge: float = battery_config.get("max_charge_power", 3000.0)
         self._last_battery_direction = "charging"
@@ -1458,8 +1513,10 @@ class DynamicSimulationEngine:
         **After** uses current templates (SYN / overrides) and applies BSEE
         for grid and battery traces.
 
-        Returns the response dict matching the ``GET /modeling-data`` schema,
-        or an error dict ``{"error": "..."}`` when recorder data is missing.
+        Returns the response dict matching the ``GET /modeling-data`` schema
+        (including ``pv_power_before``, ``pv_power_after``, and legacy
+        ``pv_power`` equal to ``pv_power_after``), or an error dict
+        ``{"error": "..."}`` when recorder data is missing.
         """
         if not self._config:
             raise SimulationConfigurationError("Configuration not loaded")
@@ -1502,10 +1559,7 @@ class DynamicSimulationEngine:
                 config=be._config,
                 recorder=be._recorder,
             )
-            cloned_behavior._circuit_cycle_states = copy.deepcopy(be._circuit_cycle_states)
-            cloned_behavior._last_battery_direction = be._last_battery_direction
-            cloned_behavior._solar_excess_w = be._solar_excess_w
-            cloned_behavior._grid_offline = be._grid_offline
+            cloned_behavior.copy_mutable_state_from(be)
 
         # Identify solar-excess battery circuits
         solar_excess_ids: set[str] = set()
@@ -1549,10 +1603,7 @@ class DynamicSimulationEngine:
         for ts in timestamps:
             # Baseline vs after use the same engine; restore mutable state between
             # passes so cycling / solar-excess bookkeeping does not cross-contaminate.
-            snap_cycles = copy.deepcopy(cloned_behavior._circuit_cycle_states)
-            snap_bdir = cloned_behavior._last_battery_direction
-            snap_excess = cloned_behavior._solar_excess_w
-            snap_grid = cloned_behavior._grid_offline
+            modeling_checkpoint = cloned_behavior.capture_mutable_state()
 
             powers_b, site_b, prod_b, _raw_b = self._aggregate_modeling_at_ts(
                 ts,
@@ -1561,10 +1612,7 @@ class DynamicSimulationEngine:
                 modeling_recorder_baseline=True,
             )
 
-            cloned_behavior._circuit_cycle_states = snap_cycles
-            cloned_behavior._last_battery_direction = snap_bdir
-            cloned_behavior._solar_excess_w = snap_excess
-            cloned_behavior._grid_offline = snap_grid
+            cloned_behavior.restore_mutable_state(modeling_checkpoint)
 
             powers_a, site_a, prod_a, raw_batt_a = self._aggregate_modeling_at_ts(
                 ts,
@@ -1616,6 +1664,8 @@ class DynamicSimulationEngine:
             "grid_power": grid_power_arr,
             "pv_power_before": pv_before_arr,
             "pv_power_after": pv_after_arr,
+            # Legacy alias — same series as ``pv_power_after`` (current / SYN view).
+            "pv_power": pv_after_arr,
             "battery_power": battery_power_arr,
             "circuits": circuits_response,
         }
