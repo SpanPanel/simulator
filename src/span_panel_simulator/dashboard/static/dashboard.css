@@ -1327,6 +1327,13 @@ body.modeling-mode #panel-source-section { display: none; }
 }
 body.modeling-mode .modeling-overlay-cb { display: inline-block; }
 
+/* Elements that can enter loading state need transition on their base
+   style so the opacity change is visible even for fast round-trips. */
+[hx-post], [hx-put], [hx-delete], [hx-get],
+form[hx-post], form[hx-put] {
+  transition: opacity 0.2s ease;
+}
+
 /* Loading / busy state — applied automatically by HTMX (.htmx-request)
    or manually via busyFetch() (.busy) */
 .htmx-request,
