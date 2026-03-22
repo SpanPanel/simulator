@@ -515,6 +515,15 @@ class SimulatorApp:
         except OSError:
             pass  # Best-effort; don't break the simulator
 
+    def _clear_last_config_if_match(self, filename: str) -> None:
+        """Remove .last_config if it currently names *filename*."""
+        state_file = self._config_dir / ".last_config"
+        try:
+            if state_file.exists() and state_file.read_text(encoding="utf-8").strip() == filename:
+                state_file.unlink()
+        except OSError:
+            pass
+
     # ------------------------------------------------------------------
     # Explicit per-panel lifecycle (called from dashboard)
     # ------------------------------------------------------------------
@@ -546,6 +555,10 @@ class SimulatorApp:
         """Stop the engine for a specific config."""
         self._transition_to_explicit_control()
         self._stopped_configs.add(filename)
+        # Clear the boot config if the stopped panel was the one persisted,
+        # so the simulator starts idle on next reboot instead of restarting
+        # a panel the user explicitly stopped.
+        self._clear_last_config_if_match(filename)
         self._reload_event.set()
 
     def request_restart_panel(self, filename: str) -> None:
