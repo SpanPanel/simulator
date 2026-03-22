@@ -15,7 +15,6 @@ from span_panel_simulator.const import (
     DEFAULT_BASE_HTTP_PORT,
     DEFAULT_BROKER_PASSWORD,
     DEFAULT_BROKER_USERNAME,
-    DEFAULT_FIRMWARE_VERSION,
     DEFAULT_TICK_INTERVAL_S,
     MQTTS_PORT,
 )
@@ -43,11 +42,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=float(os.environ.get("TICK_INTERVAL", str(DEFAULT_TICK_INTERVAL_S))),
         help="Seconds between simulation ticks",
-    )
-    parser.add_argument(
-        "--firmware",
-        default=os.environ.get("FIRMWARE_VERSION", DEFAULT_FIRMWARE_VERSION),
-        help="Simulated firmware version",
     )
     parser.add_argument(
         "--broker-host",
@@ -190,7 +184,6 @@ def main(argv: list[str] | None = None) -> None:
         config_dir=config_dir,
         config_filter=config_filter,
         tick_interval=args.tick_interval,
-        firmware_version=args.firmware,
         broker_host=args.broker_host,
         broker_port=args.broker_port,
         base_http_port=base_http_port,

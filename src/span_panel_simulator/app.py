@@ -106,7 +106,6 @@ class SimulatorApp:
         *,
         config_filter: str | None = None,
         tick_interval: float = DEFAULT_TICK_INTERVAL_S,
-        firmware_version: str = DEFAULT_FIRMWARE_VERSION,
         broker_username: str = DEFAULT_BROKER_USERNAME,
         broker_password: str = DEFAULT_BROKER_PASSWORD,
         broker_host: str = "localhost",
@@ -121,7 +120,7 @@ class SimulatorApp:
         self._config_dir = config_dir
         self._config_filter = config_filter
         self._tick_interval = tick_interval
-        self._firmware = firmware_version
+        self._firmware = DEFAULT_FIRMWARE_VERSION
         self._broker_username = broker_username
         self._broker_password = broker_password
         self._broker_host = broker_host

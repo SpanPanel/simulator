@@ -25,6 +25,7 @@ import yaml
 from span_panel_simulator.bsee import BatteryStorageEquipment
 from span_panel_simulator.circuit import SimulatedCircuit
 from span_panel_simulator.clock import SimulationClock
+from span_panel_simulator.const import DEFAULT_FIRMWARE_VERSION
 from span_panel_simulator.exceptions import SimulationConfigurationError
 
 if TYPE_CHECKING:
@@ -1295,7 +1296,7 @@ class DynamicSimulationEngine:
 
         return SpanPanelSnapshot(
             serial_number=self._config["panel_config"]["serial_number"],
-            firmware_version="sim/v1.0.0",
+            firmware_version=DEFAULT_FIRMWARE_VERSION,
             main_relay_state=main_relay,
             instant_grid_power_w=grid_power,
             feedthrough_power_w=feedthrough_power,
