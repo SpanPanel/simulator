@@ -1255,7 +1255,7 @@ class DynamicSimulationEngine:
                     vendor_name="Simulated",
                     product_name="Virtual PV Inverter",
                     nameplate_capacity_w=5000.0,
-                    software_version="1.0.0-sim",
+                    software_version=DEFAULT_FIRMWARE_VERSION,
                 )
                 pv_power = circ.instant_power_w
                 break
@@ -1274,7 +1274,7 @@ class DynamicSimulationEngine:
                     product_name="SPAN Drive",
                     part_number="SPN-DRV-001",
                     serial_number=f"SIM-EVSE-{cid.upper()}",
-                    software_version="1.0.0-sim",
+                    software_version=DEFAULT_FIRMWARE_VERSION,
                 )
 
         # 9. Build panel snapshot

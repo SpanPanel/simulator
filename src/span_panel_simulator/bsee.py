@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
+from span_panel_simulator.const import DEFAULT_FIRMWARE_VERSION
+
 if TYPE_CHECKING:
     from span_panel_simulator.engine import RealisticBehaviorEngine
 
@@ -195,7 +197,7 @@ class BatteryStorageEquipment:
 
     @property
     def software_version(self) -> str:
-        return "1.0.0-sim"
+        return DEFAULT_FIRMWARE_VERSION
 
     # ------------------------------------------------------------------
     # Internal helpers
