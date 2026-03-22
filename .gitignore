@@ -17,3 +17,7 @@ venv/
 .envrc
 .superpowers/
 .last_config
+
+# Roadmap (not published yet)
+span_panel_simulator/docs/roadmap/
+**/roadmap/
