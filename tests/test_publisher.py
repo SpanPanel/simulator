@@ -10,13 +10,11 @@ import pytest
 if TYPE_CHECKING:
     from unittest.mock import AsyncMock
 
+from span_panel_simulator.models import SpanCircuitSnapshot, SpanPanelSnapshot
 from span_panel_simulator.publisher import (
     HomiePublisher,
     _stable_circuit_uuid,
 )
-
-if TYPE_CHECKING:
-    from span_panel_simulator.models import SpanPanelSnapshot
 
 
 class TestStableUUID:
@@ -218,6 +216,37 @@ class TestPropertyMapping:
         assert published[f"ebus/5/SPAN-TEST-001/{lr_uuid}/dipole"] == "false"
         assert published[f"ebus/5/SPAN-TEST-001/{k_uuid}/space"] == "3"
         assert published[f"ebus/5/SPAN-TEST-001/{k_uuid}/dipole"] == "true"
+
+    @pytest.mark.asyncio
+    async def test_tabless_circuit_omits_space(
+        self,
+        publisher: HomiePublisher,
+        publish_mock: AsyncMock,
+        sample_snapshot: SpanPanelSnapshot,
+    ) -> None:
+        """Lug feeds have no tab numbers; space is omitted (Homie allows 1-32 only)."""
+        feed = SpanCircuitSnapshot(
+            circuit_id="battery_feed",
+            name="Battery Feed",
+            relay_state="CLOSED",
+            instant_power_w=0.0,
+            produced_energy_wh=0.0,
+            consumed_energy_wh=0.0,
+            tabs=[],
+            priority="MUST_HAVE",
+            is_user_controllable=False,
+            is_sheddable=False,
+            is_never_backup=False,
+        )
+        snap = replace(
+            sample_snapshot,
+            circuits={**sample_snapshot.circuits, "battery_feed": feed},
+        )
+        await publisher.publish_init(snap)
+
+        published = {c.args[0]: c.args[1] for c in publish_mock.call_args_list}
+        feed_uuid = _stable_circuit_uuid("battery_feed")
+        assert f"ebus/5/SPAN-TEST-001/{feed_uuid}/space" not in published
 
 
 class TestPublishDiff:

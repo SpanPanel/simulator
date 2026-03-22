@@ -160,7 +160,8 @@ _CIRCUIT_EXTRACTORS: Sequence[tuple[str, Callable[[SpanCircuitSnapshot], str | N
     ("active-power", lambda c: _format_float(-c.instant_power_w)),
     ("exported-energy", lambda c: _format_float(c.consumed_energy_wh)),
     ("imported-energy", lambda c: _format_float(c.produced_energy_wh)),
-    ("space", lambda c: str(c.tabs[0]) if c.tabs else "0"),
+    # Lug-only / feed circuits have no breaker space; omit (Homie format is 1:32, not 0).
+    ("space", lambda c: str(c.tabs[0]) if c.tabs else None),
     ("dipole", lambda c: _format_bool(c.is_240v)),
     ("shed-priority", lambda c: _PRIORITY_V1_TO_V2.get(c.priority, c.priority)),
     ("pcs-managed", lambda _: _format_bool(False)),
@@ -479,7 +480,7 @@ class HomiePublisher:
         await self._publish(state_topic, HOMIE_STATE_READY, True)
 
         # 5. Validate published properties against schema
-        self._validate_against_schema(all_props)
+        self._validate_against_schema(all_props, snapshot)
 
         _LOGGER.info(
             "Published init sequence: %d properties for %d nodes",
@@ -536,13 +537,20 @@ class HomiePublisher:
     # Schema validation
     # ------------------------------------------------------------------
 
-    def _validate_against_schema(self, published_props: dict[str, str]) -> None:
+    def _validate_against_schema(
+        self,
+        published_props: dict[str, str],
+        snapshot: SpanPanelSnapshot | None = None,
+    ) -> None:
         """Compare published properties against schema declarations.
 
         Logs warnings for:
           - Schema properties not published by the simulator (missing)
           - Published properties not declared in the schema (extra)
           - Values that fail type validation (debug mode only)
+
+        Circuits with no ``tabs`` (lug feeds) intentionally omit ``space`` because
+        the Homie schema restricts it to 1..32.
 
         Only runs when a schema registry is available.
         """
@@ -573,6 +581,12 @@ class HomiePublisher:
             schema_props = set(node_type.properties)
             published_names = set(published_for_node)
             missing = schema_props - published_names
+            if snapshot is not None:
+                circuit_id = self._uuid_to_circuit_id.get(node_id)
+                if circuit_id is not None:
+                    circ = snapshot.circuits.get(circuit_id)
+                    if circ is not None and not circ.tabs:
+                        missing.discard("space")
             extra = published_names - schema_props
 
             if missing:
