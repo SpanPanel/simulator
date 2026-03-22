@@ -868,8 +868,9 @@ async def handle_toggle_replay(request: web.Request) -> web.Response:
             store.restore_recorder(entity_id)
         _persist_config(request)
     else:
-        # REC → SYN: just flip the flag
+        # REC → SYN: flip the flag and persist so the engine matches the UI
         store.toggle_user_modified(entity_id)
+        _persist_config(request)
     return _render("partials/entity_list.html", request, _entity_list_context(request))
 
 

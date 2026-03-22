@@ -15,7 +15,7 @@
         hx-disabled-elt="this"
         title="{{ 'Overridden — click to resume replay' if entity.user_modified else 'Replaying recorded data — click for synthetic' }}"
         style="cursor:pointer">{{ 'SYN' if entity.user_modified else 'REC' }}</span>
-  {% elif restorable_templates is defined and entity.template_name in restorable_templates %}
+  {% elif not readonly and restorable_templates is defined and entity.template_name in restorable_templates %}
   <span class="badge badge-data-source badge-restore"
         hx-post="entities/{{ entity.id }}/restore-recorder"
         hx-target="#entity-list-section"

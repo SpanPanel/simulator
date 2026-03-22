@@ -63,7 +63,7 @@
         </label>
         <label>Inverter Type:
           <select name="inverter_type">
-            <option value="grid_tied" {{ 'selected' if e.priority == 'OFF_GRID' }}>Grid-Tied</option>
+            <option value="grid_tied" {{ 'selected' if e.priority != 'MUST_HAVE' }}>Grid-Tied</option>
             <option value="hybrid" {{ 'selected' if e.priority == 'MUST_HAVE' }}>Hybrid</option>
           </select>
         </label>

@@ -69,6 +69,11 @@
 
 <script>
 if (window._formDirty === undefined) window._formDirty = false;
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+  if (evt.detail.target && evt.detail.target.id === 'entity-list-section') {
+    window._formDirty = false;
+  }
+});
 function switchPanel(filename) {
   fetch('check-dirty')
     .then(function(r) { return r.json(); })
