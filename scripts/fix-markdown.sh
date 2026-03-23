@@ -27,6 +27,7 @@ fi
 
 MD_GLOBS=(
   "*.md"
+  "**/CHANGELOG.md"
   "**/docs/**/*.md"
   "tests/**/*.md"
   "scripts/**/*.md"
