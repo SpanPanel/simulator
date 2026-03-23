@@ -21,6 +21,11 @@ import jinja2
 from aiohttp import web
 
 from span_panel_simulator.dashboard.config_store import ConfigStore
+from span_panel_simulator.dashboard.keys import (
+    APP_KEY_DASHBOARD_CONTEXT,
+    APP_KEY_PRESET_REGISTRY,
+    APP_KEY_STORE,
+)
 from span_panel_simulator.dashboard.presets import init_presets
 from span_panel_simulator.dashboard.routes import setup_routes
 
@@ -77,9 +82,9 @@ def create_dashboard_app(context: DashboardContext) -> web.Application:
             context.config_filter = defaults[0].name
             store.load_from_file(defaults[0])
 
-    app["store"] = store
-    app["dashboard_context"] = context
-    app["preset_registry"] = init_presets(context.config_dir)
+    app[APP_KEY_STORE] = store
+    app[APP_KEY_DASHBOARD_CONTEXT] = context
+    app[APP_KEY_PRESET_REGISTRY] = init_presets(context.config_dir)
 
     template_dir = Path(__file__).parent / "templates"
     env = aiohttp_jinja2.setup(
