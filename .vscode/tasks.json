@@ -4,13 +4,8 @@
     {
       "label": "Fix markdown formatting",
       "type": "shell",
-      "command": "npx",
-      "args": [
-        "--yes",
-        "markdownlint-cli2",
-        "--fix",
-        "${workspaceFolder}"
-      ],
+      "command": "${workspaceFolder}/scripts/fix-markdown.sh",
+      "args": ["${workspaceFolder}"],
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -20,7 +15,23 @@
         "panel": "new"
       },
       "problemMatcher": [],
-      "detail": "markdownlint-cli2 --fix (uses .markdownlint-cli2.jsonc; requires Node/npx)"
+      "detail": "Prettier (prose wrap) + markdownlint-cli2 --fix via scripts/fix-markdown.sh (requires Node/npx)"
+    },
+    {
+      "label": "Format and Lint Markdown",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/fix-markdown.sh",
+      "args": ["${workspaceFolder}"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": [],
+      "detail": "Same as Fix markdown formatting (alias)"
     }
   ]
 }
