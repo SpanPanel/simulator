@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 import aiohttp
 import aiohttp_jinja2
@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import multidict
+
+    from span_panel_simulator.dashboard.context import DashboardContext
 
 from span_panel_simulator.dashboard.keys import (
     APP_KEY_DASHBOARD_CONTEXT,
@@ -34,7 +36,6 @@ from span_panel_simulator.solar import compute_solar_curve
 from span_panel_simulator.weather import fetch_historical_weather, get_cached_weather
 
 if TYPE_CHECKING:
-    from span_panel_simulator.dashboard import DashboardContext
     from span_panel_simulator.dashboard.config_store import ConfigStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ def _store(request: web.Request) -> ConfigStore:
 
 
 def _ctx(request: web.Request) -> DashboardContext:
-    return cast("DashboardContext", request.app[APP_KEY_DASHBOARD_CONTEXT])
+    return request.app[APP_KEY_DASHBOARD_CONTEXT]
 
 
 def _presets(request: web.Request) -> PresetRegistry:

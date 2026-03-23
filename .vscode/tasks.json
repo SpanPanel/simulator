@@ -4,32 +4,23 @@
     {
       "label": "Fix markdown formatting",
       "type": "shell",
-      "command": "/Users/bflood/projects/scripts/fix-markdown.sh",
+      "command": "npx",
       "args": [
+        "--yes",
+        "markdownlint-cli2",
+        "--fix",
         "${workspaceFolder}"
       ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "group": "test",
       "presentation": {
         "reveal": "always",
         "panel": "new"
       },
       "problemMatcher": [],
-      "detail": "Markdown formatting using shared script (Prettier + markdownlint)"
-    },
-    {
-      "label": "Format and Lint Markdown",
-      "type": "shell",
-      "command": "/Users/bflood/projects/scripts/fix-markdown.sh",
-      "args": [
-        "${workspaceFolder}"
-      ],
-      "group": "test",
-      "presentation": {
-        "reveal": "always",
-        "panel": "new"
-      },
-      "problemMatcher": [],
-      "detail": "Format and lint markdown files using shared script (Prettier + markdownlint)"
+      "detail": "markdownlint-cli2 --fix (uses .markdownlint-cli2.jsonc; requires Node/npx)"
     }
   ]
 }
