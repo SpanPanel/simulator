@@ -2,11 +2,23 @@
 
 A standalone simulator that mimics real SPAN panel behavior.
 
-- Provides mDNS discovery to panels not yet using the Hone Assistant integration and direct connections to the SpanPanel SPAN integration for Home Assistant.
+- Provides mDNS discovery to panels not yet using the Home Assistant integration and direct connections to the SpanPanel SPAN integration for Home Assistant.
 - When used with the [SpanPanel](https://github.com/SpanPanel/span-panel-api) Home Assistant integration, the App can mimic additional panels and for modeling
   upgrades to the electrical system.
 
 Includes a web dashboard for real-time configuration, grid simulation, Home Assistant history replay, and energy "what-if" modeling.
+
+## Workflow
+
+Click a simulator configuration to view it. Templates are read-only. A running simulator appears as a discovered panel in the SpanPanel integration.
+
+1. **Examine templates** — Load and run the included configs (`default_config.yaml`, `simple_test_config.yaml`, etc.) to see how circuits, PV, battery, and EVSE are modeled. Pick one as a starting point for your own configuration.
+
+2. **Clone** — The **Clone** button creates an editable copy from a template or from your real panel; cloning your panel preserves recorder history per circuit.
+
+3. **Model** — The **Model** button on a running panel opens the what-if view; add battery, PV, or circuits and compare before/after. Edits mark equipment as **SYN**; click the badge to revert to **REC**.
+
+4. **Purge** — The **Purge** button removes recorder history written by the simulated panel's sensors if you added the simulated panel to Home Assistant's integration.
 
 ![Dashboard overview — grid offline with load shedding, live power chart, entity list with relay status](docs/images/dashboard1.png)
 
@@ -78,9 +90,11 @@ The dashboard runs on port 18080 and provides full control over the simulated pa
 
 ### Panel Management
 
-- **Multi-panel** — load multiple YAML configs, start/stop/restart individual panels
-- **File operations** — import/export YAML, clone configs, save & reload
-- **Panel cloning** — clone a real SPAN panel's configuration from the dashboard (enter the panel IP and passphrase)
+- **Multi-panel** — load multiple YAML configs; click a row to select, start/stop/restart individual panels. Running panels appear as discovered devices in the SpanPanel integration.
+- **Clone** — create an editable copy from a template or from a real panel (IP + passphrase).
+- **Model** — open the energy what-if view for a running panel.
+- **Purge** — remove recorder history written by the simulated panel's sensors when the simulated panel was added to HA's integration.
+- **File operations** — import/export YAML, save & reload
 - **Config persistence** — the simulator remembers the last running config across restarts
 
 ### Simulation Controls

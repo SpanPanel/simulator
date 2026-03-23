@@ -1,5 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
+<div class="card getting-started">
+  <h3>Getting started</h3>
+  <ol class="getting-started-steps">
+    <li>Click a simulator configuration to view it. Templates are read-only. A running simulator appears as a discovered panel in the SpanPanel integration.</li>
+    <li><strong>Clone</strong> creates an editable copy from a template or from your real panel — cloning your panel preserves recorder history per circuit.</li>
+    <li><strong>Model</strong> opens the what-if view; add battery, PV, or circuits and compare before/after. Edits mark equipment as <strong>SYN</strong>; click the badge to revert to <strong>REC</strong>.</li>
+    <li><strong>Purge</strong> removes recorder history written by the simulated panel's sensors if you added the simulated panel to Home Assistant's integration.</li>
+  </ol>
+</div>
 <div id="runtime-section">
   {% include "partials/running_panels.html" %}
   {% include "partials/clone_panel.html" %}
