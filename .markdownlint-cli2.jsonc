@@ -1,6 +1,7 @@
 {
   "globs": [
     "*.md",
+    "**/CHANGELOG.md",
     "**/docs/**/*.md"
   ],
   "ignores": [
