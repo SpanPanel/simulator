@@ -6,7 +6,7 @@ Handlers are intentionally thin: parse request, call store, render template.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import aiohttp
 import aiohttp_jinja2
@@ -18,6 +18,11 @@ if TYPE_CHECKING:
 
     import multidict
 
+from span_panel_simulator.dashboard.keys import (
+    APP_KEY_DASHBOARD_CONTEXT,
+    APP_KEY_PRESET_REGISTRY,
+    APP_KEY_STORE,
+)
 from span_panel_simulator.dashboard.modeling_config import resolve_modeling_config_filename
 from span_panel_simulator.dashboard.presets import (
     PresetRegistry,
@@ -57,18 +62,15 @@ def _available_entity_types(store: ConfigStore) -> list[str]:
 
 
 def _store(request: web.Request) -> ConfigStore:
-    store: ConfigStore = request.app["store"]
-    return store
+    return request.app[APP_KEY_STORE]
 
 
 def _ctx(request: web.Request) -> DashboardContext:
-    ctx: DashboardContext = request.app["dashboard_context"]
-    return ctx
+    return cast("DashboardContext", request.app[APP_KEY_DASHBOARD_CONTEXT])
 
 
 def _presets(request: web.Request) -> PresetRegistry:
-    registry: PresetRegistry = request.app["preset_registry"]
-    return registry
+    return request.app[APP_KEY_PRESET_REGISTRY]
 
 
 def _render(template: str, request: web.Request, context: dict[str, Any]) -> web.Response:
