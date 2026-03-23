@@ -1,0 +1,37 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Fix markdown formatting",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/fix-markdown.sh",
+      "args": ["${workspaceFolder}"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": [],
+      "detail": "Prettier (prose wrap) + markdownlint-cli2 --fix via scripts/fix-markdown.sh (requires Node/npx)"
+    },
+    {
+      "label": "Format and Lint Markdown",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/fix-markdown.sh",
+      "args": ["${workspaceFolder}"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": [],
+      "detail": "Same as Fix markdown formatting (alias)"
+    }
+  ]
+}

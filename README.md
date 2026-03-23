@@ -2,12 +2,27 @@
 
 A standalone simulator that mimics real SPAN panel behavior.
 
-- Provides mDNS discovery to panels not yet using the Hone Assistant integration and direct connections to the SpanPanel SPAN integration for Home Assistant.
-- When used with the [SpanPanel](https://github.com/SpanPanel/span-panel-api) Home Assistant
-integration, the App can mimic additional panels and for modeling upgrades to the electrical system.
+- Provides mDNS discovery to panels not yet using the Home Assistant integration and direct connections to the SpanPanel SPAN integration for Home Assistant.
+- When used with the [SpanPanel](https://github.com/SpanPanel/span-panel-api) Home Assistant integration, the App can mimic additional panels and for modeling
+  upgrades to the electrical system.
 
-Includes a web dashboard for real-time configuration, grid simulation,
-Home Assistant history replay, and energy "what-if" modeling.
+Includes a web dashboard for real-time configuration, grid simulation, Home Assistant history replay, and energy "what-if" modeling.
+
+## Workflow
+
+Click a simulator configuration to view it. Templates are read-only. A running simulator appears as a discovered panel in the SpanPanel integration (default
+configs excluded).
+
+1. **Examine templates** — Load and run the included configs (`default_config.yaml`, `simple_test_config.yaml`, etc.) to see how circuits, PV, battery, and EVSE
+   are modeled. Pick one as a starting point for your own configuration.
+
+2. **Clone** — The **Clone** button creates an editable copy from a template or from your real panel; cloning your panel preserves recorder history per circuit.
+
+3. **Model** — The **Model** button on a running panel opens the what-if view; add battery, PV, or circuits and compare before/after. Edits mark equipment as
+   **SYN**; click the badge to revert to **REC**.
+
+4. **Purge** — The **Purge** button removes recorder history written by the simulated panel's sensors if you added the simulated panel to Home Assistant's
+   integration.
 
 ![Dashboard overview — grid offline with load shedding, live power chart, entity list with relay status](docs/images/dashboard1.png)
 
@@ -19,23 +34,17 @@ Home Assistant history replay, and energy "what-if" modeling.
 
 ## Home Assistant App
 
-The simulator can run as an HA App so users with the
-`span-panel` integration can spin up simulated panels directly in
-their HA environment.
+The simulator can run as an HA App so users with the `span-panel` integration can spin up simulated panels directly in their HA environment.
 
-1. Go to **Settings > Add-ons > Add-on Store** > three-dot menu >
-   **Repositories**
+1. Go to **Settings > Add-ons > Add-on Store** > three-dot menu > **Repositories**
 2. Add `https://github.com/SpanPanel/simulator`
 3. Install **SPAN Panel Simulator** from the store
 4. Start the App — a default panel config is included
-5. The `span-panel` integration discovers all running panels
-   automatically via the Supervisor Discovery API
+5. The `span-panel` integration discovers running panels automatically via the Supervisor Discovery API (default configs excluded)
 6. Open the web dashboard via **Open Web UI** to configure panels
 
-The App runs the simulator in a container with its own Mosquitto broker.
-No real SPAN hardware is needed. Each panel runs on its own HTTP port
-(starting from `base_http_port`, default 8081) and the dashboard shows
-the port next to each running panel's serial number.
+The App runs the simulator in a container with its own Mosquitto broker. No real SPAN hardware is needed. Each panel runs on its own HTTP port (starting from
+`base_http_port`, default 8081) and the dashboard shows the port next to each running panel's serial number.
 
 ## Quick Start (macOS standalone)
 
@@ -55,25 +64,20 @@ brew install mosquitto uv
 ./scripts/run-local.sh --status
 ```
 
-The script automatically creates a Python virtual environment, generates
-TLS certificates, starts Mosquitto (MQTTS on port 18883), and launches
-the simulator with mDNS advertising on your LAN IP. No `sudo` required.
+The script automatically creates a Python virtual environment, generates TLS certificates, starts Mosquitto (MQTTS on port 18883), and launches the simulator
+with mDNS advertising on your LAN IP. No `sudo` required.
 
-Open the dashboard at **http://localhost:18080**.
+Open the dashboard at **<http://localhost:18080>**.
 
 ### Multi-panel in standalone mode
 
-Home Assistant's zeroconf auto-discovers **one panel per IP address**.
-The first panel appears as a discovery notification in HA and can be
-configured normally. Additional panels on the same host need to be
-added manually — use the port shown in the dashboard panel list:
+Home Assistant's zeroconf auto-discovers **one panel per IP address** (default configs excluded). The first cloned panel appears as a discovery notification in
+HA and can be configured normally. Additional panels on the same host need to be added manually — use the port shown in the dashboard panel list:
 
 1. In HA, go to **Settings > Devices & Services > Add Integration**
-2. Search for **Span Panel** and enter the host IP and port
-   (e.g. `192.168.1.50` port `8082`)
+2. Search for **Span Panel** and enter the host IP and port (e.g. `192.168.1.50` port `8082`)
 
-Each panel has a unique serial number, so there is no conflict between
-the auto-discovered panel and manually added ones.
+Each panel has a unique serial number, so there is no conflict between the auto-discovered panel and manually added ones.
 
 ## Running with Docker (Linux only)
 
@@ -81,118 +85,91 @@ the auto-discovered panel and manually added ones.
 docker compose up --build
 ```
 
-Container-based approaches on macOS do not work for mDNS advertisement.
-All macOS container runtimes use VM networking that prevents containers
-from obtaining real LAN IPs. Use `run-local.sh` on macOS instead.
+Container-based approaches on macOS do not work for mDNS advertisement. All macOS container runtimes use VM networking that prevents containers from obtaining
+real LAN IPs. Use `run-local.sh` on macOS instead.
 
 ## Dashboard
 
-The dashboard runs on port 18080 and provides full control over the
-simulated panel.
+The dashboard runs on port 18080 and provides full control over the simulated panel.
 
 ### Panel Management
 
-- **Multi-panel** — load multiple YAML configs, start/stop/restart
-  individual panels
-- **File operations** — import/export YAML, clone configs, save & reload
-- **Panel cloning** — clone a real SPAN panel's configuration from
-  the dashboard (enter the panel IP and passphrase)
-- **Config persistence** — the simulator remembers the last running
-  config across restarts
+- **Multi-panel** — load multiple YAML configs; click a row to select, start/stop/restart individual panels. Running panels appear as discovered devices in the
+  SpanPanel integration (default configs excluded).
+- **Clone** — create an editable copy from a template or from a real panel (IP + passphrase).
+- **Model** — open the energy what-if view for a running panel.
+- **Purge** — remove recorder history written by the simulated panel's sensors when the simulated panel was added to HA's integration.
+- **File operations** — import/export YAML, save & reload
+- **Config persistence** — the simulator remembers the last running config across restarts
 
 ### Simulation Controls
 
-- **Time-of-day slider** — scrub through the day to see solar curves,
-  time-of-day profiles, and battery schedules respond
+- **Time-of-day slider** — scrub through the day to see solar curves, time-of-day profiles, and battery schedules respond
 - **Speed acceleration** — 1x to 360x time acceleration
-- **Grid online/offline** — toggle to test backup behavior and load
-  shedding
-- **Islandable toggle** — controls whether PV operates during grid
-  outage
+- **Grid online/offline** — toggle to test backup behavior and load shedding
+- **Islandable toggle** — controls whether PV operates during grid outage
 - **Live power chart** — real-time grid, solar, and battery power flows
 
 ### Recorder Replay
 
-When connected to Home Assistant, the simulator replays recorded power
-data from the HA recorder for circuits with mapped entities. This
-grounds the simulation in actual household usage patterns rather than
-synthetic profiles.
+When connected to Home Assistant, the simulator replays recorded power data from the HA recorder for circuits with mapped entities. This grounds the simulation
+in actual household usage patterns rather than synthetic profiles.
 
 ```bash
 ./scripts/run-local.sh --ha-url http://192.168.1.10:8123 --ha-token YOUR_TOKEN
 ```
 
-Circuits with recorder data show a **REC** badge in the entity list.
-Clicking the badge toggles to **SYN** (synthetic) mode, where the
-simulator uses the configured power profile instead of recorded data.
-Click again to switch back to recorder replay. This lets you compare
-how well a synthetic profile matches your real usage, or override a
-specific circuit while keeping the rest on recorded data.
+Circuits with recorder data show a **REC** badge in the entity list. Clicking the badge toggles to **SYN** (synthetic) mode, where the simulator uses the
+configured power profile instead of recorded data. Click again to switch back to recorder replay. This lets you compare how well a synthetic profile matches
+your real usage, or override a specific circuit while keeping the rest on recorded data.
 
 ### Energy Modeling
 
-The modeling view lets you answer "what if" questions about adding solar
-or battery storage to your panel. Clone your real panel, then add or
-modify PV and Battery entities to see the projected impact on your grid
-consumption over historical data.
+The modeling view lets you answer "what if" questions about adding solar or battery storage to your panel. Clone your real panel, then add or modify PV and
+Battery entities to see the projected impact on your grid consumption over historical data.
 
 **Typical workflow:**
 
 1. Clone your real SPAN panel from the dashboard
 2. Connect to HA so circuits replay actual recorded power data
 3. Click **Model** on the running panel to enter the modeling view
-4. The **Before** chart shows your site power as-is (loads minus any
-   existing solar)
-5. Add a Battery entity (or modify an existing one) — adjust capacity,
-   charge/discharge schedule, and backup reserve
-6. The **After** chart immediately updates to show grid power with the
-   BESS applied, along with kWh savings
-7. Add or resize a PV entity to see how additional solar offsets your
-   consumption in the Before chart
-8. Experiment with different battery sizes, charge modes, and PV
-   nameplate ratings — charts auto-refresh on every save
+4. The **Before** chart shows your site power as-is (loads minus any existing solar)
+5. Add a Battery entity (or modify an existing one) — adjust capacity, charge/discharge schedule, and backup reserve
+6. The **After** chart immediately updates to show grid power with the BESS applied, along with kWh savings
+7. Add or resize a PV entity to see how additional solar offsets your consumption in the Before chart
+8. Experiment with different battery sizes, charge modes, and PV nameplate ratings — charts auto-refresh on every save
 
 **Modeling controls:**
 
 - **Horizon selector** — last month, 3 months, 6 months, or 1 year
 - **Range zoom** — drag the slider to zoom into any time window
-- **Circuit overlays** — check individual circuits in the entity list
-  to overlay their power traces on both charts
+- **Circuit overlays** — check individual circuits in the entity list to overlay their power traces on both charts
 - **Toggleable legend** — show/hide Solar and Battery traces
-- **Energy summary** — net kWh with import/export breakdown and savings
-  percentage
+- **Energy summary** — net kWh with import/export breakdown and savings percentage
 
 ### Entity Management
 
 Add, edit, and delete circuits with specialized editors per type:
 
-- **PV** — nameplate capacity, geographic sine-curve solar model,
-  monthly weather degradation from Open-Meteo historical data
-- **Battery** — nameplate capacity (kWh), backup reserve %, charge mode
-  (Custom / Solar Generation / Solar Excess), discharge presets,
-  24-hour charge/discharge/idle schedule
-- **EVSE** — charging schedule with presets (Peak Solar, Evening, Night)
-  or custom start/duration, 24-hour visual timeline
-- **Circuits** — typical power, 24-hour usage profile with presets,
-  HVAC type selector with seasonal power modulation
+- **PV** — nameplate capacity, geographic sine-curve solar model, monthly weather degradation from Open-Meteo historical data
+- **Battery** — nameplate capacity (kWh), backup reserve %, charge mode (Custom / Solar Generation / Solar Excess), discharge presets, 24-hour
+  charge/discharge/idle schedule
+- **EVSE** — charging schedule with presets (Peak Solar, Evening, Night) or custom start/duration, 24-hour visual timeline
+- **Circuits** — typical power, 24-hour usage profile with presets, HVAC type selector with seasonal power modulation
 
-PV and Battery are singleton types — only one of each can exist per
-panel. Recorder-sourced entities preserve their original panel settings
-(priority, relay behavior) as read-only.
+PV and Battery are singleton types — only one of each can exist per panel. Recorder-sourced entities preserve their original panel settings (priority, relay
+behavior) as read-only.
 
 ### Relay Control and Load Shedding
 
 - Click status dots to toggle circuit relays
-- Changes from the dashboard or HA integration (via MQTT) are reflected
-  in both directions
-- Grid offline triggers load shedding by priority:
-  `OFF_GRID` circuits shed immediately, `SOC_THRESHOLD` circuits shed
-  when battery SOC drops below threshold, `NEVER` circuits stay on
+- Changes from the dashboard or HA integration (via MQTT) are reflected in both directions
+- Grid offline triggers load shedding by priority: `OFF_GRID` circuits shed immediately, `SOC_THRESHOLD` circuits shed when battery SOC drops below threshold,
+  `NEVER` circuits stay on
 
 ### Theme
 
-System, light, or dark theme via the header selector, with localStorage
-persistence.
+System, light, or dark theme via the header selector, with localStorage persistence.
 
 ## Panel Configuration
 
@@ -230,43 +207,39 @@ simulation_params:
 
 ### Config Selection
 
-By default, the simulator loads `default_config.yaml`. To use a different
-config:
+By default, the simulator loads `default_config.yaml`. To use a different config:
 
 ```bash
 CONFIG_NAME=simple_test_config.yaml ./scripts/run-local.sh
 ```
 
-The simulator remembers the last running config and resumes it on
-restart. When no config is specified and no default exists, all YAML
-files in the config directory are loaded.
+The simulator remembers the last running config and resumes it on restart. When no config is specified and no default exists, all YAML files in the config
+directory are loaded.
 
 ### Included Configs
 
-| File | Tabs | Description |
-|---|---|---|
-| `default_config.yaml` | 40 | Full residential with solar, battery, EVSE |
-| `simple_test_config.yaml` | 8 | Minimal test: lights, outlets, HVAC, solar |
-| `simulation_config_32_circuit.yaml` | 32 | Full residential with cycling and time-of-day profiles |
+| File                                | Tabs | Description                                            |
+| ----------------------------------- | ---- | ------------------------------------------------------ |
+| `default_config.yaml`               | 40   | Full residential with solar, battery, EVSE             |
+| `simple_test_config.yaml`           | 8    | Minimal test: lights, outlets, HVAC, solar             |
+| `simulation_config_32_circuit.yaml` | 32   | Full residential with cycling and time-of-day profiles |
 
 ## Environment Variables
 
 All variables can also be passed as CLI arguments (`--help` for full list).
 
-| Variable | Default | Description |
-|---|---|---|
-| `CONFIG_DIR` | `./configs` | Directory containing panel YAML configs |
-| `CONFIG_NAME` | `default_config.yaml` | Specific config file to load |
-| `TICK_INTERVAL` | `1.0` | Seconds between simulation ticks |
-| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `HTTP_PORT` | `8081` | Bootstrap HTTP server port |
-| `DASHBOARD_PORT` | `18080` | Dashboard web UI port |
-| `BROKER_HOST` | `localhost` | MQTT broker hostname |
-| `BROKER_PORT` | `18883` | MQTTS broker port |
-| `ADVERTISE_ADDRESS` | auto-detected | IP to advertise via mDNS |
+| Variable            | Default               | Description                             |
+| ------------------- | --------------------- | --------------------------------------- |
+| `CONFIG_DIR`        | `./configs`           | Directory containing panel YAML configs |
+| `CONFIG_NAME`       | `default_config.yaml` | Specific config file to load            |
+| `TICK_INTERVAL`     | `1.0`                 | Seconds between simulation ticks        |
+| `LOG_LEVEL`         | `INFO`                | `DEBUG`, `INFO`, `WARNING`, `ERROR`     |
+| `HTTP_PORT`         | `8081`                | Bootstrap HTTP server port              |
+| `DASHBOARD_PORT`    | `18080`               | Dashboard web UI port                   |
+| `BROKER_HOST`       | `localhost`           | MQTT broker hostname                    |
+| `BROKER_PORT`       | `18883`               | MQTTS broker port                       |
+| `ADVERTISE_ADDRESS` | auto-detected         | IP to advertise via mDNS                |
 
 ## Development
 
-See [DEVELOPER.md](DEVELOPER.md) for setup, testing, pre-commit hooks,
-full config schema, HTTP/MQTT API reference, and simulation engine
-internals.
+See [DEVELOPER.md](DEVELOPER.md) for setup, testing, pre-commit hooks, full config schema, HTTP/MQTT API reference, and simulation engine internals.
