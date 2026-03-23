@@ -434,6 +434,12 @@ legend {
   border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--card-bg));
 }
 
+.flash.info {
+  background: color-mix(in srgb, var(--text-muted) 10%, var(--card-bg));
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
 /* Unmapped tabs */
 .unmapped-card {
   border-style: dashed;

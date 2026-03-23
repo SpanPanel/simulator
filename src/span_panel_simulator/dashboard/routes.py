@@ -6,7 +6,8 @@ Handlers are intentionally thin: parse request, call store, render template.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import aiohttp
 import aiohttp_jinja2
@@ -37,6 +38,15 @@ if TYPE_CHECKING:
     from span_panel_simulator.dashboard.config_store import ConfigStore
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RecorderPurgeResult:
+    """Outcome of best-effort HA recorder purge for a panel config."""
+
+    status: Literal["purged", "none_found", "no_ha", "no_serial", "failed"]
+    entity_count: int = 0
+
 
 PRIORITIES = [
     "MUST_HAVE",
@@ -1250,33 +1260,37 @@ async def handle_restart_panel(request: web.Request) -> web.Response:
     )
 
 
-async def _purge_recorder_for_config(ctx: DashboardContext, config_path: Path) -> None:
+async def _purge_recorder_for_config(
+    ctx: DashboardContext, config_path: Path
+) -> RecorderPurgeResult:
     """Purge HA recorder data for a panel config (best-effort).
 
     Reads the serial number from the YAML file, looks up the
     corresponding HA device, and calls ``recorder.purge_entities``
     for all entities belonging to that device.  Failures are logged
-    but never prevent deletion.
+    but never prevent deletion (callers may ignore the return value).
     """
     from span_panel_simulator.ha_api.client import HAClient
 
     ha_client = ctx.ha_client
     if not isinstance(ha_client, HAClient):
-        return
+        return RecorderPurgeResult("no_ha", 0)
 
     try:
         raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         serial: str = raw["panel_config"]["serial_number"]
     except Exception:
         _LOGGER.debug("Could not read serial from %s — skipping recorder purge", config_path)
-        return
+        return RecorderPurgeResult("no_serial", 0)
 
     try:
         count = await ha_client.async_purge_panel_recorder_data(serial)
         if count:
             _LOGGER.info("Purged recorder data for %d entities (serial=%s)", count, serial)
+        return RecorderPurgeResult("purged" if count else "none_found", count)
     except Exception:
         _LOGGER.warning("Failed to purge HA recorder data for serial %s", serial, exc_info=True)
+        return RecorderPurgeResult("failed", 0)
 
 
 async def handle_purge_recorder(request: web.Request) -> web.Response:
@@ -1307,9 +1321,26 @@ async def handle_purge_recorder(request: web.Request) -> web.Response:
             content_type="text/html",
         )
 
-    await _purge_recorder_for_config(ctx, config_path)
+    result = await _purge_recorder_for_config(ctx, config_path)
+    if result.status == "purged":
+        n = result.entity_count
+        ent_word = "entity" if n == 1 else "entities"
+        msg = f"Purged recorder history for {n} {ent_word}."
+        flash_cls = "flash success"
+    elif result.status == "none_found":
+        msg = "No recorder data was found for this simulated panel in Home Assistant."
+        flash_cls = "flash info"
+    elif result.status == "no_ha":
+        msg = "Home Assistant is not connected; there was nothing to purge."
+        flash_cls = "flash info"
+    elif result.status == "no_serial":
+        msg = "Could not read the panel serial from the config file."
+        flash_cls = "flash error"
+    else:
+        msg = "Recorder purge failed. See server logs for details."
+        flash_cls = "flash error"
     return web.Response(
-        text='<div class="flash success">Recorder history purged.</div>',
+        text=f'<div class="{flash_cls}">{msg}</div>',
         content_type="text/html",
     )
 

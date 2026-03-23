@@ -10,7 +10,7 @@ Includes a web dashboard for real-time configuration, grid simulation, Home Assi
 
 ## Workflow
 
-Click a simulator configuration to view it. Templates are read-only. A running simulator appears as a discovered panel in the SpanPanel integration.
+Click a simulator configuration to view it. Templates are read-only. A running simulator appears as a discovered panel in the SpanPanel integration (default configs excluded).
 
 1. **Examine templates** — Load and run the included configs (`default_config.yaml`, `simple_test_config.yaml`, etc.) to see how circuits, PV, battery, and EVSE are modeled. Pick one as a starting point for your own configuration.
 
@@ -36,7 +36,7 @@ The simulator can run as an HA App so users with the `span-panel` integration ca
 2. Add `https://github.com/SpanPanel/simulator`
 3. Install **SPAN Panel Simulator** from the store
 4. Start the App — a default panel config is included
-5. The `span-panel` integration discovers all running panels automatically via the Supervisor Discovery API
+5. The `span-panel` integration discovers running panels automatically via the Supervisor Discovery API (default configs excluded)
 6. Open the web dashboard via **Open Web UI** to configure panels
 
 The App runs the simulator in a container with its own Mosquitto broker. No real SPAN hardware is needed. Each panel runs on its own HTTP port (starting from
@@ -67,7 +67,7 @@ Open the dashboard at **<http://localhost:18080>**.
 
 ### Multi-panel in standalone mode
 
-Home Assistant's zeroconf auto-discovers **one panel per IP address**. The first panel appears as a discovery notification in HA and can be configured normally.
+Home Assistant's zeroconf auto-discovers **one panel per IP address** (default configs excluded). The first cloned panel appears as a discovery notification in HA and can be configured normally.
 Additional panels on the same host need to be added manually — use the port shown in the dashboard panel list:
 
 1. In HA, go to **Settings > Devices & Services > Add Integration**
@@ -90,7 +90,7 @@ The dashboard runs on port 18080 and provides full control over the simulated pa
 
 ### Panel Management
 
-- **Multi-panel** — load multiple YAML configs; click a row to select, start/stop/restart individual panels. Running panels appear as discovered devices in the SpanPanel integration.
+- **Multi-panel** — load multiple YAML configs; click a row to select, start/stop/restart individual panels. Running panels appear as discovered devices in the SpanPanel integration (default configs excluded).
 - **Clone** — create an editable copy from a template or from a real panel (IP + passphrase).
 - **Model** — open the energy what-if view for a running panel.
 - **Purge** — remove recorder history written by the simulated panel's sensors when the simulated panel was added to HA's integration.
