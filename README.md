@@ -36,7 +36,7 @@ configs excluded).
 
 ## Home Assistant App
 
-The simulator is packaged as a Home Assistant app repository for the Add-on Store. It is installed as a third-party app repository in Home Assistant, not via HACS.
+The simulator is packaged as a Home Assistant app repository for the App Store. It is installed as a third-party app repository in Home Assistant, not via HACS.
 
 Users with the `span-panel` integration can spin up simulated panels directly in their HA environment.
 
