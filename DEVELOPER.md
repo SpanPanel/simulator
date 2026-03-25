@@ -460,7 +460,8 @@ If the host IP changes, certificates are automatically regenerated on the next s
 
 ```text
 simulator/
-  repository.json            # HA add-on repository metadata
+  repository.yaml            # HA app repository metadata
+  repository.json            # Legacy HA add-on repository metadata
   configs/                   # Panel YAML configurations
   span_panel_simulator/      # HA add-on (dir name must match slug)
     config.yaml              # Add-on metadata, image ref, options schema

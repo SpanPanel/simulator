@@ -2,6 +2,8 @@
 
 A standalone simulator that mimics real SPAN panel behavior.
 
+[![Open your Home Assistant instance and show the App Store.](https://my.home-assistant.io/badges/supervisor_store.svg)](https://my.home-assistant.io/redirect/supervisor_store/)
+
 - Provides mDNS discovery to panels not yet using the Home Assistant integration and direct connections to the SpanPanel SPAN integration for Home Assistant.
 - When used with the [SpanPanel](https://github.com/SpanPanel/span-panel-api) Home Assistant integration, the App can mimic additional panels and for modeling
   upgrades to the electrical system.
@@ -34,9 +36,13 @@ configs excluded).
 
 ## Home Assistant App
 
-The simulator can run as an HA App so users with the `span-panel` integration can spin up simulated panels directly in their HA environment.
+The simulator is packaged as a Home Assistant app repository for the Add-on Store. It is installed as a third-party app repository in Home Assistant, not via HACS.
 
-1. Go to **Settings > Add-ons > Add-on Store** > three-dot menu > **Repositories**
+Users with the `span-panel` integration can spin up simulated panels directly in their HA environment.
+
+Repository URL: `https://github.com/SpanPanel/simulator`
+
+1. Go to **Settings > Apps** > **App Store** > three-dot menu > **Repositories**
 2. Add `https://github.com/SpanPanel/simulator`
 3. Install **SPAN Panel Simulator** from the store
 4. Start the App — a default panel config is included

@@ -10,11 +10,12 @@ data and entity discovery — no manual URL or token configuration needed.
 
 ## Getting started
 
-1. Install and start this app
-2. The `span-panel` integration discovers simulated panels
+1. Add `https://github.com/SpanPanel/simulator` as a third-party app repository in Home Assistant if you have not already
+2. Install and start this app
+3. The `span-panel` integration discovers simulated panels
    automatically — each running panel appears as a separate
    discoverable device in HA
-3. Open the web dashboard via the **Open Web UI** button to configure
+4. Open the web dashboard via the **Open Web UI** button to configure
    panels, manage entities, clone a real panel, and run energy
    modeling
 
@@ -125,7 +126,7 @@ System, light, or dark theme via the header selector.
 ## Configuration options
 
 | Option | Default | Description |
-|--------|---------|-------------|
+| ------ | ------- | ----------- |
 | `config_file` | `span_simulator/default_config.yaml` | Simulation config (relative to `/config`) |
 | `tick_interval` | `1.0` | Seconds between simulation updates |
 | `log_level` | `INFO` | Logging verbosity |
