@@ -20,11 +20,8 @@ import logging
 import sqlite3
 import time
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from pathlib import Path
 from zoneinfo import ZoneInfo
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 import yaml
 
@@ -420,3 +417,35 @@ class SyntheticHistoryGenerator:
             base = base * duty_cycle
 
         return base
+
+
+async def _cli_main() -> None:
+    """CLI entry point for standalone generation."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Generate synthetic history DB from a panel config YAML",
+    )
+    parser.add_argument("config", type=Path, help="Path to the panel YAML config")
+    parser.add_argument(
+        "--anchor-time",
+        type=float,
+        default=None,
+        help="Unix epoch for the anchor (default: now)",
+    )
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    )
+
+    gen = SyntheticHistoryGenerator()
+    db_path = await gen.generate(args.config, anchor_time=args.anchor_time)
+    print(f"Generated: {db_path}")
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(_cli_main())
