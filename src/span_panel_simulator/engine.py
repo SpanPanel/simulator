@@ -1605,6 +1605,7 @@ class DynamicSimulationEngine:
         pv_before_arr: list[float] = []
         pv_after_arr: list[float] = []
         battery_power_arr: list[float] = []
+        battery_before_arr: list[float] = []
         circuit_arrays_before: dict[str, list[float]] = {cid: [] for cid in self._circuits}
         circuit_arrays_after: dict[str, list[float]] = {cid: [] for cid in self._circuits}
 
@@ -1659,6 +1660,7 @@ class DynamicSimulationEngine:
             grid_power_arr.append(round(grid_after, 1))
             pv_after_arr.append(round(prod_a, 1))
             battery_power_arr.append(round(signed_battery_after, 1))
+            battery_before_arr.append(round(signed_battery_before, 1))
 
             for cid in self._circuits:
                 circuit_arrays_before[cid].append(round(powers_b.get(cid, 0.0), 1))
@@ -1688,6 +1690,7 @@ class DynamicSimulationEngine:
             # Legacy alias — same series as ``pv_power_after`` (current / SYN view).
             "pv_power": pv_after_arr,
             "battery_power": battery_power_arr,
+            "battery_power_before": battery_before_arr,
             "circuits": circuits_response,
         }
 

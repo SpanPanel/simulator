@@ -223,6 +223,7 @@
     var pvBefore = (d.pv_power_before || d.pv_power || []).slice(visibleStart, visibleEnd + 1);
     var pvAfter = (d.pv_power_after || d.pv_power || []).slice(visibleStart, visibleEnd + 1);
     var batteryPower = d.battery_power.slice(visibleStart, visibleEnd + 1);
+    var batteryBefore = (d.battery_power_before || d.battery_power || []).slice(visibleStart, visibleEnd + 1);
 
     // Energy summaries — split import/export for distinct cost treatment
     var beforeEnergy = computeEnergy(sitePower, d.resolution_s);
@@ -291,20 +292,22 @@
     // Before chart datasets (recorder baseline); After (current SYN / edited circuits)
     var pvDsBefore = { label: 'Solar', data: pvBefore, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(245,158,11,0.08)' }, tension: 0.3 };
     var pvDsAfter = { label: 'Solar', data: pvAfter, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(245,158,11,0.08)' }, tension: 0.3 };
-    var battDs = { label: 'Battery', data: batteryPower, borderColor: '#10b981', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(16,185,129,0.08)' }, tension: 0.3 };
+    var battDsBefore = { label: 'Battery', data: batteryBefore, borderColor: '#10b981', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(16,185,129,0.08)' }, tension: 0.3 };
+    var battDsAfter = { label: 'Battery', data: batteryPower, borderColor: '#10b981', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(16,185,129,0.08)' }, tension: 0.3 };
 
     var beforeDatasets = [
-      { label: 'Site Power', data: sitePower, borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(239,68,68,0.08)' }, tension: 0.3 },
+      { label: 'Grid', data: sitePower, borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(239,68,68,0.08)' }, tension: 0.3 },
     ];
     if (pvCheckbox.checked) beforeDatasets.push(Object.assign({}, pvDsBefore));
+    if (batteryCheckbox.checked) beforeDatasets.push(Object.assign({}, battDsBefore));
     beforeDatasets = beforeDatasets.concat(overlayBefore);
 
     // After chart datasets
     var afterDatasets = [
-      { label: 'Grid Power', data: gridPower, borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(239,68,68,0.08)' }, tension: 0.3 },
+      { label: 'Grid', data: gridPower, borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, fill: { target: 'origin', above: 'rgba(239,68,68,0.08)' }, tension: 0.3 },
     ];
     if (pvCheckbox.checked) afterDatasets.push(Object.assign({}, pvDsAfter));
-    if (batteryCheckbox.checked) afterDatasets.push(Object.assign({}, battDs));
+    if (batteryCheckbox.checked) afterDatasets.push(Object.assign({}, battDsAfter));
     afterDatasets = afterDatasets.concat(overlayAfter);
 
     // Tick configuration
