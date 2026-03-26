@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.6 — 2026-03-26
+
+### Features
+
+- Synthetic history: cloned panels generate a companion SQLite database so modeling works without Home Assistant
+- Standalone CLI for synthetic history generation
+
+### Fixes
+
+- Row buttons in dashboard now auto-switch the active config so the entity list stays in sync
+- Delete companion history database when a cloned config is removed
+- Battery schedule (BSEE) always enforces discharge/idle hours in the After modeling pass
+- SYN→REC toggle now works for template-cloned configs
+- After modeling pass skips BSEE when battery is unchanged; fix SOE sign handling
+- Before/After chart battery sign conventions are now consistent
+- Before chart only includes BESS when battery was present in the original recorder baseline
+- Fall through to SQLite when HA returns no recorder data
+- Derive recorder entity mappings for configs without HA; generate history on simple clone
+
 ## 1.0.5 — 2026-03-23
 
 ### Features
