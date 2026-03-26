@@ -1557,7 +1557,27 @@ async def handle_clone_from_panel(request: web.Request) -> web.Response:
 
     clone_path = write_clone_config(config, ctx.config_dir, scraped.serial_number)
 
-    # Generate synthetic history companion DB for offline replay
+    # Load the clone config into the dashboard editor
+    store = _store(request)
+    store.load_from_file(clone_path)
+    ctx.config_filter = clone_path.name
+
+    _LOGGER.info("Panel cloned from %s -> %s", host, clone_path.name)
+
+    # Automatically import HA usage profiles for the cloned panel.
+    # This must happen BEFORE history generation because it populates
+    # the recorder_entity mappings the generator needs.
+    profiles_imported = 0
+    if ctx.ha_client is not None and ctx.history_provider is not None:
+        try:
+            profiles_imported = await _import_profiles_for_serial(
+                ctx.ha_client, ctx.history_provider, clone_path, scraped.serial_number
+            )
+        except Exception:
+            _LOGGER.debug("HA profile import after clone failed", exc_info=True)
+
+    # Generate synthetic history companion DB for offline replay.
+    # Runs after profile import so recorder_entity mappings are present.
     try:
         from span_panel_simulator.history_generator import SyntheticHistoryGenerator
 
@@ -1569,23 +1589,6 @@ async def handle_clone_from_panel(request: web.Request) -> web.Response:
             "Synthetic history generation failed — panel will use per-tick synthesis",
             exc_info=True,
         )
-
-    # Load the clone config into the dashboard editor
-    store = _store(request)
-    store.load_from_file(clone_path)
-    ctx.config_filter = clone_path.name
-
-    _LOGGER.info("Panel cloned from %s -> %s", host, clone_path.name)
-
-    # Automatically import HA usage profiles for the cloned panel
-    profiles_imported = 0
-    if ctx.ha_client is not None and ctx.history_provider is not None:
-        try:
-            profiles_imported = await _import_profiles_for_serial(
-                ctx.ha_client, ctx.history_provider, clone_path, scraped.serial_number
-            )
-        except Exception:
-            _LOGGER.debug("HA profile import after clone failed", exc_info=True)
 
     # Start the clone engine (also triggers reload)
     ctx.start_panel(clone_path.name)
