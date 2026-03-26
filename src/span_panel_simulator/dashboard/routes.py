@@ -1095,6 +1095,21 @@ async def handle_clone(request: web.Request) -> web.Response:
 
     output_path.write_text(yaml_content, encoding="utf-8")
     _LOGGER.info("Config cloned to %s", output_path)
+
+    # Generate synthetic history companion DB for the cloned config.
+    # The generator will derive recorder_entity mappings if needed.
+    try:
+        from span_panel_simulator.history_generator import SyntheticHistoryGenerator
+
+        gen = SyntheticHistoryGenerator()
+        history_db = await gen.generate(output_path)
+        _LOGGER.info("Generated synthetic history: %s", history_db.name)
+    except Exception:
+        _LOGGER.warning(
+            "Synthetic history generation failed for clone",
+            exc_info=True,
+        )
+
     return web.Response(
         text=f'<div class="flash success">Cloned to {filename}</div>',
         content_type="text/html",
@@ -1568,13 +1583,37 @@ async def handle_clone_from_panel(request: web.Request) -> web.Response:
     # This must happen BEFORE history generation because it populates
     # the recorder_entity mappings the generator needs.
     profiles_imported = 0
+    _LOGGER.debug(
+        "Clone profile import: ha_client=%s, history_provider=%s",
+        ctx.ha_client is not None,
+        ctx.history_provider is not None,
+    )
     if ctx.ha_client is not None and ctx.history_provider is not None:
         try:
             profiles_imported = await _import_profiles_for_serial(
                 ctx.ha_client, ctx.history_provider, clone_path, scraped.serial_number
             )
+            _LOGGER.info("Imported %d profiles before history generation", profiles_imported)
         except Exception:
             _LOGGER.debug("HA profile import after clone failed", exc_info=True)
+
+    # Check if recorder_entity mappings now exist in the written config
+    import yaml as _yaml
+
+    _check_raw = _yaml.safe_load(clone_path.read_text(encoding="utf-8"))
+    _check_entities = []
+    if isinstance(_check_raw, dict):
+        _check_tmpls = _check_raw.get("circuit_templates", {})
+        if isinstance(_check_tmpls, dict):
+            for _tn, _tv in _check_tmpls.items():
+                if isinstance(_tv, dict) and _tv.get("recorder_entity"):
+                    _check_entities.append(f"{_tn}={_tv['recorder_entity']}")
+    _LOGGER.info(
+        "Pre-generate check: %d recorder_entity mappings in %s: %s",
+        len(_check_entities),
+        clone_path.name,
+        _check_entities[:5],
+    )
 
     # Generate synthetic history companion DB for offline replay.
     # Runs after profile import so recorder_entity mappings are present.

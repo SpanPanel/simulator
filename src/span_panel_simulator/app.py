@@ -386,14 +386,26 @@ class SimulatorApp:
             return None
 
         entity_ids: list[str] = []
-        for tmpl in templates.values():
+        for tmpl_name, tmpl in templates.items():
             if isinstance(tmpl, dict):
                 entity_id = tmpl.get("recorder_entity")
                 if isinstance(entity_id, str) and entity_id:
                     entity_ids.append(entity_id)
+                    _LOGGER.debug("  recorder_entity: %s -> %s", tmpl_name, entity_id)
 
         if not entity_ids:
+            _LOGGER.info(
+                "Recorder: no recorder_entity mappings in %s — skipping",
+                config_path.name,
+            )
             return None
+
+        _LOGGER.info(
+            "Recorder: %d entities found, ha_client=%s, checking sources for %s",
+            len(entity_ids),
+            self._ha_client is not None,
+            config_path.name,
+        )
 
         # Source 1: HA client available → use HA provider
         if self._ha_client is not None:
@@ -422,6 +434,11 @@ class SimulatorApp:
 
         # Source 2: companion SQLite file
         db_path = self._resolve_history_db(config_path, raw)
+        _LOGGER.info(
+            "Recorder: SQLite companion for %s: %s",
+            config_path.name,
+            db_path,
+        )
         if db_path is not None:
             from span_panel_simulator.sqlite_history import SqliteHistoryProvider
 

@@ -127,22 +127,66 @@ class SyntheticHistoryGenerator:
             except Exception:
                 _LOGGER.debug("Weather fetch failed; using deterministic model", exc_info=True)
 
-        # Collect circuits with recorder_entity mappings
+        # Collect circuits to generate history for.
+        # If a template has an explicit recorder_entity, use it.
+        # Otherwise, derive one from (serial, circuit_id) using the HA
+        # naming convention: sensor.<serial>_<circuit_id>_power.
+        # This also writes the derived entity back into the YAML so
+        # the engine's recorder replay path picks it up at startup.
         templates = raw.get("circuit_templates", {})
         if not isinstance(templates, dict):
             templates = {}
 
+        circuit_defs = raw.get("circuits", [])
+        if not isinstance(circuit_defs, list):
+            circuit_defs = []
+
+        # Build a map: template_name -> list of circuit_ids using it
+        tmpl_to_circuits: dict[str, list[str]] = {}
+        for cdef in circuit_defs:
+            if isinstance(cdef, dict):
+                cid = cdef.get("id")
+                tname = cdef.get("template")
+                if isinstance(cid, str) and isinstance(tname, str):
+                    tmpl_to_circuits.setdefault(tname, []).append(cid)
+
         circuits_to_generate: list[tuple[str, str, dict[str, object]]] = []
+        derived_entities = False
         for tmpl_name, tmpl in templates.items():
             if not isinstance(tmpl, dict):
                 continue
             entity = tmpl.get("recorder_entity")
             if isinstance(entity, str) and entity:
                 circuits_to_generate.append((tmpl_name, entity, tmpl))
+                continue
+
+            # Derive entity from the first circuit using this template
+            circuit_ids = tmpl_to_circuits.get(tmpl_name, [])
+            if not circuit_ids:
+                continue
+            # Use first circuit ID for the entity name
+            cid = circuit_ids[0]
+            clean_serial = serial.replace("-", "_")
+            derived_entity = f"sensor.{clean_serial}_{cid}_power"
+            tmpl["recorder_entity"] = derived_entity
+            circuits_to_generate.append((tmpl_name, derived_entity, tmpl))
+            derived_entities = True
+
+        if derived_entities:
+            # Write updated config with recorder_entity mappings
+            config_path.write_text(
+                yaml.dump(raw, default_flow_style=False, sort_keys=False),
+                encoding="utf-8",
+            )
+            _LOGGER.info(
+                "Derived %d recorder_entity mappings for %s",
+                sum(1 for _ in circuits_to_generate if derived_entities),
+                config_path.name,
+            )
 
         if not circuits_to_generate:
             _LOGGER.warning(
-                "No recorder_entity mappings in %s — nothing to generate",
+                "No circuits to generate history for in %s",
                 config_path.name,
             )
             con = sqlite3.connect(str(db_path))
