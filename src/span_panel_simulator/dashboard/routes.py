@@ -1110,10 +1110,12 @@ async def handle_clone(request: web.Request) -> web.Response:
             exc_info=True,
         )
 
-    return web.Response(
-        text=f'<div class="flash success">Cloned to {filename}</div>',
-        content_type="text/html",
-    )
+    # Auto-switch the editor to the newly cloned config so the entity
+    # list, runtime controls, and modeling view all reflect the clone.
+    _store(request).load_from_file(output_path)
+    ctx.config_filter = filename
+
+    return web.Response(status=200, headers={"HX-Redirect": "./"})
 
 
 async def handle_save_reload(request: web.Request) -> web.Response:
@@ -1242,12 +1244,12 @@ async def handle_start_panel(request: web.Request) -> web.Response:
     filename, err = await _read_panel_filename(request)
     if err is not None:
         return err
-    _ctx(request).start_panel(filename)
-    return web.Response(
-        text=f'<div class="flash success">Starting {filename}…</div>',
-        content_type="text/html",
-        headers={"HX-Trigger": "refreshPanels"},
-    )
+    ctx = _ctx(request)
+    ctx.start_panel(filename)
+    # Auto-switch the editor to this panel so entity list stays in sync.
+    _store(request).load_from_file(ctx.config_dir / filename)
+    ctx.config_filter = filename
+    return web.Response(status=200, headers={"HX-Redirect": "./"})
 
 
 async def handle_stop_panel(request: web.Request) -> web.Response:
@@ -1255,12 +1257,11 @@ async def handle_stop_panel(request: web.Request) -> web.Response:
     filename, err = await _read_panel_filename(request)
     if err is not None:
         return err
-    _ctx(request).stop_panel(filename)
-    return web.Response(
-        text=f'<div class="flash success">Stopping {filename}…</div>',
-        content_type="text/html",
-        headers={"HX-Trigger": "refreshPanels"},
-    )
+    ctx = _ctx(request)
+    ctx.stop_panel(filename)
+    _store(request).load_from_file(ctx.config_dir / filename)
+    ctx.config_filter = filename
+    return web.Response(status=200, headers={"HX-Redirect": "./"})
 
 
 async def handle_restart_panel(request: web.Request) -> web.Response:
@@ -1268,12 +1269,11 @@ async def handle_restart_panel(request: web.Request) -> web.Response:
     filename, err = await _read_panel_filename(request)
     if err is not None:
         return err
-    _ctx(request).restart_panel(filename)
-    return web.Response(
-        text=f'<div class="flash success">Restarting {filename}…</div>',
-        content_type="text/html",
-        headers={"HX-Trigger": "refreshPanels"},
-    )
+    ctx = _ctx(request)
+    ctx.restart_panel(filename)
+    _store(request).load_from_file(ctx.config_dir / filename)
+    ctx.config_filter = filename
+    return web.Response(status=200, headers={"HX-Redirect": "./"})
 
 
 async def _purge_recorder_for_config(
