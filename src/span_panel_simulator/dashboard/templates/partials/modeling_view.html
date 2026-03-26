@@ -174,7 +174,8 @@
       })
       .catch(function(err) {
         spinner.style.display = 'none';
-        chartsWrap.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem">Error loading data</p>';
+        console.error('Modeling error:', err);
+        chartsWrap.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem">Error loading data: ' + err.message + '</p>';
         chartsWrap.style.display = '';
       });
   }
