@@ -1629,16 +1629,15 @@ class DynamicSimulationEngine:
             # match the grid convention (discharge reduces grid import).
             signed_battery_before = -raw_batt_b
 
-            # After: BSEE applies current config (user edits, new battery)
+            # After: BSEE applies current config (SOE tracking, user edits).
+            # Same sign convention as Before: negate raw power so that
+            # discharge (positive raw) reduces grid and charge (negative
+            # raw) increases grid.  BSEE may clamp power to 0 when SOE
+            # bounds are reached.
             signed_battery_after = 0.0
             if cloned_bsee is not None:
                 cloned_bsee.update(ts, raw_batt_a)
-                state_a = cloned_bsee.battery_state
-                eff_a = cloned_bsee.battery_power_w
-                if state_a == "discharging":
-                    signed_battery_after = -eff_a
-                elif state_a == "charging":
-                    signed_battery_after = eff_a
+                signed_battery_after = -cloned_bsee.battery_power_w
 
             grid_before = site_b + signed_battery_before
             grid_after = site_a + signed_battery_after
