@@ -407,7 +407,7 @@ class SimulatorApp:
             config_path.name,
         )
 
-        # Source 1: HA client available → use HA provider
+        # Source 1: HA client available → try HA provider
         if self._ha_client is not None:
             _LOGGER.info(
                 "Loading recorder data for %s (%d entities) from HA",
@@ -419,18 +419,18 @@ class SimulatorApp:
                 loaded = await recorder.load(self._ha_client, entity_ids)
             except Exception:
                 _LOGGER.warning(
-                    "Recorder data loading failed for %s — using synthetic",
+                    "HA recorder loading failed for %s — trying SQLite fallback",
                     config_path.name,
                     exc_info=True,
                 )
-                return None
+                loaded = 0
 
-            if loaded == 0:
-                _LOGGER.warning(
-                    "Recorder returned no data for %s — using synthetic",
-                    config_path.name,
-                )
-            return recorder if loaded > 0 else None
+            if loaded > 0:
+                return recorder
+            _LOGGER.info(
+                "HA returned no data for %s — trying SQLite fallback",
+                config_path.name,
+            )
 
         # Source 2: companion SQLite file
         db_path = self._resolve_history_db(config_path, raw)
