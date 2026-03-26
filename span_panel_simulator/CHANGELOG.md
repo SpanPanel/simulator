@@ -18,6 +18,7 @@
 - Before chart only includes BESS when battery was present in the original recorder baseline
 - Fall through to SQLite when HA returns no recorder data
 - Derive recorder entity mappings for configs without HA; generate history on simple clone
+- Synthetic history now produces identical results across runs for the same config (deterministic seed)
 
 ## 1.0.5 — 2026-03-23
 
