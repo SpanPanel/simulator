@@ -364,15 +364,15 @@ class SimulatorApp:
         return panel
 
     async def _load_recorder_data(self, config_path: Path) -> RecorderDataSource | None:
-        """Create and populate a RecorderDataSource from config + HA history.
+        """Create and populate a RecorderDataSource from config + history source.
 
-        Returns ``None`` if HA is unavailable or the config has no
-        ``recorder_entity`` mappings.  Failures are logged and swallowed
-        so the panel still starts in synthetic mode.
+        Source selection:
+          1. If HA client is available and config has recorder_entity mappings → HA provider
+          2. If a companion ``_history.db`` file exists (or ``history_db`` set) → SQLite provider
+          3. Otherwise → None (engine uses synthetic per-tick generation)
+
+        Failures are logged and swallowed so the panel still starts in synthetic mode.
         """
-        if self._ha_client is None:
-            return None
-
         try:
             raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         except Exception:
@@ -386,37 +386,111 @@ class SimulatorApp:
             return None
 
         entity_ids: list[str] = []
-        for tmpl in templates.values():
+        for tmpl_name, tmpl in templates.items():
             if isinstance(tmpl, dict):
                 entity_id = tmpl.get("recorder_entity")
                 if isinstance(entity_id, str) and entity_id:
                     entity_ids.append(entity_id)
+                    _LOGGER.debug("  recorder_entity: %s -> %s", tmpl_name, entity_id)
 
         if not entity_ids:
+            _LOGGER.info(
+                "Recorder: no recorder_entity mappings in %s — skipping",
+                config_path.name,
+            )
             return None
 
         _LOGGER.info(
-            "Loading recorder data for %s (%d entities)",
-            config_path.name,
+            "Recorder: %d entities found, ha_client=%s, checking sources for %s",
             len(entity_ids),
+            self._ha_client is not None,
+            config_path.name,
         )
-        recorder = RecorderDataSource()
-        try:
-            loaded = await recorder.load(self._ha_client, entity_ids)
-        except Exception:
-            _LOGGER.warning(
-                "Recorder data loading failed for %s — using synthetic",
-                config_path.name,
-                exc_info=True,
-            )
-            return None
 
-        if loaded == 0:
-            _LOGGER.warning(
-                "Recorder returned no data for %s — using synthetic",
+        # Source 1: HA client available → try HA provider
+        if self._ha_client is not None:
+            _LOGGER.info(
+                "Loading recorder data for %s (%d entities) from HA",
+                config_path.name,
+                len(entity_ids),
+            )
+            recorder = RecorderDataSource()
+            try:
+                loaded = await recorder.load(self._ha_client, entity_ids)
+            except Exception:
+                _LOGGER.warning(
+                    "HA recorder loading failed for %s — trying SQLite fallback",
+                    config_path.name,
+                    exc_info=True,
+                )
+                loaded = 0
+
+            if loaded > 0:
+                return recorder
+            _LOGGER.info(
+                "HA returned no data for %s — trying SQLite fallback",
                 config_path.name,
             )
-        return recorder if loaded > 0 else None
+
+        # Source 2: companion SQLite file
+        db_path = self._resolve_history_db(config_path, raw)
+        _LOGGER.info(
+            "Recorder: SQLite companion for %s: %s",
+            config_path.name,
+            db_path,
+        )
+        if db_path is not None:
+            from span_panel_simulator.sqlite_history import SqliteHistoryProvider
+
+            _LOGGER.info(
+                "Loading recorder data for %s (%d entities) from %s",
+                config_path.name,
+                len(entity_ids),
+                db_path.name,
+            )
+            provider = SqliteHistoryProvider(db_path)
+            recorder = RecorderDataSource()
+            try:
+                loaded = await recorder.load(provider, entity_ids, lookback_days=365)
+            except Exception:
+                _LOGGER.warning(
+                    "SQLite history loading failed for %s — using synthetic",
+                    config_path.name,
+                    exc_info=True,
+                )
+                return None
+
+            if loaded == 0:
+                _LOGGER.warning(
+                    "SQLite history returned no data for %s — using synthetic",
+                    config_path.name,
+                )
+            return recorder if loaded > 0 else None
+
+        return None
+
+    @staticmethod
+    def _resolve_history_db(config_path: Path, raw: dict[str, object]) -> Path | None:
+        """Find the companion SQLite history DB for a config file.
+
+        Checks explicit ``panel_config.history_db`` first, then falls back
+        to the convention: ``<config_stem>_history.db`` in the same directory.
+        """
+        panel_config = raw.get("panel_config")
+        if isinstance(panel_config, dict):
+            explicit = panel_config.get("history_db")
+            if isinstance(explicit, str) and explicit:
+                explicit_path = Path(explicit)
+                if not explicit_path.is_absolute():
+                    explicit_path = config_path.parent / explicit_path
+                if explicit_path.exists():
+                    return explicit_path
+
+        convention_path = config_path.with_name(config_path.stem + "_history.db")
+        if convention_path.exists():
+            return convention_path
+
+        return None
 
     async def _stop_panel(self, config_path: Path) -> None:
         """Stop and unregister a panel."""

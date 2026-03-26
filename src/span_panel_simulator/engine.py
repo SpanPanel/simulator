@@ -1572,15 +1572,17 @@ class DynamicSimulationEngine:
             ):
                 solar_excess_ids.add(cid)
 
-        # Create temporary BSEE if battery is configured (After pass only)
+        # BSEE for the After pass (applies current config).
+        # The Before pass needs no BSEE — the recorder already contains
+        # the battery's charge/discharge power with correct sign
+        # (negative = charging, positive = discharging).
         cloned_bsee: BatteryStorageEquipment | None = None
         battery_circuit = self._find_battery_circuit()
         if self._bsee is not None and battery_circuit is not None:
             battery_cfg = battery_circuit.template.get("battery_behavior", {})
             if isinstance(battery_cfg, dict):
-                battery_dict: dict[str, Any] = dict(battery_cfg)
                 cloned_bsee = BatteryStorageEquipment(
-                    battery_behavior=battery_dict,
+                    battery_behavior=dict(battery_cfg),
                     panel_serial=self._config["panel_config"]["serial_number"],
                     feed_circuit_id=battery_circuit.circuit_id,
                     nameplate_capacity_kwh=self._bsee.nameplate_capacity_kwh,
@@ -1597,6 +1599,7 @@ class DynamicSimulationEngine:
         pv_before_arr: list[float] = []
         pv_after_arr: list[float] = []
         battery_power_arr: list[float] = []
+        battery_before_arr: list[float] = []
         circuit_arrays_before: dict[str, list[float]] = {cid: [] for cid in self._circuits}
         circuit_arrays_after: dict[str, list[float]] = {cid: [] for cid in self._circuits}
 
@@ -1605,7 +1608,7 @@ class DynamicSimulationEngine:
             # passes so cycling / solar-excess bookkeeping does not cross-contaminate.
             modeling_checkpoint = cloned_behavior.capture_mutable_state()
 
-            powers_b, site_b, prod_b, _raw_b = self._aggregate_modeling_at_ts(
+            powers_b, site_b, prod_b, raw_batt_b = self._aggregate_modeling_at_ts(
                 ts,
                 cloned_behavior,
                 solar_excess_ids,
@@ -1621,23 +1624,30 @@ class DynamicSimulationEngine:
                 modeling_recorder_baseline=False,
             )
 
-            signed_battery = 0.0
+            # Before: recorder data already has correct battery sign
+            # (negative = charging, positive = discharging).  Invert to
+            # match the grid convention (discharge reduces grid import).
+            signed_battery_before = -raw_batt_b
+
+            # After: BSEE applies current config (SOE tracking, user edits).
+            # Same sign convention as Before: negate raw power so that
+            # discharge (positive raw) reduces grid and charge (negative
+            # raw) increases grid.  BSEE may clamp power to 0 when SOE
+            # bounds are reached.
+            signed_battery_after = 0.0
             if cloned_bsee is not None:
                 cloned_bsee.update(ts, raw_batt_a)
-                effective_power = cloned_bsee.battery_power_w
-                state = cloned_bsee.battery_state
-                if state == "discharging":
-                    signed_battery = -effective_power
-                elif state == "charging":
-                    signed_battery = effective_power
+                signed_battery_after = -cloned_bsee.battery_power_w
 
-            grid_after = site_a + signed_battery
+            grid_before = site_b + signed_battery_before
+            grid_after = site_a + signed_battery_after
 
-            site_power_arr.append(round(site_b, 1))
+            site_power_arr.append(round(grid_before, 1))
             pv_before_arr.append(round(prod_b, 1))
             grid_power_arr.append(round(grid_after, 1))
             pv_after_arr.append(round(prod_a, 1))
-            battery_power_arr.append(round(signed_battery, 1))
+            battery_power_arr.append(round(signed_battery_after, 1))
+            battery_before_arr.append(round(signed_battery_before, 1))
 
             for cid in self._circuits:
                 circuit_arrays_before[cid].append(round(powers_b.get(cid, 0.0), 1))
@@ -1667,6 +1677,7 @@ class DynamicSimulationEngine:
             # Legacy alias — same series as ``pv_power_after`` (current / SYN view).
             "pv_power": pv_after_arr,
             "battery_power": battery_power_arr,
+            "battery_power_before": battery_before_arr,
             "circuits": circuits_response,
         }
 

@@ -30,6 +30,7 @@ class PanelConfig(TypedDict):
     soc_shed_threshold: NotRequired[float]  # SOC % below which SOC_THRESHOLD circuits are shed
     postal_code: NotRequired[str]  # ZIP / postal code, default "94103"
     time_zone: NotRequired[str]  # IANA timezone, default "America/Los_Angeles"
+    history_db: NotRequired[str]  # path to companion SQLite history file (overrides convention)
 
 
 class CyclingPattern(TypedDict, total=False):

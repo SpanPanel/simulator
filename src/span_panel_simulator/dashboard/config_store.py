@@ -215,6 +215,10 @@ class ConfigStore:
 
         recorder_map = self.get_recorder_map()
         rec_entity = recorder_map.get(template_name)
+        # Fall back to the template's own recorder_entity — covers
+        # template-cloned configs that have no panel_source/recorder_map.
+        if not rec_entity:
+            rec_entity = templates[template_name].get("recorder_entity")
         if not rec_entity:
             return False
 

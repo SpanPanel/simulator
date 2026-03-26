@@ -9,6 +9,7 @@ from span_panel_simulator.history import (
     HistoryProvider,
     NullHistoryProvider,
 )
+from span_panel_simulator.sqlite_history import SqliteHistoryProvider
 
 
 class TestNullHistoryProvider:
@@ -32,4 +33,10 @@ class TestEBusHistoryProvider:
 
     def test_satisfies_protocol(self) -> None:
         provider: HistoryProvider = EBusHistoryProvider()
+        assert hasattr(provider, "async_get_statistics")
+
+
+class TestSqliteHistoryProvider:
+    def test_satisfies_protocol(self) -> None:
+        provider: HistoryProvider = SqliteHistoryProvider(":memory:")
         assert hasattr(provider, "async_get_statistics")

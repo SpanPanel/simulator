@@ -1095,10 +1095,27 @@ async def handle_clone(request: web.Request) -> web.Response:
 
     output_path.write_text(yaml_content, encoding="utf-8")
     _LOGGER.info("Config cloned to %s", output_path)
-    return web.Response(
-        text=f'<div class="flash success">Cloned to {filename}</div>',
-        content_type="text/html",
-    )
+
+    # Generate synthetic history companion DB for the cloned config.
+    # The generator will derive recorder_entity mappings if needed.
+    try:
+        from span_panel_simulator.history_generator import SyntheticHistoryGenerator
+
+        gen = SyntheticHistoryGenerator()
+        history_db = await gen.generate(output_path)
+        _LOGGER.info("Generated synthetic history: %s", history_db.name)
+    except Exception:
+        _LOGGER.warning(
+            "Synthetic history generation failed for clone",
+            exc_info=True,
+        )
+
+    # Auto-switch the editor to the newly cloned config so the entity
+    # list, runtime controls, and modeling view all reflect the clone.
+    _store(request).load_from_file(output_path)
+    ctx.config_filter = filename
+
+    return web.Response(status=200, headers={"HX-Redirect": "./"})
 
 
 async def handle_save_reload(request: web.Request) -> web.Response:
@@ -1227,12 +1244,12 @@ async def handle_start_panel(request: web.Request) -> web.Response:
     filename, err = await _read_panel_filename(request)
     if err is not None:
         return err
-    _ctx(request).start_panel(filename)
-    return web.Response(
-        text=f'<div class="flash success">Starting {filename}…</div>',
-        content_type="text/html",
-        headers={"HX-Trigger": "refreshPanels"},
-    )
+    ctx = _ctx(request)
+    ctx.start_panel(filename)
+    # Auto-switch the editor to this panel so entity list stays in sync.
+    _store(request).load_from_file(ctx.config_dir / filename)
+    ctx.config_filter = filename
+    return web.Response(status=200, headers={"HX-Redirect": "./"})
 
 
 async def handle_stop_panel(request: web.Request) -> web.Response:
@@ -1240,12 +1257,11 @@ async def handle_stop_panel(request: web.Request) -> web.Response:
     filename, err = await _read_panel_filename(request)
     if err is not None:
         return err
-    _ctx(request).stop_panel(filename)
-    return web.Response(
-        text=f'<div class="flash success">Stopping {filename}…</div>',
-        content_type="text/html",
-        headers={"HX-Trigger": "refreshPanels"},
-    )
+    ctx = _ctx(request)
+    ctx.stop_panel(filename)
+    _store(request).load_from_file(ctx.config_dir / filename)
+    ctx.config_filter = filename
+    return web.Response(status=200, headers={"HX-Redirect": "./"})
 
 
 async def handle_restart_panel(request: web.Request) -> web.Response:
@@ -1253,12 +1269,11 @@ async def handle_restart_panel(request: web.Request) -> web.Response:
     filename, err = await _read_panel_filename(request)
     if err is not None:
         return err
-    _ctx(request).restart_panel(filename)
-    return web.Response(
-        text=f'<div class="flash success">Restarting {filename}…</div>',
-        content_type="text/html",
-        headers={"HX-Trigger": "refreshPanels"},
-    )
+    ctx = _ctx(request)
+    ctx.restart_panel(filename)
+    _store(request).load_from_file(ctx.config_dir / filename)
+    ctx.config_filter = filename
+    return web.Response(status=200, headers={"HX-Redirect": "./"})
 
 
 async def _purge_recorder_for_config(
@@ -1387,6 +1402,13 @@ async def handle_delete_config(request: web.Request) -> web.Response:
     await _purge_recorder_for_config(ctx, config_path)
 
     config_path.unlink()
+
+    # Remove companion history DB if present
+    history_db = config_path.with_name(config_path.stem + "_history.db")
+    if history_db.exists():
+        history_db.unlink()
+        _LOGGER.info("Deleted history DB %s", history_db.name)
+
     _LOGGER.info("Deleted config %s", filename)
 
     # If we just deleted the active editor file, fall back to viewing
@@ -1564,15 +1586,55 @@ async def handle_clone_from_panel(request: web.Request) -> web.Response:
 
     _LOGGER.info("Panel cloned from %s -> %s", host, clone_path.name)
 
-    # Automatically import HA usage profiles for the cloned panel
+    # Automatically import HA usage profiles for the cloned panel.
+    # This must happen BEFORE history generation because it populates
+    # the recorder_entity mappings the generator needs.
     profiles_imported = 0
+    _LOGGER.debug(
+        "Clone profile import: ha_client=%s, history_provider=%s",
+        ctx.ha_client is not None,
+        ctx.history_provider is not None,
+    )
     if ctx.ha_client is not None and ctx.history_provider is not None:
         try:
             profiles_imported = await _import_profiles_for_serial(
                 ctx.ha_client, ctx.history_provider, clone_path, scraped.serial_number
             )
+            _LOGGER.info("Imported %d profiles before history generation", profiles_imported)
         except Exception:
             _LOGGER.debug("HA profile import after clone failed", exc_info=True)
+
+    # Check if recorder_entity mappings now exist in the written config
+    import yaml as _yaml
+
+    _check_raw = _yaml.safe_load(clone_path.read_text(encoding="utf-8"))
+    _check_entities = []
+    if isinstance(_check_raw, dict):
+        _check_tmpls = _check_raw.get("circuit_templates", {})
+        if isinstance(_check_tmpls, dict):
+            for _tn, _tv in _check_tmpls.items():
+                if isinstance(_tv, dict) and _tv.get("recorder_entity"):
+                    _check_entities.append(f"{_tn}={_tv['recorder_entity']}")
+    _LOGGER.info(
+        "Pre-generate check: %d recorder_entity mappings in %s: %s",
+        len(_check_entities),
+        clone_path.name,
+        _check_entities[:5],
+    )
+
+    # Generate synthetic history companion DB for offline replay.
+    # Runs after profile import so recorder_entity mappings are present.
+    try:
+        from span_panel_simulator.history_generator import SyntheticHistoryGenerator
+
+        gen = SyntheticHistoryGenerator()
+        history_db = await gen.generate(clone_path)
+        _LOGGER.info("Generated synthetic history: %s", history_db.name)
+    except Exception:
+        _LOGGER.warning(
+            "Synthetic history generation failed — panel will use per-tick synthesis",
+            exc_info=True,
+        )
 
     # Start the clone engine (also triggers reload)
     ctx.start_panel(clone_path.name)

@@ -85,6 +85,10 @@ class BatteryStorageEquipment:
         """
         self._battery_state = self._resolve_battery_state(current_time)
 
+        # Enforce schedule: battery does nothing during idle hours
+        if self._battery_state == "idle":
+            battery_power_w = 0.0
+
         # Enforce SOE bounds — stop discharge at reserve, stop charge at max
         effective_min_pct = _SOE_HARD_MIN_PCT if self._forced_offline else self._backup_reserve_pct
         if (self._battery_state == "discharging" and self.soe_percentage <= effective_min_pct) or (
@@ -204,30 +208,29 @@ class BatteryStorageEquipment:
     # ------------------------------------------------------------------
 
     def _resolve_battery_state(self, current_time: float) -> str:
-        """Determine battery state from grid status, charge mode, or schedule.
+        """Determine battery state from grid status or schedule.
 
-        Grid-forced-offline always overrides the schedule: the battery
-        must discharge to supply loads during an outage.
+        The schedule (charge/discharge/idle hours) is always authoritative
+        for state resolution.  The charge mode (solar-gen, solar-excess,
+        custom) affects power *magnitude* via the behavior engine's
+        ``_apply_battery_behavior``, not the state.  This separation
+        ensures correct behavior in both the live simulation (where the
+        behavior engine is active) and the modeling pass (where the
+        battery circuit may be replayed from recorder data, leaving
+        ``last_battery_direction`` stale).
         """
         if self._forced_offline:
             return "discharging"
-
-        charge_mode: str = self._battery_behavior.get("charge_mode", "custom")
-        if charge_mode != "custom" and self._behavior_engine is not None:
-            return self._behavior_engine.last_battery_direction
 
         current_hour = datetime.fromtimestamp(current_time, tz=self._tz).hour
 
         charge_hours: list[int] = self._battery_behavior.get("charge_hours", [])
         discharge_hours: list[int] = self._battery_behavior.get("discharge_hours", [])
-        idle_hours: list[int] = self._battery_behavior.get("idle_hours", [])
 
-        if current_hour in charge_hours:
-            return "charging"
         if current_hour in discharge_hours:
             return "discharging"
-        if current_hour in idle_hours:
-            return "idle"
+        if current_hour in charge_hours:
+            return "charging"
         return "idle"
 
     def _integrate_energy(self, current_time: float, power_w: float) -> None:
@@ -247,13 +250,19 @@ class BatteryStorageEquipment:
         delta_s = min(delta_s, _MAX_INTEGRATION_DELTA_S)
         delta_hours = delta_s / 3600.0
 
-        if self._battery_state == "charging" and power_w > 0:
-            energy_kwh = (power_w / 1000.0) * delta_hours * self._charge_efficiency
+        # Use abs(power_w) so integration works regardless of sign
+        # convention.  Recorder data is signed (negative = charging,
+        # positive = discharging) while synthetic power is always positive.
+        # The battery_state already tells us the direction; magnitude is
+        # all that matters for energy bookkeeping.
+        mag = abs(power_w)
+        if self._battery_state == "charging" and mag > 0:
+            energy_kwh = (mag / 1000.0) * delta_hours * self._charge_efficiency
             self._soe_kwh += energy_kwh
-        elif self._battery_state == "discharging" and power_w > 0:
+        elif self._battery_state == "discharging" and mag > 0:
             # Discharge: power delivered = stored energy * discharge_efficiency
             # So stored energy consumed = power / efficiency
-            energy_kwh = (power_w / 1000.0) * delta_hours / self._discharge_efficiency
+            energy_kwh = (mag / 1000.0) * delta_hours / self._discharge_efficiency
             self._soe_kwh -= energy_kwh
 
         # Clamp to bounds — use backup reserve for normal discharge,
