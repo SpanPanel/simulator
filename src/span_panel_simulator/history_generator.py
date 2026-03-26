@@ -151,7 +151,7 @@ class SyntheticHistoryGenerator:
                     tmpl_to_circuits.setdefault(tname, []).append(cid)
 
         circuits_to_generate: list[tuple[str, str, dict[str, object]]] = []
-        derived_entities = False
+        derived_count = 0
         for tmpl_name, tmpl in templates.items():
             if not isinstance(tmpl, dict):
                 continue
@@ -170,9 +170,9 @@ class SyntheticHistoryGenerator:
             derived_entity = f"sensor.{clean_serial}_{cid}_power"
             tmpl["recorder_entity"] = derived_entity
             circuits_to_generate.append((tmpl_name, derived_entity, tmpl))
-            derived_entities = True
+            derived_count += 1
 
-        if derived_entities:
+        if derived_count:
             # Write updated config with recorder_entity mappings
             config_path.write_text(
                 yaml.dump(raw, default_flow_style=False, sort_keys=False),
@@ -180,7 +180,7 @@ class SyntheticHistoryGenerator:
             )
             _LOGGER.info(
                 "Derived %d recorder_entity mappings for %s",
-                sum(1 for _ in circuits_to_generate if derived_entities),
+                derived_count,
                 config_path.name,
             )
 
@@ -354,6 +354,10 @@ class SyntheticHistoryGenerator:
         # Mean of monthly factors for normalisation
         mean_mf = sum(monthly_factors.values()) / len(monthly_factors) if monthly_factors else 1.0
 
+        # Precompute deterministic seed from serial for weather factor
+        serial_bytes = str(serial).encode("utf-8")
+        serial_seed = int.from_bytes(hashlib.sha256(serial_bytes).digest()[:8], "big")
+
         batch: list[tuple[object, ...]] = []
         ts = start_ts
         while ts < end_ts:
@@ -365,7 +369,7 @@ class SyntheticHistoryGenerator:
                 lat=lat,
                 lon=lon,
                 tz=tz,
-                serial=serial,
+                serial_seed=serial_seed,
                 hour_factors=hour_factors,
                 mean_hf=mean_hf,
                 tod_enabled=tod_enabled,
@@ -423,7 +427,7 @@ class SyntheticHistoryGenerator:
         lat: float,
         lon: float,
         tz: ZoneInfo,
-        serial: str,
+        serial_seed: int,
         hour_factors: dict[int, float],
         mean_hf: float,
         tod_enabled: bool,
@@ -478,7 +482,7 @@ class SyntheticHistoryGenerator:
         if mode == "producer":
             scale = abs(nameplate) if nameplate is not None and nameplate > 0 else abs(base)
             solar = solar_production_factor(ts, lat, lon)
-            weather = daily_weather_factor(ts, seed=hash(serial), monthly_factors=weather_monthly)
+            weather = daily_weather_factor(ts, seed=serial_seed, monthly_factors=weather_monthly)
             return scale * solar * weather
 
         # Time-of-day for consumers

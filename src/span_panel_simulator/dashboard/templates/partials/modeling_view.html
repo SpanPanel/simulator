@@ -175,7 +175,12 @@
       .catch(function(err) {
         spinner.style.display = 'none';
         console.error('Modeling error:', err);
-        chartsWrap.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem">Error loading data: ' + err.message + '</p>';
+        var errP = document.createElement('p');
+        errP.className = 'text-muted';
+        errP.style.cssText = 'text-align:center;padding:2rem';
+        errP.textContent = 'Error loading data: ' + err.message;
+        chartsWrap.innerHTML = '';
+        chartsWrap.appendChild(errP);
         chartsWrap.style.display = '';
       });
   }
