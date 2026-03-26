@@ -246,13 +246,19 @@ class BatteryStorageEquipment:
         delta_s = min(delta_s, _MAX_INTEGRATION_DELTA_S)
         delta_hours = delta_s / 3600.0
 
-        if self._battery_state == "charging" and power_w > 0:
-            energy_kwh = (power_w / 1000.0) * delta_hours * self._charge_efficiency
+        # Use abs(power_w) so integration works regardless of sign
+        # convention.  Recorder data is signed (negative = charging,
+        # positive = discharging) while synthetic power is always positive.
+        # The battery_state already tells us the direction; magnitude is
+        # all that matters for energy bookkeeping.
+        mag = abs(power_w)
+        if self._battery_state == "charging" and mag > 0:
+            energy_kwh = (mag / 1000.0) * delta_hours * self._charge_efficiency
             self._soe_kwh += energy_kwh
-        elif self._battery_state == "discharging" and power_w > 0:
+        elif self._battery_state == "discharging" and mag > 0:
             # Discharge: power delivered = stored energy * discharge_efficiency
             # So stored energy consumed = power / efficiency
-            energy_kwh = (power_w / 1000.0) * delta_hours / self._discharge_efficiency
+            energy_kwh = (mag / 1000.0) * delta_hours / self._discharge_efficiency
             self._soe_kwh -= energy_kwh
 
         # Clamp to bounds — use backup reserve for normal discharge,
