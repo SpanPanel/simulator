@@ -7,8 +7,10 @@ Implements the ``HistoryProvider`` protocol by querying ``statistics`` and
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
 _LOGGER = logging.getLogger(__name__)
@@ -75,27 +77,18 @@ class SqliteHistoryProvider:
     def __init__(self, db_path: str | Path) -> None:
         self._db_path = str(db_path)
 
-    async def async_get_statistics(
+    def _sync_get_statistics(
         self,
         statistic_ids: list[str],
         *,
-        period: str = "hour",
-        start_time: str | None = None,
-        end_time: str | None = None,
+        table: str,
+        start_time: str | None,
+        end_time: str | None,
     ) -> dict[str, list[dict[str, object]]]:
-        """Query statistics from the SQLite database.
+        """Synchronous SQLite query for statistics data.
 
-        Returns data in the same format as the HA provider: a dict mapping
-        statistic IDs to lists of records with ``start``, ``mean``, ``min``,
-        ``max`` fields.
+        Intended to be called via ``asyncio.to_thread``.
         """
-        table = _PERIOD_TABLE.get(period)
-        if table is None:
-            return {}
-
-        if not statistic_ids:
-            return {}
-
         result: dict[str, list[dict[str, object]]] = {}
 
         if self._db_path != ":memory:" and not Path(self._db_path).exists():
@@ -129,8 +122,6 @@ class SqliteHistoryProvider:
                 params: list[object] = [metadata_id]
 
                 if start_time is not None:
-                    from datetime import UTC, datetime
-
                     try:
                         dt = datetime.fromisoformat(start_time)
                         if dt.tzinfo is None:
@@ -141,8 +132,6 @@ class SqliteHistoryProvider:
                         pass
 
                 if end_time is not None:
-                    from datetime import UTC, datetime
-
                     try:
                         dt = datetime.fromisoformat(end_time)
                         if dt.tzinfo is None:
@@ -172,3 +161,32 @@ class SqliteHistoryProvider:
             con.close()
 
         return result
+
+    async def async_get_statistics(
+        self,
+        statistic_ids: list[str],
+        *,
+        period: str = "hour",
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> dict[str, list[dict[str, object]]]:
+        """Query statistics from the SQLite database.
+
+        Returns data in the same format as the HA provider: a dict mapping
+        statistic IDs to lists of records with ``start``, ``mean``, ``min``,
+        ``max`` fields.
+        """
+        table = _PERIOD_TABLE.get(period)
+        if table is None:
+            return {}
+
+        if not statistic_ids:
+            return {}
+
+        return await asyncio.to_thread(
+            self._sync_get_statistics,
+            statistic_ids,
+            table=table,
+            start_time=start_time,
+            end_time=end_time,
+        )
