@@ -1572,10 +1572,13 @@ class DynamicSimulationEngine:
             ):
                 solar_excess_ids.add(cid)
 
-        # Create temporary BSEE instances for Before and After passes.
-        # Both passes apply the battery schedule so the charts reflect
-        # BESS operation in both the baseline recorder data and the
-        # current (possibly edited) configuration.
+        # Create temporary BSEE instances for modeling passes.
+        # After always gets BSEE (current config).
+        # Before only gets BSEE if the battery existed in the recorder
+        # baseline (not user-added).  A user-added battery has
+        # user_modified=True and no recorder data — the Before chart
+        # should show life *without* the battery so the user sees the
+        # impact of adding one.
         cloned_bsee: BatteryStorageEquipment | None = None
         cloned_bsee_before: BatteryStorageEquipment | None = None
         battery_circuit = self._find_battery_circuit()
@@ -1594,7 +1597,14 @@ class DynamicSimulationEngine:
                     ),
                 }
                 cloned_bsee = BatteryStorageEquipment(**bsee_args)
-                cloned_bsee_before = BatteryStorageEquipment(**bsee_args)
+
+                # Only apply BESS to Before if the battery was part of
+                # the original config (has recorder data, not user-added).
+                battery_is_original = not battery_circuit.template.get(
+                    "user_modified", False
+                ) and bool(battery_circuit.template.get("recorder_entity"))
+                if battery_is_original:
+                    cloned_bsee_before = BatteryStorageEquipment(**bsee_args)
 
         if cloned_behavior is None:
             return {"error": "Simulation not initialised"}
