@@ -1572,21 +1572,29 @@ class DynamicSimulationEngine:
             ):
                 solar_excess_ids.add(cid)
 
-        # Create temporary BSEE if battery is configured (After pass only)
+        # Create temporary BSEE instances for Before and After passes.
+        # Both passes apply the battery schedule so the charts reflect
+        # BESS operation in both the baseline recorder data and the
+        # current (possibly edited) configuration.
         cloned_bsee: BatteryStorageEquipment | None = None
+        cloned_bsee_before: BatteryStorageEquipment | None = None
         battery_circuit = self._find_battery_circuit()
         if self._bsee is not None and battery_circuit is not None:
             battery_cfg = battery_circuit.template.get("battery_behavior", {})
             if isinstance(battery_cfg, dict):
                 battery_dict: dict[str, Any] = dict(battery_cfg)
-                cloned_bsee = BatteryStorageEquipment(
-                    battery_behavior=battery_dict,
-                    panel_serial=self._config["panel_config"]["serial_number"],
-                    feed_circuit_id=battery_circuit.circuit_id,
-                    nameplate_capacity_kwh=self._bsee.nameplate_capacity_kwh,
-                    behavior_engine=cloned_behavior,
-                    panel_timezone=(cloned_behavior.panel_timezone if cloned_behavior else None),
-                )
+                bsee_args: dict[str, Any] = {
+                    "battery_behavior": battery_dict,
+                    "panel_serial": self._config["panel_config"]["serial_number"],
+                    "feed_circuit_id": battery_circuit.circuit_id,
+                    "nameplate_capacity_kwh": self._bsee.nameplate_capacity_kwh,
+                    "behavior_engine": cloned_behavior,
+                    "panel_timezone": (
+                        cloned_behavior.panel_timezone if cloned_behavior else None
+                    ),
+                }
+                cloned_bsee = BatteryStorageEquipment(**bsee_args)
+                cloned_bsee_before = BatteryStorageEquipment(**bsee_args)
 
         if cloned_behavior is None:
             return {"error": "Simulation not initialised"}
@@ -1605,7 +1613,7 @@ class DynamicSimulationEngine:
             # passes so cycling / solar-excess bookkeeping does not cross-contaminate.
             modeling_checkpoint = cloned_behavior.capture_mutable_state()
 
-            powers_b, site_b, prod_b, _raw_b = self._aggregate_modeling_at_ts(
+            powers_b, site_b, prod_b, raw_batt_b = self._aggregate_modeling_at_ts(
                 ts,
                 cloned_behavior,
                 solar_excess_ids,
@@ -1621,23 +1629,36 @@ class DynamicSimulationEngine:
                 modeling_recorder_baseline=False,
             )
 
-            signed_battery = 0.0
+            # Apply BSEE to Before pass (recorder baseline + battery schedule)
+            signed_battery_before = 0.0
+            if cloned_bsee_before is not None:
+                cloned_bsee_before.update(ts, raw_batt_b)
+                state_b = cloned_bsee_before.battery_state
+                eff_b = cloned_bsee_before.battery_power_w
+                if state_b == "discharging":
+                    signed_battery_before = -eff_b
+                elif state_b == "charging":
+                    signed_battery_before = eff_b
+
+            # Apply BSEE to After pass (current config + battery schedule)
+            signed_battery_after = 0.0
             if cloned_bsee is not None:
                 cloned_bsee.update(ts, raw_batt_a)
-                effective_power = cloned_bsee.battery_power_w
-                state = cloned_bsee.battery_state
-                if state == "discharging":
-                    signed_battery = -effective_power
-                elif state == "charging":
-                    signed_battery = effective_power
+                state_a = cloned_bsee.battery_state
+                eff_a = cloned_bsee.battery_power_w
+                if state_a == "discharging":
+                    signed_battery_after = -eff_a
+                elif state_a == "charging":
+                    signed_battery_after = eff_a
 
-            grid_after = site_a + signed_battery
+            grid_before = site_b + signed_battery_before
+            grid_after = site_a + signed_battery_after
 
-            site_power_arr.append(round(site_b, 1))
+            site_power_arr.append(round(grid_before, 1))
             pv_before_arr.append(round(prod_b, 1))
             grid_power_arr.append(round(grid_after, 1))
             pv_after_arr.append(round(prod_a, 1))
-            battery_power_arr.append(round(signed_battery, 1))
+            battery_power_arr.append(round(signed_battery_after, 1))
 
             for cid in self._circuits:
                 circuit_arrays_before[cid].append(round(powers_b.get(cid, 0.0), 1))

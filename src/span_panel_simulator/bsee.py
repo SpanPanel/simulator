@@ -204,46 +204,29 @@ class BatteryStorageEquipment:
     # ------------------------------------------------------------------
 
     def _resolve_battery_state(self, current_time: float) -> str:
-        """Determine battery state from grid status, charge mode, or schedule.
+        """Determine battery state from grid status or schedule.
 
-        Grid-forced-offline always overrides the schedule: the battery
-        must discharge to supply loads during an outage.
-
-        For non-custom charge modes (solar-gen, solar-excess) the live
-        engine sets ``last_battery_direction`` each tick.  However, during
-        the modeling pass the battery circuit may be replayed from the
-        recorder (skipping ``_apply_battery_behavior``), leaving the
-        direction stale at "idle".  The schedule is always authoritative
-        for discharge/idle hours regardless of charge mode, so we consult
-        it first and only defer to the behavior engine for charge-hour
-        decisions where the mode matters.
+        The schedule (charge/discharge/idle hours) is always authoritative
+        for state resolution.  The charge mode (solar-gen, solar-excess,
+        custom) affects power *magnitude* via the behavior engine's
+        ``_apply_battery_behavior``, not the state.  This separation
+        ensures correct behavior in both the live simulation (where the
+        behavior engine is active) and the modeling pass (where the
+        battery circuit may be replayed from recorder data, leaving
+        ``last_battery_direction`` stale).
         """
         if self._forced_offline:
             return "discharging"
 
         current_hour = datetime.fromtimestamp(current_time, tz=self._tz).hour
 
+        charge_hours: list[int] = self._battery_behavior.get("charge_hours", [])
         discharge_hours: list[int] = self._battery_behavior.get("discharge_hours", [])
-        idle_hours: list[int] = self._battery_behavior.get("idle_hours", [])
 
-        # Discharge and idle hours are always schedule-driven,
-        # regardless of charge mode.
         if current_hour in discharge_hours:
             return "discharging"
-        if current_hour in idle_hours:
-            return "idle"
-
-        # Charge hours: for non-custom modes, let the behavior engine
-        # decide (solar-gen tracks the solar curve, solar-excess waits
-        # for surplus).  For custom mode, use the schedule directly.
-        charge_mode: str = self._battery_behavior.get("charge_mode", "custom")
-        if charge_mode != "custom" and self._behavior_engine is not None:
-            return self._behavior_engine.last_battery_direction
-
-        charge_hours: list[int] = self._battery_behavior.get("charge_hours", [])
         if current_hour in charge_hours:
             return "charging"
-
         return "idle"
 
     def _integrate_energy(self, current_time: float, power_w: float) -> None:
