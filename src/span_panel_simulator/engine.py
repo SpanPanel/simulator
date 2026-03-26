@@ -1572,39 +1572,23 @@ class DynamicSimulationEngine:
             ):
                 solar_excess_ids.add(cid)
 
-        # Create temporary BSEE instances for modeling passes.
-        # After always gets BSEE (current config).
-        # Before only gets BSEE if the battery existed in the recorder
-        # baseline (not user-added).  A user-added battery has
-        # user_modified=True and no recorder data — the Before chart
-        # should show life *without* the battery so the user sees the
-        # impact of adding one.
+        # BSEE for the After pass (applies current config).
+        # The Before pass needs no BSEE — the recorder already contains
+        # the battery's charge/discharge power with correct sign
+        # (negative = charging, positive = discharging).
         cloned_bsee: BatteryStorageEquipment | None = None
-        cloned_bsee_before: BatteryStorageEquipment | None = None
         battery_circuit = self._find_battery_circuit()
         if self._bsee is not None and battery_circuit is not None:
             battery_cfg = battery_circuit.template.get("battery_behavior", {})
             if isinstance(battery_cfg, dict):
-                battery_dict: dict[str, Any] = dict(battery_cfg)
-                bsee_args: dict[str, Any] = {
-                    "battery_behavior": battery_dict,
-                    "panel_serial": self._config["panel_config"]["serial_number"],
-                    "feed_circuit_id": battery_circuit.circuit_id,
-                    "nameplate_capacity_kwh": self._bsee.nameplate_capacity_kwh,
-                    "behavior_engine": cloned_behavior,
-                    "panel_timezone": (
-                        cloned_behavior.panel_timezone if cloned_behavior else None
-                    ),
-                }
-                cloned_bsee = BatteryStorageEquipment(**bsee_args)
-
-                # Only apply BESS to Before if the battery was part of
-                # the original config (has recorder data, not user-added).
-                battery_is_original = not battery_circuit.template.get(
-                    "user_modified", False
-                ) and bool(battery_circuit.template.get("recorder_entity"))
-                if battery_is_original:
-                    cloned_bsee_before = BatteryStorageEquipment(**bsee_args)
+                cloned_bsee = BatteryStorageEquipment(
+                    battery_behavior=dict(battery_cfg),
+                    panel_serial=self._config["panel_config"]["serial_number"],
+                    feed_circuit_id=battery_circuit.circuit_id,
+                    nameplate_capacity_kwh=self._bsee.nameplate_capacity_kwh,
+                    behavior_engine=cloned_behavior,
+                    panel_timezone=(cloned_behavior.panel_timezone if cloned_behavior else None),
+                )
 
         if cloned_behavior is None:
             return {"error": "Simulation not initialised"}
@@ -1640,18 +1624,12 @@ class DynamicSimulationEngine:
                 modeling_recorder_baseline=False,
             )
 
-            # Apply BSEE to Before pass (recorder baseline + battery schedule)
-            signed_battery_before = 0.0
-            if cloned_bsee_before is not None:
-                cloned_bsee_before.update(ts, raw_batt_b)
-                state_b = cloned_bsee_before.battery_state
-                eff_b = cloned_bsee_before.battery_power_w
-                if state_b == "discharging":
-                    signed_battery_before = -eff_b
-                elif state_b == "charging":
-                    signed_battery_before = eff_b
+            # Before: recorder data already has correct battery sign
+            # (negative = charging, positive = discharging).  Invert to
+            # match the grid convention (discharge reduces grid import).
+            signed_battery_before = -raw_batt_b
 
-            # Apply BSEE to After pass (current config + battery schedule)
+            # After: BSEE applies current config (user edits, new battery)
             signed_battery_after = 0.0
             if cloned_bsee is not None:
                 cloned_bsee.update(ts, raw_batt_a)
