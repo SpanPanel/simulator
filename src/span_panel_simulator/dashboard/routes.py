@@ -1402,6 +1402,13 @@ async def handle_delete_config(request: web.Request) -> web.Response:
     await _purge_recorder_for_config(ctx, config_path)
 
     config_path.unlink()
+
+    # Remove companion history DB if present
+    history_db = config_path.with_name(config_path.stem + "_history.db")
+    if history_db.exists():
+        history_db.unlink()
+        _LOGGER.info("Deleted history DB %s", history_db.name)
+
     _LOGGER.info("Deleted config %s", filename)
 
     # If we just deleted the active editor file, fall back to viewing
