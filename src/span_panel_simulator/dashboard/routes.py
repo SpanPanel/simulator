@@ -1557,6 +1557,19 @@ async def handle_clone_from_panel(request: web.Request) -> web.Response:
 
     clone_path = write_clone_config(config, ctx.config_dir, scraped.serial_number)
 
+    # Generate synthetic history companion DB for offline replay
+    try:
+        from span_panel_simulator.history_generator import SyntheticHistoryGenerator
+
+        gen = SyntheticHistoryGenerator()
+        history_db = await gen.generate(clone_path)
+        _LOGGER.info("Generated synthetic history: %s", history_db.name)
+    except Exception:
+        _LOGGER.warning(
+            "Synthetic history generation failed — panel will use per-tick synthesis",
+            exc_info=True,
+        )
+
     # Load the clone config into the dashboard editor
     store = _store(request)
     store.load_from_file(clone_path)
