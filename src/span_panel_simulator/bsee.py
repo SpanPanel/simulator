@@ -85,6 +85,10 @@ class BatteryStorageEquipment:
         """
         self._battery_state = self._resolve_battery_state(current_time)
 
+        # Enforce schedule: battery does nothing during idle hours
+        if self._battery_state == "idle":
+            battery_power_w = 0.0
+
         # Enforce SOE bounds — stop discharge at reserve, stop charge at max
         effective_min_pct = _SOE_HARD_MIN_PCT if self._forced_offline else self._backup_reserve_pct
         if (self._battery_state == "discharging" and self.soe_percentage <= effective_min_pct) or (

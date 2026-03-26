@@ -1636,18 +1636,8 @@ class DynamicSimulationEngine:
             # bounds are reached.
             signed_battery_after = 0.0
             if cloned_bsee is not None:
-                battery_user_modified = (
-                    battery_circuit is not None and battery_circuit.template.get("user_modified")
-                )
-                if battery_user_modified:
-                    # User changed the battery config — let BSEE apply the
-                    # new schedule with SOE tracking.
-                    cloned_bsee.update(ts, raw_batt_a)
-                    signed_battery_after = -cloned_bsee.battery_power_w
-                else:
-                    # Battery unchanged — recorder data is authoritative.
-                    # Skip BSEE so After matches Before exactly.
-                    signed_battery_after = -raw_batt_a
+                cloned_bsee.update(ts, raw_batt_a)
+                signed_battery_after = -cloned_bsee.battery_power_w
 
             grid_before = site_b + signed_battery_before
             grid_after = site_a + signed_battery_after
