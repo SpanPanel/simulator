@@ -852,6 +852,7 @@ class DynamicSimulationEngine:
         self._circuits: dict[str, SimulatedCircuit] = {}
         self._bsee: BatteryStorageEquipment | None = None
         self._energy_system: EnergySystem | None = None
+        self._last_system_state: SystemState | None = None
 
         # Dynamic overrides (dispatched to circuits)
         self._dynamic_overrides: dict[str, dict[str, Any]] = {}
@@ -1087,39 +1088,49 @@ class DynamicSimulationEngine:
         """
         sim_time = self.get_current_simulation_time()
 
-        grid = 0.0
-        pv = 0.0
-        battery = 0.0
-        total_consumption = 0.0
-        total_production = 0.0
-        for circuit in self._circuits.values():
-            power = circuit.instant_power_w
-            if circuit.energy_mode == "producer":
-                pv += power
-                total_production += power
-            elif circuit.energy_mode == "bidirectional":
-                battery = power
-            else:
-                total_consumption += power
-
-        # Battery sign: positive = discharging (producer), negative = charging (consumer)
-        battery_state = self._bsee.battery_state if self._bsee is not None else "idle"
-        if battery_state == "discharging":
-            # Battery is a producer — offsets grid
-            total_production += battery
-        elif battery_state == "charging":
-            # Battery is a consumer — adds to grid demand
-            total_consumption += battery
-            battery = -battery
-
-        # Grid = net energy demand: all consumers - all producers
-        # Floors at zero (can't push to grid without net metering)
-        if self.grid_online:
-            grid = max(0.0, total_consumption - total_production)
+        if self._last_system_state is not None:
+            ss = self._last_system_state
+            grid = ss.grid_power_w
+            pv = ss.pv_power_w
+            battery = ss.bess_power_w
+            if ss.bess_state == "charging":
+                battery = -battery  # dashboard convention: negative = charging
+            consumption = ss.load_power_w
         else:
+            # Fallback: old inline aggregation (pre-initialization)
             grid = 0.0
-            if self.has_battery:
-                battery = total_consumption - pv
+            pv = 0.0
+            battery = 0.0
+            consumption = 0.0
+            total_production = 0.0
+            for circuit in self._circuits.values():
+                power = circuit.instant_power_w
+                if circuit.energy_mode == "producer":
+                    pv += power
+                    total_production += power
+                elif circuit.energy_mode == "bidirectional":
+                    battery = power
+                else:
+                    consumption += power
+
+            # Battery sign: positive = discharging (producer), negative = charging (consumer)
+            battery_state = self._bsee.battery_state if self._bsee is not None else "idle"
+            if battery_state == "discharging":
+                # Battery is a producer — offsets grid
+                total_production += battery
+            elif battery_state == "charging":
+                # Battery is a consumer — adds to grid demand
+                consumption += battery
+                battery = -battery
+
+            # Grid = net energy demand: all consumers - all producers
+            # Floors at zero (can't push to grid without net metering)
+            if self.grid_online:
+                grid = max(0.0, consumption - total_production)
+            else:
+                grid = 0.0
+                if self.has_battery:
+                    battery = consumption - pv
 
         # Shedding info
         shed_ids: list[str] = []
@@ -1148,7 +1159,7 @@ class DynamicSimulationEngine:
             "grid_w": round(grid, 1),
             "pv_w": round(pv, 1),
             "battery_w": round(battery, 1),
-            "consumption_w": round(total_consumption, 1),
+            "consumption_w": round(consumption, 1),
             "simulation_time": sim_time,
             "grid_online": self.grid_online,
             "has_battery": self.has_battery,
@@ -1284,6 +1295,7 @@ class DynamicSimulationEngine:
             # Use EnergySystem for power flow resolution (single source of truth)
             inputs = self._collect_power_inputs()
             system_state = self._energy_system.tick(current_time, inputs)
+            self._last_system_state = system_state
             site_power = system_state.load_power_w - system_state.pv_power_w
             grid_power = system_state.grid_power_w
             battery_power_w = system_state.bess_power_w
@@ -1625,6 +1637,11 @@ class DynamicSimulationEngine:
                     panel_timezone=(cloned_behavior.panel_timezone if cloned_behavior else None),
                 )
 
+        # Energy system for the After pass
+        after_energy_system: EnergySystem | None = None
+        if self._energy_system is not None:
+            after_energy_system = self._build_energy_system()
+
         if cloned_behavior is None:
             return {"error": "Simulation not initialised"}
 
@@ -1664,18 +1681,36 @@ class DynamicSimulationEngine:
             # match the grid convention (discharge reduces grid import).
             signed_battery_before = -raw_batt_b
 
-            # After: BSEE applies current config (SOE tracking, user edits).
-            # Same sign convention as Before: negate raw power so that
-            # discharge (positive raw) reduces grid and charge (negative
-            # raw) increases grid.  BSEE may clamp power to 0 when SOE
-            # bounds are reached.
-            signed_battery_after = 0.0
-            if cloned_bsee is not None:
-                cloned_bsee.update(ts, raw_batt_a, site_power_w=site_a)
-                signed_battery_after = -cloned_bsee.battery_power_w
+            # After: use energy system if available, else fall back to cloned BSEE
+            if after_energy_system is not None:
+                # Determine battery state from schedule
+                bess_state = "idle"
+                if cloned_bsee is not None:
+                    bess_state = cloned_bsee._resolve_battery_state(ts)
+
+                inputs_a = PowerInputs(
+                    pv_available_w=prod_a,
+                    bess_requested_w=abs(raw_batt_a),
+                    bess_scheduled_state=bess_state,
+                    load_demand_w=max(0.0, site_a + prod_a),  # consumption = site + production
+                    grid_connected=True,
+                )
+                state_a = after_energy_system.tick(ts, inputs_a)
+                grid_after = state_a.grid_power_w
+                # Battery sign for modeling: negative = discharge reduces grid
+                if state_a.bess_state == "discharging":
+                    signed_battery_after = -state_a.bess_power_w
+                else:
+                    signed_battery_after = state_a.bess_power_w
+            else:
+                # Fallback: existing cloned BSEE logic
+                signed_battery_after = 0.0
+                if cloned_bsee is not None:
+                    cloned_bsee.update(ts, raw_batt_a, site_power_w=site_a)
+                    signed_battery_after = -cloned_bsee.battery_power_w
+                grid_after = site_a + signed_battery_after
 
             grid_before = site_b + signed_battery_before
-            grid_after = site_a + signed_battery_after
 
             site_power_arr.append(round(grid_before, 1))
             pv_before_arr.append(round(prod_b, 1))
