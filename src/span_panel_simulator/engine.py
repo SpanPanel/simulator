@@ -1829,7 +1829,6 @@ class DynamicSimulationEngine:
                     panel_serial=self._config["panel_config"]["serial_number"],
                     feed_circuit_id=circuit_def["id"],
                     nameplate_capacity_kwh=nameplate,
-                    behavior_engine=self._behavior_engine,
                     panel_timezone=panel_tz,
                 )
         return None
