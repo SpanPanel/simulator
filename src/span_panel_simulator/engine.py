@@ -1,7 +1,7 @@
 """Simulation engine for the standalone eBus simulator.
 
 Orchestrates ``SimulatedCircuit`` instances, a ``SimulationClock``, and
-optional ``BatteryStorageEquipment`` (BSEE) to produce
+an ``EnergySystem`` (with ``BESSUnit``) to produce
 ``SpanPanelSnapshot`` objects from YAML configuration.
 
 Circuit-level logic lives in ``circuit.py``; time management in
@@ -23,7 +23,6 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from span_panel_simulator.behavior_mutable_state import BehaviorEngineMutableState
-from span_panel_simulator.bsee import BatteryStorageEquipment
 from span_panel_simulator.circuit import SimulatedCircuit
 from span_panel_simulator.clock import SimulationClock
 from span_panel_simulator.const import DEFAULT_FIRMWARE_VERSION
@@ -845,7 +844,6 @@ class DynamicSimulationEngine:
         self._clock = SimulationClock()
         self._behavior_engine: RealisticBehaviorEngine | None = None
         self._circuits: dict[str, SimulatedCircuit] = {}
-        self._bsee: BatteryStorageEquipment | None = None
         self._energy_system: EnergySystem | None = None
         self._last_system_state: SystemState | None = None
 
@@ -910,7 +908,6 @@ class DynamicSimulationEngine:
                     self._clock.set_time(anchor.isoformat())
 
             self._build_circuits()
-            self._bsee = self._create_bsee()
             self._energy_system = self._build_energy_system()
             self._initialized = True
 
@@ -987,27 +984,25 @@ class DynamicSimulationEngine:
     def set_grid_online(self, online: bool) -> None:
         """Force the grid online or offline."""
         self._forced_grid_offline = not online
-        if self._bsee is not None:
-            self._bsee.set_forced_offline(not online)
         if self._behavior_engine is not None:
             self._behavior_engine.set_grid_offline(not online)
 
     @property
     def is_grid_islandable(self) -> bool:
         """Whether PV can operate when grid is disconnected."""
-        if self._bsee is not None:
-            return self._bsee.grid_islandable
+        if self._energy_system is not None:
+            return self._energy_system.islandable
         return False
 
     def set_grid_islandable(self, islandable: bool) -> None:
         """Set whether PV can operate when grid is disconnected."""
-        if self._bsee is not None:
-            self._bsee.set_islandable(islandable)
+        if self._energy_system is not None:
+            self._energy_system.islandable = islandable
 
     @property
     def has_battery(self) -> bool:
         """Whether a BESS is configured."""
-        return self._bsee is not None
+        return self._energy_system is not None and self._energy_system.bess is not None
 
     # ------------------------------------------------------------------
     # Public properties & accessors
@@ -1045,8 +1040,8 @@ class DynamicSimulationEngine:
     @property
     def soc_percentage(self) -> float | None:
         """Battery state-of-charge percentage, or None if no BESS."""
-        if self._bsee is not None:
-            return self._bsee.soe_percentage
+        if self._energy_system is not None and self._energy_system.bess is not None:
+            return self._energy_system.bess.soe_percentage
         return None
 
     @property
@@ -1192,17 +1187,17 @@ class DynamicSimulationEngine:
         # 2b. Handle forced grid offline + load shedding
         shed_ids: set[str] = set()
         if self._forced_grid_offline:
-            if self._bsee is None:
+            if self._energy_system is None or self._energy_system.bess is None:
                 # No battery: panel is dead — zero all circuits
                 for circuit in self._circuits.values():
                     circuit._instant_power_w = 0.0
             else:
-                soc = self._bsee.soe_percentage
+                soc = self._energy_system.bess.soe_percentage
                 soc_threshold = self._config["panel_config"].get("soc_shed_threshold", 20.0)
                 for circuit in self._circuits.values():
                     # PV: shed if not islandable
                     if circuit.energy_mode == "producer":
-                        if not self._bsee.grid_islandable:
+                        if not self._energy_system.islandable:
                             circuit._instant_power_w = 0.0
                         continue
                     # Battery: never shed
@@ -1253,39 +1248,29 @@ class DynamicSimulationEngine:
         self._last_system_state = system_state
         site_power = system_state.load_power_w - system_state.pv_power_w
         grid_power = system_state.grid_power_w
-        battery_power_w = system_state.bess_power_w
 
         # Reflect effective battery power back to circuit
         if battery_circuit is not None and self._energy_system.bess is not None:
             battery_circuit._instant_power_w = self._energy_system.bess.effective_power_w
 
-        # 6. Battery / BSEE
-        if self._bsee is not None:
-            # Sync BSEE state from energy system for identity properties
-            self._bsee._battery_power_w = battery_power_w
-            if system_state.bess_state == "discharging":
-                self._bsee._battery_state = "discharging"
-            elif system_state.bess_state == "charging":
-                self._bsee._battery_state = "charging"
-            else:
-                self._bsee._battery_state = "idle"
-            self._bsee._soe_kwh = system_state.soe_kwh
-
+        # 6. Battery snapshot
+        bess = self._energy_system.bess
+        if bess is not None:
             battery_snapshot = SpanBatterySnapshot(
-                soe_percentage=self._bsee.soe_percentage,
-                soe_kwh=self._bsee.soe_kwh,
-                vendor_name=self._bsee.vendor_name,
-                product_name=self._bsee.product_name,
-                model=self._bsee.model,
-                serial_number=self._bsee.serial_number,
-                software_version=self._bsee.software_version,
-                nameplate_capacity_kwh=self._bsee.nameplate_capacity_kwh,
-                connected=self._bsee.connected,
-                feed_circuit_id=self._bsee.feed_circuit_id,
+                soe_percentage=system_state.soe_percentage,
+                soe_kwh=system_state.soe_kwh,
+                vendor_name=bess.vendor_name,
+                product_name=bess.product_name,
+                model=bess.model,
+                serial_number=bess.serial_number,
+                software_version=bess.software_version,
+                nameplate_capacity_kwh=bess.nameplate_capacity_kwh,
+                connected=bess.connected,
+                feed_circuit_id=bess.feed_circuit_id,
             )
-            dominant_power_source = self._bsee.dominant_power_source
-            grid_state = self._bsee.grid_state
-            grid_islandable = self._bsee.grid_islandable
+            dominant_power_source = self._energy_system.dominant_power_source
+            grid_state = self._energy_system.grid_state
+            grid_islandable = self._energy_system.islandable
             dsm_state = DSM_OFF_GRID if grid_state == "OFF_GRID" else DSM_ON_GRID
             current_run_config = PANEL_OFF_GRID if grid_state == "OFF_GRID" else PANEL_ON_GRID
 
@@ -1370,7 +1355,8 @@ class DynamicSimulationEngine:
         # Main relay is open when grid is disconnected
         main_relay = "OPEN" if self._forced_grid_offline else MAIN_RELAY_CLOSED
         # Voltage drops to 0 when offline without battery
-        line_voltage = 0.0 if (self._forced_grid_offline and self._bsee is None) else 120.0
+        has_bess = self._energy_system is not None and self._energy_system.bess is not None
+        line_voltage = 0.0 if (self._forced_grid_offline and not has_bess) else 120.0
 
         # Panel model derived from tab count
         panel_model = _PANEL_SIZE_TO_MODEL.get(total_tabs)
@@ -1592,8 +1578,10 @@ class DynamicSimulationEngine:
             # After: use energy system for power flow resolution
             # Determine battery state from schedule
             bess_state = "idle"
-            if self._bsee is not None:
-                bess_state = self._bsee._resolve_battery_state(ts)
+            if self._energy_system is not None and self._energy_system.bess is not None:
+                bess_state = self._energy_system.bess.resolve_scheduled_state(
+                    ts, forced_offline=self._forced_grid_offline
+                )
 
             inputs_a = PowerInputs(
                 pv_available_w=prod_a,
@@ -1781,8 +1769,8 @@ class DynamicSimulationEngine:
                 pv_power += power
             elif circuit.energy_mode == "bidirectional":
                 bess_power = power
-                if self._bsee is not None:
-                    bess_state = self._bsee.battery_state
+                if self._energy_system is not None and self._energy_system.bess is not None:
+                    bess_state = self._energy_system.bess.effective_state
                 elif self._behavior_engine is not None:
                     bess_state = self._behavior_engine.last_battery_direction
             else:
@@ -1802,35 +1790,6 @@ class DynamicSimulationEngine:
             battery_cfg = circuit.template.get("battery_behavior", {})
             if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
                 return circuit
-        return None
-
-    def _create_bsee(self) -> BatteryStorageEquipment | None:
-        """Create a BSEE if the config contains a battery circuit."""
-        if not self._config:
-            return None
-        for circuit_def in self._config["circuits"]:
-            template_name = circuit_def.get("template", "")
-            template: CircuitTemplateExtended | dict[str, Any] = self._config[
-                "circuit_templates"
-            ].get(template_name, {})
-            if not isinstance(template, dict):
-                continue
-            battery_cfg = template.get("battery_behavior", {})
-            if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
-                battery_dict: dict[str, Any] = dict(battery_cfg)
-                nameplate: float = float(battery_cfg.get("nameplate_capacity_kwh", 13.5))
-                panel_tz = (
-                    self._behavior_engine.panel_timezone
-                    if self._behavior_engine is not None
-                    else ZoneInfo(RealisticBehaviorEngine._DEFAULT_TZ)
-                )
-                return BatteryStorageEquipment(
-                    battery_behavior=battery_dict,
-                    panel_serial=self._config["panel_config"]["serial_number"],
-                    feed_circuit_id=circuit_def["id"],
-                    nameplate_capacity_kwh=nameplate,
-                    panel_timezone=panel_tz,
-                )
         return None
 
     def _build_energy_system(self) -> EnergySystem | None:
@@ -1855,6 +1814,13 @@ class DynamicSimulationEngine:
             if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
                 nameplate = float(battery_cfg.get("nameplate_capacity_kwh", 13.5))
                 hybrid = battery_cfg.get("inverter_type") == "hybrid"
+                charge_hours_raw: list[int] = battery_cfg.get("charge_hours", [])
+                discharge_hours_raw: list[int] = battery_cfg.get("discharge_hours", [])
+                panel_tz = (
+                    str(self._behavior_engine.panel_timezone)
+                    if self._behavior_engine is not None
+                    else RealisticBehaviorEngine._DEFAULT_TZ
+                )
                 bess_config = BESSConfig(
                     nameplate_kwh=nameplate,
                     max_charge_w=abs(float(battery_cfg.get("max_charge_power", 3500.0))),
@@ -1863,7 +1829,16 @@ class DynamicSimulationEngine:
                     discharge_efficiency=float(battery_cfg.get("discharge_efficiency", 0.95)),
                     backup_reserve_pct=float(battery_cfg.get("backup_reserve_pct", 20.0)),
                     hybrid=hybrid,
-                    initial_soe_kwh=self._bsee.soe_kwh if self._bsee is not None else None,
+                    initial_soe_kwh=(
+                        self._energy_system.bess.soe_kwh
+                        if self._energy_system is not None and self._energy_system.bess is not None
+                        else None
+                    ),
+                    panel_serial=self._config["panel_config"]["serial_number"],
+                    feed_circuit_id=battery_circuit.circuit_id,
+                    charge_hours=tuple(charge_hours_raw),
+                    discharge_hours=tuple(discharge_hours_raw),
+                    panel_timezone=panel_tz,
                 )
 
         loads = [LoadConfig() for c in self._circuits.values() if c.energy_mode == "consumer"]

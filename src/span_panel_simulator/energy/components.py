@@ -8,6 +8,10 @@ is expressed by which field (``demand_w`` vs ``supply_w``) is populated.
 
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from span_panel_simulator.const import DEFAULT_FIRMWARE_VERSION
 from span_panel_simulator.energy.types import (
     BusState,
     ComponentRole,
@@ -100,6 +104,11 @@ class BESSUnit(Component):
         soe_kwh: float,
         scheduled_state: str = "idle",
         requested_power_w: float = 0.0,
+        panel_serial: str = "",
+        feed_circuit_id: str = "",
+        charge_hours: tuple[int, ...] = (),
+        discharge_hours: tuple[int, ...] = (),
+        panel_timezone: ZoneInfo | None = None,
     ) -> None:
         self.nameplate_capacity_kwh = nameplate_capacity_kwh
         self.max_charge_w = max_charge_w
@@ -114,6 +123,13 @@ class BESSUnit(Component):
         self.scheduled_state = scheduled_state
         self.requested_power_w = requested_power_w
 
+        # Identity / schedule
+        self.panel_serial = panel_serial
+        self.feed_circuit_id = feed_circuit_id
+        self._charge_hours = charge_hours
+        self._discharge_hours = discharge_hours
+        self._panel_timezone: ZoneInfo = panel_timezone or ZoneInfo("America/Los_Angeles")
+
         # Output — set by resolve()
         self.effective_power_w: float = 0.0
         self.effective_state: str = "idle"
@@ -126,6 +142,49 @@ class BESSUnit(Component):
         if self.nameplate_capacity_kwh <= 0:
             return 0.0
         return self.soe_kwh / self.nameplate_capacity_kwh * 100.0
+
+    # ------------------------------------------------------------------
+    # Identity properties
+    # ------------------------------------------------------------------
+
+    @property
+    def serial_number(self) -> str:
+        return f"SIM-BESS-{self.panel_serial}"
+
+    @property
+    def vendor_name(self) -> str:
+        return "Simulated BESS"
+
+    @property
+    def product_name(self) -> str:
+        return "Battery Storage"
+
+    @property
+    def model(self) -> str:
+        return f"SIM-BESS-{self.nameplate_capacity_kwh:.1f}"
+
+    @property
+    def software_version(self) -> str:
+        return DEFAULT_FIRMWARE_VERSION
+
+    @property
+    def connected(self) -> bool:
+        return True
+
+    # ------------------------------------------------------------------
+    # Schedule resolution
+    # ------------------------------------------------------------------
+
+    def resolve_scheduled_state(self, ts: float, *, forced_offline: bool = False) -> str:
+        """Determine battery state from schedule or grid status."""
+        if forced_offline:
+            return "discharging"
+        current_hour = datetime.fromtimestamp(ts, tz=self._panel_timezone).hour
+        if self._discharge_hours and current_hour in self._discharge_hours:
+            return "discharging"
+        if self._charge_hours and current_hour in self._charge_hours:
+            return "charging"
+        return "idle"
 
     def resolve(self, bus_state: BusState) -> PowerContribution:
         if self.scheduled_state == "idle":

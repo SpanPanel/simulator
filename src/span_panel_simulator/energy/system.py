@@ -42,6 +42,17 @@ class EnergySystem:
         self.pv = pv
         self.bess = bess
         self.load = load
+        self.islandable: bool = True
+
+    @property
+    def grid_state(self) -> str:
+        """``ON_GRID`` or ``OFF_GRID`` based on grid connection status."""
+        return "OFF_GRID" if not self.grid.connected else "ON_GRID"
+
+    @property
+    def dominant_power_source(self) -> str:
+        """``BATTERY`` or ``GRID`` based on grid connection status."""
+        return "BATTERY" if not self.grid.connected else "GRID"
 
     @staticmethod
     def from_config(config: EnergySystemConfig) -> EnergySystem:
@@ -57,6 +68,8 @@ class EnergySystem:
             initial_soe = bc.initial_soe_kwh
             if initial_soe is None:
                 initial_soe = bc.nameplate_kwh * 0.5
+            from zoneinfo import ZoneInfo
+
             bess = BESSUnit(
                 nameplate_capacity_kwh=bc.nameplate_kwh,
                 max_charge_w=bc.max_charge_w,
@@ -68,6 +81,11 @@ class EnergySystem:
                 hybrid=bc.hybrid,
                 pv_source=pv,
                 soe_kwh=initial_soe,
+                panel_serial=bc.panel_serial,
+                feed_circuit_id=bc.feed_circuit_id,
+                charge_hours=bc.charge_hours,
+                discharge_hours=bc.discharge_hours,
+                panel_timezone=ZoneInfo(bc.panel_timezone),
             )
 
         total_demand = sum(lc.demand_w for lc in config.loads)
