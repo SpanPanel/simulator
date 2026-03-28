@@ -27,6 +27,14 @@ from span_panel_simulator.bsee import BatteryStorageEquipment
 from span_panel_simulator.circuit import SimulatedCircuit
 from span_panel_simulator.clock import SimulationClock
 from span_panel_simulator.const import DEFAULT_FIRMWARE_VERSION
+from span_panel_simulator.energy import (
+    BESSConfig,
+    EnergySystem,
+    EnergySystemConfig,
+    GridConfig,
+    LoadConfig,
+    PVConfig,
+)
 from span_panel_simulator.exceptions import SimulationConfigurationError
 
 if TYPE_CHECKING:
@@ -841,6 +849,7 @@ class DynamicSimulationEngine:
         self._behavior_engine: RealisticBehaviorEngine | None = None
         self._circuits: dict[str, SimulatedCircuit] = {}
         self._bsee: BatteryStorageEquipment | None = None
+        self._energy_system: EnergySystem | None = None
 
         # Dynamic overrides (dispatched to circuits)
         self._dynamic_overrides: dict[str, dict[str, Any]] = {}
@@ -904,6 +913,7 @@ class DynamicSimulationEngine:
 
             self._build_circuits()
             self._bsee = self._create_bsee()
+            self._energy_system = self._build_energy_system()
             self._initialized = True
 
     async def _load_config_async(self) -> None:
@@ -1283,7 +1293,7 @@ class DynamicSimulationEngine:
         battery_circuit = self._find_battery_circuit()
         battery_power_w = battery_circuit.instant_power_w if battery_circuit else 0.0
         if self._bsee is not None:
-            self._bsee.update(current_time, battery_power_w)
+            self._bsee.update(current_time, battery_power_w, site_power_w=site_power)
 
             # Reflect effective power back — BSEE may have zeroed it
             # (e.g. SOE hit backup reserve or full charge).
@@ -1636,7 +1646,7 @@ class DynamicSimulationEngine:
             # bounds are reached.
             signed_battery_after = 0.0
             if cloned_bsee is not None:
-                cloned_bsee.update(ts, raw_batt_a)
+                cloned_bsee.update(ts, raw_batt_a, site_power_w=site_a)
                 signed_battery_after = -cloned_bsee.battery_power_w
 
             grid_before = site_b + signed_battery_before
@@ -1835,3 +1845,46 @@ class DynamicSimulationEngine:
                     panel_timezone=panel_tz,
                 )
         return None
+
+    def _build_energy_system(self) -> EnergySystem | None:
+        """Construct an EnergySystem from current circuit configuration."""
+        if not self._config:
+            return None
+
+        grid_config = GridConfig(connected=not self._forced_grid_offline)
+
+        pv_config: PVConfig | None = None
+        for circuit in self._circuits.values():
+            if circuit.energy_mode == "producer":
+                nameplate = float(circuit.template["energy_profile"]["typical_power"])
+                inverter_type = str(circuit.template.get("inverter_type", "ac_coupled"))
+                pv_config = PVConfig(nameplate_w=abs(nameplate), inverter_type=inverter_type)
+                break
+
+        bess_config: BESSConfig | None = None
+        battery_circuit = self._find_battery_circuit()
+        if battery_circuit is not None:
+            battery_cfg = battery_circuit.template.get("battery_behavior", {})
+            if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
+                nameplate = float(battery_cfg.get("nameplate_capacity_kwh", 13.5))
+                hybrid = battery_cfg.get("inverter_type") == "hybrid"
+                bess_config = BESSConfig(
+                    nameplate_kwh=nameplate,
+                    max_charge_w=abs(float(battery_cfg.get("max_charge_power", 3500.0))),
+                    max_discharge_w=abs(float(battery_cfg.get("max_discharge_power", 3500.0))),
+                    charge_efficiency=float(battery_cfg.get("charge_efficiency", 0.95)),
+                    discharge_efficiency=float(battery_cfg.get("discharge_efficiency", 0.95)),
+                    backup_reserve_pct=float(battery_cfg.get("backup_reserve_pct", 20.0)),
+                    hybrid=hybrid,
+                    initial_soe_kwh=self._bsee.soe_kwh if self._bsee is not None else None,
+                )
+
+        loads = [LoadConfig() for c in self._circuits.values() if c.energy_mode == "consumer"]
+
+        config = EnergySystemConfig(
+            grid=grid_config,
+            pv=pv_config,
+            bess=bess_config,
+            loads=loads,
+        )
+        return EnergySystem.from_config(config)

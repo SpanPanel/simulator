@@ -71,17 +71,29 @@ class BatteryStorageEquipment:
     # Public update — called each snapshot tick
     # ------------------------------------------------------------------
 
-    def update(self, current_time: float, battery_power_w: float) -> None:
+    def update(
+        self,
+        current_time: float,
+        battery_power_w: float,
+        site_power_w: float = 0.0,
+    ) -> None:
         """Refresh BSEE state for the current tick.
 
         Resolves the scheduled battery state, enforces SOE bounds (the
         battery transitions to idle when it hits the reserve or full
         charge), then integrates the effective power over time.
 
+        As the Grid Forming Entity (GFE), the BESS only discharges to
+        meet actual site demand — it never pushes excess power back
+        through the grid meter.
+
         Args:
             current_time: Simulation timestamp (seconds since epoch).
             battery_power_w: Instantaneous battery circuit power (watts).
                 Positive = charging/discharging magnitude from the engine.
+            site_power_w: Net site demand (consumption - production) in
+                watts.  Used to throttle discharge so the GFE only
+                sources what loads require.
         """
         self._battery_state = self._resolve_battery_state(current_time)
 
@@ -95,6 +107,15 @@ class BatteryStorageEquipment:
             self._battery_state == "charging" and self.soe_percentage >= _SOE_MAX_PCT
         ):
             self._battery_state = "idle"
+            battery_power_w = 0.0
+
+        # GFE throttling: when discharging, only source what the site
+        # actually demands.  If solar already covers all loads
+        # (site_power_w <= 0) the battery has nothing to offset.
+        if self._battery_state == "discharging" and site_power_w >= 0:
+            battery_power_w = min(abs(battery_power_w), site_power_w)
+        elif self._battery_state == "discharging" and site_power_w < 0:
+            # Solar exceeds consumption — no discharge needed
             battery_power_w = 0.0
 
         self._battery_power_w = battery_power_w
