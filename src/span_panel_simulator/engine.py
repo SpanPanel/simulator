@@ -33,7 +33,9 @@ from span_panel_simulator.energy import (
     EnergySystemConfig,
     GridConfig,
     LoadConfig,
+    PowerInputs,
     PVConfig,
+    SystemState,
 )
 from span_panel_simulator.exceptions import SimulationConfigurationError
 
@@ -1256,7 +1258,7 @@ class DynamicSimulationEngine:
         # 4. Add unmapped tabs
         self._add_unmapped_tabs(circuit_snapshots)
 
-        # 5. Aggregate totals
+        # 5. Aggregate totals (energy accumulators + raw power for fallback)
         total_consumption = 0.0
         total_production = 0.0
         total_produced_energy = 0.0
@@ -1274,35 +1276,52 @@ class DynamicSimulationEngine:
             total_produced_energy += circuit.produced_energy_wh
             total_consumed_energy += circuit.consumed_energy_wh
 
-        # Site power = net demand at the panel lugs (loads - solar).
-        # This is what the SPAN panel's feedthrough CTs measure and is
-        # independent of any upstream BESS.
-        # See https://github.com/spanio/SPAN-API-Client-Docs
-        site_power = total_consumption - total_production
+        # 5b. Resolve power flows
+        battery_circuit = self._find_battery_circuit()
+        system_state: SystemState | None = None
 
-        # Grid power = what the utility meter sees.  When a BESS is
-        # present upstream, battery discharge offsets grid import and
-        # battery charge increases it.
-        grid_power = site_power - battery_circuit_power
+        if self._energy_system is not None:
+            # Use EnergySystem for power flow resolution (single source of truth)
+            inputs = self._collect_power_inputs()
+            system_state = self._energy_system.tick(current_time, inputs)
+            site_power = system_state.load_power_w - system_state.pv_power_w
+            grid_power = system_state.grid_power_w
+            battery_power_w = system_state.bess_power_w
 
-        # Disconnected from grid → no grid power flow
-        if self._forced_grid_offline:
-            grid_power = 0.0
+            # Reflect effective battery power back to circuit
+            if battery_circuit is not None and self._energy_system.bess is not None:
+                battery_circuit._instant_power_w = self._energy_system.bess.effective_power_w
+        else:
+            # Fallback: old manual calculation (pre-initialization)
+            site_power = total_consumption - total_production
+            grid_power = site_power - battery_circuit_power
+            if self._forced_grid_offline:
+                grid_power = 0.0
+            battery_power_w = battery_circuit.instant_power_w if battery_circuit else 0.0
 
         # 6. Battery / BSEE
-        battery_circuit = self._find_battery_circuit()
-        battery_power_w = battery_circuit.instant_power_w if battery_circuit else 0.0
         if self._bsee is not None:
-            self._bsee.update(current_time, battery_power_w, site_power_w=site_power)
+            # When energy system is active, sync BSEE state for identity properties
+            if self._energy_system is not None and system_state is not None:
+                self._bsee._battery_power_w = battery_power_w
+                if system_state.bess_state == "discharging":
+                    self._bsee._battery_state = "discharging"
+                elif system_state.bess_state == "charging":
+                    self._bsee._battery_state = "charging"
+                else:
+                    self._bsee._battery_state = "idle"
+                self._bsee._soe_kwh = system_state.soe_kwh
+            else:
+                self._bsee.update(current_time, battery_power_w, site_power_w=site_power)
 
-            # Reflect effective power back — BSEE may have zeroed it
-            # (e.g. SOE hit backup reserve or full charge).
-            # Recompute grid_power since the battery contribution changed.
-            effective_power = self._bsee.battery_power_w
-            if battery_circuit is not None and effective_power != battery_power_w:
-                battery_circuit._instant_power_w = effective_power
-                battery_power_w = effective_power
-                grid_power = site_power - battery_power_w
+                # Reflect effective power back — BSEE may have zeroed it
+                # (e.g. SOE hit backup reserve or full charge).
+                # Recompute grid_power since the battery contribution changed.
+                effective_power = self._bsee.battery_power_w
+                if battery_circuit is not None and effective_power != battery_power_w:
+                    battery_circuit._instant_power_w = effective_power
+                    battery_power_w = effective_power
+                    grid_power = site_power - battery_power_w
 
             battery_snapshot = SpanBatterySnapshot(
                 soe_percentage=self._bsee.soe_percentage,
@@ -1321,11 +1340,17 @@ class DynamicSimulationEngine:
             grid_islandable = self._bsee.grid_islandable
             dsm_state = DSM_OFF_GRID if grid_state == "OFF_GRID" else DSM_ON_GRID
             current_run_config = PANEL_OFF_GRID if grid_state == "OFF_GRID" else PANEL_ON_GRID
+
             # Battery power flow uses SPAN panel sign convention
             # (matches real hardware per SpanPanel/span#184):
             #   positive = charging  (panel sending power TO battery)
             #   negative = discharging (battery sending power TO panel)
-            if self._forced_grid_offline:
+            if self._energy_system is not None and system_state is not None:
+                if system_state.bess_state == "discharging":
+                    power_flow_battery = -system_state.bess_power_w
+                else:
+                    power_flow_battery = system_state.bess_power_w
+            elif self._forced_grid_offline:
                 # Off-grid: battery covers load deficit — always discharging
                 power_flow_battery = -(total_consumption - total_production)
             elif self._bsee.battery_state == "discharging":
@@ -1807,6 +1832,34 @@ class DynamicSimulationEngine:
                     is_sheddable=False,
                     is_never_backup=False,
                 )
+
+    def _collect_power_inputs(self) -> PowerInputs:
+        """Collect current circuit state into PowerInputs for the energy system."""
+        pv_power = 0.0
+        load_power = 0.0
+        bess_power = 0.0
+        bess_state = "idle"
+
+        for circuit in self._circuits.values():
+            power = circuit.instant_power_w
+            if circuit.energy_mode == "producer":
+                pv_power += power
+            elif circuit.energy_mode == "bidirectional":
+                bess_power = power
+                if self._bsee is not None:
+                    bess_state = self._bsee.battery_state
+                elif self._behavior_engine is not None:
+                    bess_state = self._behavior_engine.last_battery_direction
+            else:
+                load_power += power
+
+        return PowerInputs(
+            pv_available_w=pv_power,
+            bess_requested_w=bess_power,
+            bess_scheduled_state=bess_state,
+            load_demand_w=load_power,
+            grid_connected=not self._forced_grid_offline,
+        )
 
     def _find_battery_circuit(self) -> SimulatedCircuit | None:
         """Find the battery circuit instance, if any."""
