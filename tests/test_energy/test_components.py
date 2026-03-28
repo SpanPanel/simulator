@@ -202,3 +202,164 @@ class TestBESSUnitDischarge:
         contribution = bess.resolve(bus)
         assert contribution.supply_w == 0.0
         assert contribution.demand_w == 0.0
+
+
+class TestBESSUnitCharge:
+    def _make_bess(self, **kwargs: object) -> BESSUnit:
+        defaults: dict[str, object] = dict(
+            nameplate_capacity_kwh=13.5,
+            max_charge_w=3500.0,
+            max_discharge_w=5000.0,
+            charge_efficiency=0.95,
+            discharge_efficiency=0.95,
+            backup_reserve_pct=20.0,
+            hard_min_pct=5.0,
+            hybrid=False,
+            pv_source=None,
+            soe_kwh=6.75,
+            scheduled_state="charging",
+            requested_power_w=3000.0,
+        )
+        defaults.update(kwargs)
+        return BESSUnit(**defaults)
+
+    def test_charge_at_requested_rate(self) -> None:
+        bess = self._make_bess(requested_power_w=2000.0)
+        bus = BusState(total_demand_w=1000.0, total_supply_w=5000.0)
+        contribution = bess.resolve(bus)
+        assert contribution.demand_w == 2000.0
+        assert bess.effective_state == "charging"
+
+    def test_charge_limited_by_max_rate(self) -> None:
+        bess = self._make_bess(max_charge_w=1500.0, requested_power_w=3000.0)
+        bus = BusState()
+        contribution = bess.resolve(bus)
+        assert contribution.demand_w == 1500.0
+
+    def test_charge_stops_at_full_soe(self) -> None:
+        bess = self._make_bess(nameplate_capacity_kwh=10.0, soe_kwh=10.0)
+        bus = BusState()
+        contribution = bess.resolve(bus)
+        assert contribution.demand_w == 0.0
+        assert bess.effective_state == "idle"
+
+
+class TestBESSUnitSOEIntegration:
+    def _make_bess(self, **kwargs: object) -> BESSUnit:
+        defaults: dict[str, object] = dict(
+            nameplate_capacity_kwh=10.0,
+            max_charge_w=3500.0,
+            max_discharge_w=5000.0,
+            charge_efficiency=0.95,
+            discharge_efficiency=0.95,
+            backup_reserve_pct=20.0,
+            hard_min_pct=5.0,
+            hybrid=False,
+            pv_source=None,
+            soe_kwh=5.0,
+            scheduled_state="idle",
+            requested_power_w=0.0,
+        )
+        defaults.update(kwargs)
+        return BESSUnit(**defaults)
+
+    def test_discharge_decreases_soe(self) -> None:
+        bess = self._make_bess(
+            soe_kwh=5.0,
+            scheduled_state="discharging",
+            requested_power_w=2000.0,
+        )
+        bus = BusState(total_demand_w=5000.0, total_supply_w=0.0)
+        bess.resolve(bus)
+        # Seed the timestamp, then drive 12 x 300 s steps = 3600 s (1 hour)
+        # respecting _MAX_INTEGRATION_DELTA_S.  The first call seeds _last_ts
+        # without integrating; subsequent calls each integrate 300 s.
+        bess.integrate_energy(0.0)
+        ts = 300.0
+        for _ in range(12):
+            bess.integrate_energy(ts)
+            ts += 300.0
+        # 2000W for 1 hour / 0.95 efficiency = ~2.105 kWh consumed
+        assert bess.soe_kwh < 5.0
+        expected = 5.0 - (2.0 / 0.95)
+        assert abs(bess.soe_kwh - expected) < 0.01
+
+    def test_charge_increases_soe(self) -> None:
+        bess = self._make_bess(
+            soe_kwh=3.0,
+            scheduled_state="charging",
+            requested_power_w=2000.0,
+        )
+        bus = BusState()
+        bess.resolve(bus)
+        # Seed the timestamp, then drive 12 x 300 s steps = 3600 s (1 hour)
+        # respecting _MAX_INTEGRATION_DELTA_S.
+        bess.integrate_energy(0.0)
+        ts = 300.0
+        for _ in range(12):
+            bess.integrate_energy(ts)
+            ts += 300.0
+        # 2000W for 1 hour * 0.95 efficiency = 1.9 kWh stored
+        expected = 3.0 + (2.0 * 0.95)
+        assert abs(bess.soe_kwh - expected) < 0.01
+
+    def test_soe_clamped_to_bounds(self) -> None:
+        bess = self._make_bess(nameplate_capacity_kwh=10.0, soe_kwh=9.9)
+        bess.effective_state = "charging"
+        bess.effective_power_w = 50000.0
+        bess.integrate_energy(0.0)
+        bess.integrate_energy(3600.0)
+        assert bess.soe_kwh <= 10.0
+
+
+class TestBESSUnitHybridPV:
+    def test_hybrid_keeps_pv_online_when_grid_disconnected(self) -> None:
+        pv = PVSource(available_power_w=4000.0, online=True)
+        bess = BESSUnit(
+            nameplate_capacity_kwh=13.5,
+            max_charge_w=3500.0,
+            max_discharge_w=5000.0,
+            charge_efficiency=0.95,
+            discharge_efficiency=0.95,
+            backup_reserve_pct=20.0,
+            hard_min_pct=5.0,
+            hybrid=True,
+            pv_source=pv,
+            soe_kwh=6.75,
+        )
+        bess.update_pv_online_status(grid_connected=False)
+        assert pv.online is True
+
+    def test_non_hybrid_sheds_pv_when_grid_disconnected(self) -> None:
+        pv = PVSource(available_power_w=4000.0, online=True)
+        bess = BESSUnit(
+            nameplate_capacity_kwh=13.5,
+            max_charge_w=3500.0,
+            max_discharge_w=5000.0,
+            charge_efficiency=0.95,
+            discharge_efficiency=0.95,
+            backup_reserve_pct=20.0,
+            hard_min_pct=5.0,
+            hybrid=False,
+            pv_source=pv,
+            soe_kwh=6.75,
+        )
+        bess.update_pv_online_status(grid_connected=False)
+        assert pv.online is False
+
+    def test_non_hybrid_pv_online_when_grid_connected(self) -> None:
+        pv = PVSource(available_power_w=4000.0, online=False)
+        bess = BESSUnit(
+            nameplate_capacity_kwh=13.5,
+            max_charge_w=3500.0,
+            max_discharge_w=5000.0,
+            charge_efficiency=0.95,
+            discharge_efficiency=0.95,
+            backup_reserve_pct=20.0,
+            hard_min_pct=5.0,
+            hybrid=False,
+            pv_source=pv,
+            soe_kwh=6.75,
+        )
+        bess.update_pv_online_status(grid_connected=True)
+        assert pv.online is True
