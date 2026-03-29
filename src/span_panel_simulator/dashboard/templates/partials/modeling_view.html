@@ -800,14 +800,20 @@
     dialogError.style.display = 'none';
     dialogOverlay.style.display = 'flex';
     loadOpenEIConfig();
-    loadUtilities();
+    var opowerAcct = null;
+    var opowerDisplay = opowerDisplayEl.textContent;
+    if (opowerDisplay && opowerSectionEl.style.display !== 'none') {
+      var parts = opowerDisplay.split('\u2014');
+      if (parts.length > 0) opowerAcct = parts[0].trim();
+    }
+    loadUtilities(opowerAcct || null);
   }
 
   function closeRateDialog() {
     dialogOverlay.style.display = 'none';
   }
 
-  function loadUtilities() {
+  function loadUtilities(defaultUtility) {
     var latEl = document.querySelector('[name="latitude"]');
     var lonEl = document.querySelector('[name="longitude"]');
     var lat = (latEl && parseFloat(latEl.value)) || 37.7;
@@ -825,11 +831,19 @@
           return;
         }
         utilitySelect.innerHTML = '<option value="">Select a utility...</option>';
+        var matchIndex = -1;
         for (var i = 0; i < data.length; i++) {
           var opt = document.createElement('option');
           opt.value = data[i].utility_name;
           opt.textContent = data[i].utility_name;
           utilitySelect.appendChild(opt);
+          if (defaultUtility && data[i].utility_name.indexOf(defaultUtility) !== -1) {
+            matchIndex = i + 1;
+          }
+        }
+        if (matchIndex > 0) {
+          utilitySelect.selectedIndex = matchIndex;
+          loadRatePlans(utilitySelect.value);
         }
       })
       .catch(function() {
@@ -975,7 +989,7 @@
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({api_url: url, api_key: key}),
-    }).then(function() { loadUtilities(); });
+    }).then(function() { loadUtilities(null); });
   });
   utilitySelect.addEventListener('change', function() {
     if (utilitySelect.value) loadRatePlans(utilitySelect.value);
