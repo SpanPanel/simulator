@@ -136,16 +136,19 @@
           <tr>
             <th></th>
             <th>Energy (kWh)</th>
+            <th class="modeling-col-cost" style="display:none">Cost</th>
           </tr>
         </thead>
         <tbody>
           <tr class="modeling-row-horizon">
             <td class="modeling-row-label">Full Horizon</td>
             <td id="modeling-before-horizon" class="modeling-col-before"></td>
+            <td id="modeling-before-cost-horizon" class="modeling-col-cost" style="display:none"></td>
           </tr>
           <tr class="modeling-row-visible">
             <td class="modeling-row-label">Visible Range</td>
             <td id="modeling-before-visible" class="modeling-col-before"></td>
+            <td id="modeling-before-cost-visible" class="modeling-col-cost" style="display:none"></td>
           </tr>
         </tbody>
       </table>
@@ -166,6 +169,8 @@
             <th></th>
             <th>Energy (kWh)</th>
             <th>Difference</th>
+            <th class="modeling-col-cost" style="display:none">Cost</th>
+            <th class="modeling-col-cost" style="display:none">Savings</th>
           </tr>
         </thead>
         <tbody>
@@ -173,11 +178,15 @@
             <td class="modeling-row-label">Full Horizon</td>
             <td id="modeling-after-horizon" class="modeling-col-after"></td>
             <td id="modeling-diff-horizon" class="modeling-col-diff"></td>
+            <td id="modeling-after-cost-horizon" class="modeling-col-cost" style="display:none"></td>
+            <td id="modeling-cost-diff-horizon" class="modeling-col-cost" style="display:none"></td>
           </tr>
           <tr class="modeling-row-visible">
             <td class="modeling-row-label">Visible Range</td>
             <td id="modeling-after-visible" class="modeling-col-after"></td>
             <td id="modeling-diff-visible" class="modeling-col-diff"></td>
+            <td id="modeling-after-cost-visible" class="modeling-col-cost" style="display:none"></td>
+            <td id="modeling-cost-diff-visible" class="modeling-col-cost" style="display:none"></td>
           </tr>
         </tbody>
       </table>
@@ -402,6 +411,18 @@
     populateEnergyCell(afterHorizonEl, fullAfterEnergy);
     populateDiffCell(diffHorizonEl, fullBeforeEnergy, fullAfterEnergy);
 
+    // Cost summaries — full horizon (from server response)
+    var hasCosts = !!d.before_costs;
+    showCostColumns(hasCosts);
+    if (hasCosts) {
+      populateCostCell(document.getElementById('modeling-before-cost-horizon'), d.before_costs);
+      populateCostCell(document.getElementById('modeling-after-cost-horizon'), d.after_costs);
+      populateCostDiffCell(document.getElementById('modeling-cost-diff-horizon'), d.before_costs, d.after_costs);
+      document.getElementById('modeling-before-cost-visible').textContent = '\u2014';
+      document.getElementById('modeling-after-cost-visible').textContent = '\u2014';
+      document.getElementById('modeling-cost-diff-visible').textContent = '\u2014';
+    }
+
     // Slider labels
     rangeStartEl.textContent = formatDate(ts[0], d.time_zone);
     rangeEndEl.textContent = formatDate(ts[ts.length - 1], d.time_zone);
@@ -539,6 +560,32 @@
     el.textContent = sign + formatKwh(absDiff) + ' kWh (' + Math.abs(pct).toFixed(1) + '%)';
     // Green when imports decreased (good), red when increased
     el.className = 'modeling-col-diff ' + (diffKwh > 0 ? 'diff-positive' : diffKwh < 0 ? 'diff-negative' : '');
+  }
+
+  function formatDollar(amount) {
+    return '$' + Math.abs(amount).toFixed(2);
+  }
+
+  function populateCostCell(el, costs) {
+    if (!costs) { el.textContent = ''; return; }
+    el.textContent = formatDollar(costs.import_cost) + ' imp, ' + formatDollar(costs.export_credit)
+      + ' exp \u2014 Net: ' + formatDollar(costs.net_cost);
+  }
+
+  function populateCostDiffCell(el, beforeCosts, afterCosts) {
+    if (!beforeCosts || !afterCosts) { el.textContent = ''; return; }
+    var diff = beforeCosts.net_cost - afterCosts.net_cost;
+    var pct = beforeCosts.net_cost !== 0 ? (diff / Math.abs(beforeCosts.net_cost) * 100) : 0;
+    var sign = diff > 0 ? '\u2212' : '+';
+    el.textContent = sign + formatDollar(diff) + ' (' + Math.abs(pct).toFixed(1) + '%)';
+    el.className = 'modeling-col-cost ' + (diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : '');
+  }
+
+  function showCostColumns(visible) {
+    var els = document.querySelectorAll('.modeling-col-cost');
+    for (var i = 0; i < els.length; i++) {
+      els[i].style.display = visible ? '' : 'none';
+    }
   }
 
   function computeEnergy(powerArr, resolutionS) {
