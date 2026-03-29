@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
     from span_panel_simulator.dashboard.context import DashboardContext
 
+from datetime import UTC
+
 from span_panel_simulator.dashboard.keys import (
     APP_KEY_DASHBOARD_CONTEXT,
     APP_KEY_PENDING_CLONES,
@@ -36,6 +38,7 @@ from span_panel_simulator.dashboard.presets import (
 )
 from span_panel_simulator.ha_api.opower import (
     async_discover_opower,
+    async_get_opower_cost,
 )
 from span_panel_simulator.rates.cost_engine import compute_costs
 from span_panel_simulator.rates.openei import (
@@ -1259,17 +1262,79 @@ async def handle_modeling_data(request: web.Request) -> web.Response:
     # Attach cost data if rate cache is available
     cache = _rate_cache(request)
     proposed_label = request.query.get("proposed_rate_label")
-    _attach_costs(result, cache, proposed_label)
+    await _attach_costs(result, cache, proposed_label, ctx.ha_client)
 
     return web.json_response(result)
 
 
-def _attach_costs(
+async def _attach_costs(
     result: dict[str, Any],
     cache: RateCache,
     proposed_rate_label: str | None,
+    ha_client: Any,
 ) -> None:
-    """Add before_costs and after_costs to a modeling result dict."""
+    """Add before_costs and after_costs to a modeling result dict.
+
+    Before cost priority:
+      1. Opower actual billed cost (if HA + opower account configured)
+      2. URDB calculation against recorder power arrays
+    After cost: always URDB.
+    """
+    tz_str: str = result["time_zone"]
+    ts_list: list[int] = result["timestamps"]
+
+    # -- Before cost -----------------------------------------------------
+    before_costs: dict[str, Any] | None = None
+
+    # Try opower first
+    opower_acct = cache.get_opower_account()
+    if opower_acct is not None and ha_client is not None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(tz_str)
+        start_dt = datetime.fromtimestamp(ts_list[0], tz=tz)
+        end_dt = datetime.fromtimestamp(ts_list[-1], tz=tz)
+        start_iso = start_dt.astimezone(UTC).isoformat()
+        end_iso = end_dt.astimezone(UTC).isoformat()
+
+        try:
+            opower_result = await async_get_opower_cost(
+                ha_client,
+                opower_acct["cost_entity_id"],
+                start_iso,
+                end_iso,
+            )
+            if opower_result is not None:
+                horizon_days = (end_dt - start_dt).days or 1
+                before_costs = {
+                    "source": "opower",
+                    "net_cost": round(opower_result.total_cost, 2),
+                    "days_with_data": opower_result.days_with_data,
+                    "horizon_days": horizon_days,
+                }
+        except Exception:
+            _LOGGER.exception("Failed to fetch opower cost")
+
+    # Fall back to URDB
+    if before_costs is None:
+        current_label = cache.get_current_rate_label()
+        if current_label is not None:
+            current_entry = cache.get_cached_rate(current_label)
+            if current_entry is not None:
+                costs = compute_costs(ts_list, result["site_power"], current_entry.record, tz_str)
+                before_costs = {
+                    "source": "urdb",
+                    "import_cost": round(costs.import_cost, 2),
+                    "export_credit": round(costs.export_credit, 2),
+                    "fixed_charges": round(costs.fixed_charges, 2),
+                    "net_cost": round(costs.net_cost, 2),
+                }
+
+    if before_costs is not None:
+        result["before_costs"] = before_costs
+
+    # -- After cost (always URDB) ----------------------------------------
     current_label = cache.get_current_rate_label()
     if current_label is None:
         return
@@ -1277,29 +1342,18 @@ def _attach_costs(
     if current_entry is None:
         return
 
-    tz_str: str = result["time_zone"]
-    ts_list: list[int] = result["timestamps"]
-
-    before_costs = compute_costs(ts_list, result["site_power"], current_entry.record, tz_str)
-    result["before_costs"] = {
-        "import_cost": round(before_costs.import_cost, 2),
-        "export_credit": round(before_costs.export_credit, 2),
-        "fixed_charges": round(before_costs.fixed_charges, 2),
-        "net_cost": round(before_costs.net_cost, 2),
-    }
-
-    # After: use proposed rate if set, otherwise current
     after_record = current_entry.record
     if proposed_rate_label:
         proposed_entry = cache.get_cached_rate(proposed_rate_label)
         if proposed_entry is not None:
             after_record = proposed_entry.record
-    after_costs = compute_costs(ts_list, result["grid_power"], after_record, tz_str)
+    after_costs_result = compute_costs(ts_list, result["grid_power"], after_record, tz_str)
     result["after_costs"] = {
-        "import_cost": round(after_costs.import_cost, 2),
-        "export_credit": round(after_costs.export_credit, 2),
-        "fixed_charges": round(after_costs.fixed_charges, 2),
-        "net_cost": round(after_costs.net_cost, 2),
+        "source": "urdb",
+        "import_cost": round(after_costs_result.import_cost, 2),
+        "export_credit": round(after_costs_result.export_credit, 2),
+        "fixed_charges": round(after_costs_result.fixed_charges, 2),
+        "net_cost": round(after_costs_result.net_cost, 2),
     }
 
 
