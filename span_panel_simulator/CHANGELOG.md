@@ -18,6 +18,7 @@
 
 ### Fixes
 
+- Page-level busy cursor during slow operations (start/stop/restart panel, clone, modeling setup) prevents unintended clicks
 - BESS discharge no longer pushes grid power negative (GFE constraint)
 - Modeling Before graph no longer shows user-added circuits that didn't exist in the baseline
 - Grid-offline mode respects charge mode instead of forcing unconditional discharge

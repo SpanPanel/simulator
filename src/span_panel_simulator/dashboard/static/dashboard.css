@@ -1373,6 +1373,16 @@ button.busy {
   cursor: wait;
 }
 
+/* Page-level busy overlay — blocks all interaction while an operation
+   is in progress (start/stop/restart panel, modeling setup, etc.) */
+body.page-busy {
+  cursor: wait;
+}
+body.page-busy * {
+  pointer-events: none !important;
+  cursor: wait !important;
+}
+
 .htmx-indicator {
   margin-left: 0.5em;
 }

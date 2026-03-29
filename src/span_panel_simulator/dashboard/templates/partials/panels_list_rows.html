@@ -16,7 +16,7 @@
   <span class="badge badge-editing">{{ 'viewing' if p.is_default else 'editing' }}</span>
   {% endif %}
   <button class="btn btn-sm btn-secondary"
-          onclick="event.stopPropagation();var btn=this;var n=prompt('Clone as:','{{ p.filename.replace('default_', '') }}');if(n){btn.classList.add('busy');htmx.ajax('POST','clone',{target:'#flash-area',swap:'innerHTML',values:{filename:n,source_file:'{{ p.filename }}'}}).finally(function(){btn.classList.remove('busy');});}"
+          onclick="event.stopPropagation();var btn=this;var n=prompt('Clone as:','{{ p.filename.replace('default_', '') }}');if(n){btn.classList.add('busy');document.body.classList.add('page-busy');htmx.ajax('POST','clone',{target:'#flash-area',swap:'innerHTML',values:{filename:n,source_file:'{{ p.filename }}'}}).finally(function(){btn.classList.remove('busy');document.body.classList.remove('page-busy');});}"
           title="Clone this config">
     Clone
   </button>
