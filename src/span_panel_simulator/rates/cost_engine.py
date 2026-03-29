@@ -16,7 +16,7 @@ from span_panel_simulator.rates.types import CostLedger
 
 def compute_costs(
     timestamps: list[int],
-    power_kw: list[float],
+    power_w: list[float],
     record: dict[str, Any],
     tz: str,
     resolution_s: int = 3600,
@@ -27,8 +27,8 @@ def compute_costs(
     ----------
     timestamps:
         UNIX epoch seconds, one per interval (hourly).
-    power_kw:
-        Grid power per interval in kW.  Positive = import, negative = export.
+    power_w:
+        Grid power per interval in Watts.  Positive = import, negative = export.
     record:
         URDB record dict.
     tz:
@@ -40,9 +40,10 @@ def compute_costs(
     export_credit = 0.0
     months_seen: set[tuple[int, int]] = set()
 
-    for ts, pwr in zip(timestamps, power_kw, strict=True):
+    for ts, pwr in zip(timestamps, power_w, strict=True):
         import_rate, export_rate = resolve_rate(ts, tz, record)
-        energy_kwh = pwr * resolution_s / 3600
+        # Power arrays from the engine are in Watts; convert W * s → kWh.
+        energy_kwh = pwr * resolution_s / 3_600_000
 
         if energy_kwh > 0:
             import_cost += energy_kwh * import_rate
