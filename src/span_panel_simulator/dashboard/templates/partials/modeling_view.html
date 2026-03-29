@@ -416,13 +416,13 @@
   }
 
   function populateDiffCell(el, beforeEnergy, afterEnergy) {
-    var beforeNet = beforeEnergy.imported - beforeEnergy.exported;
-    var afterNet = afterEnergy.imported - afterEnergy.exported;
-    var diffKwh = beforeNet - afterNet;
-    var pct = beforeNet !== 0 ? (diffKwh / Math.abs(beforeNet) * 100) : 0;
-    var sign = diffKwh > 0 ? '\u2212' : '+';  // savings = minus, increase = plus
+    // Difference based on imported energy (what the user pays for)
+    var diffKwh = beforeEnergy.imported - afterEnergy.imported;
+    var pct = beforeEnergy.imported > 0 ? (diffKwh / beforeEnergy.imported * 100) : 0;
+    var sign = diffKwh > 0 ? '\u2212' : '+';  // reduction = minus, increase = plus
     var absDiff = Math.abs(diffKwh);
     el.textContent = sign + formatKwh(absDiff) + ' kWh (' + Math.abs(pct).toFixed(1) + '%)';
+    // Green when imports decreased (good), red when increased
     el.className = 'modeling-col-diff ' + (diffKwh > 0 ? 'diff-positive' : diffKwh < 0 ? 'diff-negative' : '');
   }
 
