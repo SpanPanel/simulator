@@ -34,6 +34,7 @@ from span_panel_simulator.dashboard.presets import (
     is_random_days_preset,
     match_battery_preset,
 )
+from span_panel_simulator.rates.cost_engine import compute_costs
 from span_panel_simulator.rates.openei import (
     OpenEIError,
     fetch_rate_detail,
@@ -1198,7 +1199,52 @@ async def handle_modeling_data(request: web.Request) -> web.Response:
         return web.json_response({"error": "No running simulation"}, status=503)
     if "error" in result:
         return web.json_response(result, status=400)
+
+    # Attach cost data if rate cache is available
+    cache = _rate_cache(request)
+    proposed_label = request.query.get("proposed_rate_label")
+    _attach_costs(result, cache, proposed_label)
+
     return web.json_response(result)
+
+
+def _attach_costs(
+    result: dict[str, Any],
+    cache: RateCache,
+    proposed_rate_label: str | None,
+) -> None:
+    """Add before_costs and after_costs to a modeling result dict."""
+    current_label = cache.get_current_rate_label()
+    if current_label is None:
+        return
+    current_entry = cache.get_cached_rate(current_label)
+    if current_entry is None:
+        return
+
+    tz_str: str = result["time_zone"]
+    ts_list: list[int] = result["timestamps"]
+
+    before_costs = compute_costs(ts_list, result["site_power"], current_entry.record, tz_str)
+    result["before_costs"] = {
+        "import_cost": round(before_costs.import_cost, 2),
+        "export_credit": round(before_costs.export_credit, 2),
+        "fixed_charges": round(before_costs.fixed_charges, 2),
+        "net_cost": round(before_costs.net_cost, 2),
+    }
+
+    # After: use proposed rate if set, otherwise current
+    after_record = current_entry.record
+    if proposed_rate_label:
+        proposed_entry = cache.get_cached_rate(proposed_rate_label)
+        if proposed_entry is not None:
+            after_record = proposed_entry.record
+    after_costs = compute_costs(ts_list, result["grid_power"], after_record, tz_str)
+    result["after_costs"] = {
+        "import_cost": round(after_costs.import_cost, 2),
+        "export_credit": round(after_costs.export_credit, 2),
+        "fixed_charges": round(after_costs.fixed_charges, 2),
+        "net_cost": round(after_costs.net_cost, 2),
+    }
 
 
 # -- File operations --
