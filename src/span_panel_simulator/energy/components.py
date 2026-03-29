@@ -267,26 +267,37 @@ class BESSUnit(Component):
         return headroom_kwh * 1000.0 / (delta_hours * self.charge_efficiency)
 
     def integrate_energy(self, ts: float) -> None:
-        """Integrate effective power over elapsed time to update SOE."""
+        """Integrate effective power over elapsed time to update SOE.
+
+        For numerical stability the integration is performed in sub-steps
+        of at most ``_MAX_INTEGRATION_DELTA_S`` seconds, but the *full*
+        elapsed interval is always consumed so that sparse tick intervals
+        (e.g. 3600 s modelling steps) integrate correctly.
+        """
         if self._last_ts is None:
             self._last_ts = ts
             return
-        delta_s = ts - self._last_ts
+        total_delta_s = ts - self._last_ts
         self._last_ts = ts
-        if delta_s <= 0:
+        if total_delta_s <= 0:
             return
-        delta_s = min(delta_s, _MAX_INTEGRATION_DELTA_S)
-        delta_hours = delta_s / 3600.0
+
         mag = abs(self.effective_power_w)
-        if self.effective_state == "charging" and mag > 0:
-            energy_kwh = (mag / 1000.0) * delta_hours * self.charge_efficiency
-            self.soe_kwh += energy_kwh
-        elif self.effective_state == "discharging" and mag > 0:
-            energy_kwh = (mag / 1000.0) * delta_hours / self.discharge_efficiency
-            self.soe_kwh -= energy_kwh
         max_kwh = self.nameplate_capacity_kwh * _SOE_MAX_PCT / 100.0
         min_kwh = self.nameplate_capacity_kwh * self.hard_min_pct / 100.0
-        self.soe_kwh = max(min_kwh, min(max_kwh, self.soe_kwh))
+        remaining = total_delta_s
+
+        while remaining > 0:
+            step_s = min(remaining, _MAX_INTEGRATION_DELTA_S)
+            delta_hours = step_s / 3600.0
+            if self.effective_state == "charging" and mag > 0:
+                energy_kwh = (mag / 1000.0) * delta_hours * self.charge_efficiency
+                self.soe_kwh += energy_kwh
+            elif self.effective_state == "discharging" and mag > 0:
+                energy_kwh = (mag / 1000.0) * delta_hours / self.discharge_efficiency
+                self.soe_kwh -= energy_kwh
+            self.soe_kwh = max(min_kwh, min(max_kwh, self.soe_kwh))
+            remaining -= step_s
 
     def update_pv_online_status(self, pv_allowed: bool) -> None:
         """Control co-located PV online status.

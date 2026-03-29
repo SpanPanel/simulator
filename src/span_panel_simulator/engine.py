@@ -1419,9 +1419,10 @@ class DynamicSimulationEngine:
 
         Performs **read-only** passes — no runtime state is mutated.
         **Before** uses HA recorder replay wherever ``recorder_entity`` data
-        exists (ignores ``user_modified``), with site power **without** BESS.
+        exists (ignores ``user_modified``), ticking an ``EnergySystem``
+        built from recorder-backed circuits only.
         **After** uses current templates (SYN / overrides) and ticks an
-        ``EnergySystem`` to resolve grid and battery traces.
+        ``EnergySystem`` with all circuits to resolve grid and battery traces.
 
         Returns the response dict matching the ``GET /modeling-data`` schema
         (including ``pv_power_before``, ``pv_power_after``, and legacy
