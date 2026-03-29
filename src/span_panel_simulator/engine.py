@@ -1438,6 +1438,15 @@ class DynamicSimulationEngine:
                 modeling_recorder_baseline=modeling_recorder_baseline,
                 modeling_deterministic=True,
             )
+
+            # Baseline pass: circuits with no recorder data should produce 0
+            # — they didn't exist in the baseline system.  Without this
+            # guard the behavior engine synthesises power for user-added
+            # circuits (battery, PV, loads) that leaks into the "Before"
+            # graph.
+            if modeling_recorder_baseline and not circuit.template.get("recorder_entity"):
+                power = 0.0
+
             circuit_powers[cid] = power
 
             if circuit.energy_mode == "producer":
@@ -1459,6 +1468,8 @@ class DynamicSimulationEngine:
                     modeling_recorder_baseline=modeling_recorder_baseline,
                     modeling_deterministic=True,
                 )
+                if modeling_recorder_baseline and not circuit.template.get("recorder_entity"):
+                    power = 0.0
                 circuit_powers[cid] = power
                 raw_battery_power = power
 
