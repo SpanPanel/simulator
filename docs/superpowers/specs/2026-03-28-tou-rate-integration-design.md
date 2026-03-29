@@ -376,6 +376,7 @@ When no rate is configured, the existing energy-only display remains unchanged.
 
 These are explicitly deferred and not part of this implementation:
 
+- **Opower Before cost** -- when HA is connected and the opower integration is configured, use actual billed cost from the utility for Before instead of calculating it from URDB. Opower historical cost/usage data is available via HA's `recorder/statistics_during_period` WebSocket API on `sensor.opower_*_elec_cost_to_date` entities. No additional credentials needed -- the simulator reads what opower already collected. URDB remains required for After cost (modeled scenarios). Opower data can also help suggest the correct URDB rate plan by comparing calculated vs actual costs, though this is unreliable if the user recently changed plans.
 - **Tiered rate calculation** -- use consumption brackets instead of always tier 1
 - **Manual rate entry** -- fallback when URDB lacks the user's tariff
 - **Demand charge time-series** -- calculate demand charges based on peak kW per billing period
