@@ -1,0 +1,49 @@
+<div class="card" id="clone-panel-section">
+  <h2>Clone from Panel</h2>
+  <div class="flash warning">
+    Config file <strong>{{ existing_filename }}</strong> already exists.
+    Choose how to proceed:
+  </div>
+
+  <form hx-post="clone-confirm"
+        hx-target="#clone-panel-section"
+        hx-swap="outerHTML"
+        hx-indicator="#clone-confirm-spinner"
+        hx-disabled-elt="find button">
+    <input type="hidden" name="token" value="{{ token }}">
+
+    <div class="form-row" style="flex-direction: column; gap: 0.75rem;">
+      <label>
+        <input type="radio" name="action" value="overwrite" checked>
+        Overwrite <strong>{{ existing_filename }}</strong>
+      </label>
+      <label>
+        <input type="radio" name="action" value="rename" id="clone-rename-radio">
+        Save as new name:
+        <input type="text" name="custom_name" id="clone-custom-name"
+               placeholder="{{ default_rename }}"
+               value="{{ default_rename }}"
+               style="margin-left: 0.5rem; width: 20rem;">
+      </label>
+    </div>
+    <div class="form-row" style="margin-top: 0.75rem;">
+      <button type="submit" class="btn btn-sm btn-primary">Continue</button>
+      <button type="button" class="btn btn-sm"
+              hx-get="clone-panel-section"
+              hx-target="#clone-panel-section"
+              hx-swap="outerHTML">Cancel</button>
+      <span id="clone-confirm-spinner" class="htmx-indicator">&#x23F3;</span>
+    </div>
+  </form>
+</div>
+<script>
+(function() {
+  var nameInput = document.getElementById('clone-custom-name');
+  var renameRadio = document.getElementById('clone-rename-radio');
+  if (nameInput) {
+    nameInput.addEventListener('focus', function() {
+      if (renameRadio) renameRadio.checked = true;
+    });
+  }
+})();
+</script>

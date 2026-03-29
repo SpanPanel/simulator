@@ -6,9 +6,9 @@
     <div class="charge-mode-selector"
          id="charge-mode-{{ entity.id }}">
       {% for mode, label, hint in [
-        ("custom", "Custom", "Manual charge/discharge/idle schedule per hour"),
-        ("solar-gen", "Solar Generation", "Charge whenever PV is producing, tracking the solar curve"),
-        ("solar-excess", "Solar Excess", "Charge only from surplus solar after loads are met"),
+        ("self-consumption", "Self-Consumption", "Discharge to offset grid import, charge from solar excess — always active"),
+        ("custom", "Time-of-Use", "Charge and discharge on a manual hourly schedule"),
+        ("backup-only", "Backup Only", "Holds battery at full charge, discharges only during grid outages"),
       ] %}
       <label class="charge-mode-option{% if battery_charge_mode == mode %} active{% endif %}"
              hx-put="entities/{{ entity.id }}/battery-charge-mode"
@@ -23,16 +23,17 @@
       {% endfor %}
     </div>
     <p class="charge-mode-hint">
-      {% if battery_charge_mode == 'solar-gen' %}
-        Charging tracks the geographic solar curve &times; weather factor.
-      {% elif battery_charge_mode == 'solar-excess' %}
-        Charges from surplus PV after all loads are met.
+      {% if battery_charge_mode == 'self-consumption' %}
+        Battery automatically discharges to reduce grid import and charges from surplus solar. No schedule needed.
+      {% elif battery_charge_mode == 'backup-only' %}
+        Battery stays fully charged and only discharges during grid outages.
       {% else %}
-        Charge hours are set manually in the schedule below.
+        Set charge and discharge hours in the schedule below.
       {% endif %}
     </p>
   </div>
 
+  {% if battery_charge_mode == 'custom' %}
   <div class="battery-section">
     <h4 class="battery-section-heading">Discharge Preset</h4>
     <div class="charge-mode-selector">
@@ -67,7 +68,7 @@
   <form hx-put="entities/{{ entity.id }}/battery-profile"
         hx-target="#battery-profile-{{ entity.id }}" hx-swap="innerHTML"
         hx-disabled-elt="find button">
-    <div class="profile-grid{% if battery_charge_mode != 'custom' %} charge-hours-dimmed{% endif %}">
+    <div class="profile-grid">
       {% for h in range(24) %}
       <div class="profile-hour">
         <label>{{ '%02d' % h }}:00</label>
@@ -89,4 +90,5 @@
     </div>
     <button type="submit" class="btn btn-sm">Save Schedule</button>
   </form>
+  {% endif %}
 </fieldset>

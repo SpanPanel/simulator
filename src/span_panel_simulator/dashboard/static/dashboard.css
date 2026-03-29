@@ -440,6 +440,35 @@ legend {
   border: 1px solid var(--border);
 }
 
+/* Clone overwrite modal */
+.clone-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.clone-modal {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  min-width: 300px;
+  max-width: 400px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+.clone-modal p {
+  margin: 0 0 1rem 0;
+  font-size: 0.95rem;
+}
+.clone-modal-buttons {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
 /* Unmapped tabs */
 .unmapped-card {
   border-style: dashed;
@@ -1313,6 +1342,41 @@ body.modeling-mode #panel-source-section { display: none; }
 }
 
 /* Chart blocks */
+/* Energy summary table */
+.modeling-summary-table {
+  border-collapse: collapse;
+  margin-bottom: 0.75rem;
+  font-size: 0.82rem;
+}
+.modeling-summary-table th,
+.modeling-summary-table td {
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+  white-space: nowrap;
+}
+.modeling-summary-table th {
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.modeling-summary-table td {
+  border-bottom: 1px solid var(--border);
+}
+.modeling-row-label {
+  text-align: left !important;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.modeling-col-before { color: #ef4444; }
+.modeling-col-after { color: #10b981; }
+.modeling-col-diff { color: var(--text-muted); }
+.modeling-col-diff.diff-positive { color: #10b981; }
+.modeling-col-diff.diff-negative { color: #ef4444; }
+.modeling-row-visible td { font-size: 0.78rem; opacity: 0.85; }
+
 .modeling-chart-block { margin-bottom: 0.5rem; }
 .modeling-chart-label {
   display: flex;
@@ -1324,16 +1388,6 @@ body.modeling-mode #panel-source-section { display: none; }
 .modeling-chart-title {
   font-size: 0.85rem;
   font-weight: 600;
-}
-.modeling-kwh {
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin-left: 0.5rem;
-}
-.modeling-savings {
-  font-size: 0.82rem;
-  color: var(--primary);
-  margin-left: 1rem;
 }
 .modeling-chart-wrap { height: 160px; }
 
@@ -1371,6 +1425,16 @@ form[hx-post], form[hx-put] {
 button.htmx-request,
 button.busy {
   cursor: wait;
+}
+
+/* Page-level busy overlay — blocks all interaction while an operation
+   is in progress (start/stop/restart panel, modeling setup, etc.) */
+body.page-busy {
+  cursor: wait;
+}
+body.page-busy * {
+  pointer-events: none !important;
+  cursor: wait !important;
 }
 
 .htmx-indicator {

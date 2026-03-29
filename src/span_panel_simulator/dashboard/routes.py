@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 from span_panel_simulator.dashboard.keys import (
     APP_KEY_DASHBOARD_CONTEXT,
+    APP_KEY_PENDING_CLONES,
     APP_KEY_PRESET_REGISTRY,
     APP_KEY_STORE,
 )
@@ -314,6 +315,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/import", handle_import)
     app.router.add_post("/load-config", handle_load_config)
     app.router.add_post("/clone", handle_clone)
+    app.router.add_get("/clone-check", handle_clone_check)
     app.router.add_post("/save-reload", handle_save_reload)
     app.router.add_get("/check-dirty", handle_check_dirty)
 
@@ -331,6 +333,8 @@ def setup_routes(app: web.Application) -> None:
 
     # Clone from real panel + HA profile import
     app.router.add_post("/clone-from-panel", handle_clone_from_panel)
+    app.router.add_get("/clone-panel-section", handle_clone_panel_section)
+    app.router.add_post("/clone-confirm", handle_clone_confirm)
     app.router.add_post("/import-ha-profiles", handle_import_ha_profiles)
 
     # Panel discovery (mDNS + HA manifest)
@@ -1061,10 +1065,29 @@ async def handle_load_config(request: web.Request) -> web.Response:
     return web.Response(status=200, headers={"HX-Redirect": "./"})
 
 
+async def handle_clone_check(request: web.Request) -> web.Response:
+    """Return the suggested filename, auto-suffixed if it already exists."""
+    filename = request.query.get("filename", "").strip()
+    if not filename:
+        return web.json_response({"suggested": filename})
+    if not filename.endswith((".yaml", ".yml")):
+        filename += ".yaml"
+    ctx = _ctx(request)
+    path = ctx.config_dir / filename
+    if path.exists() and path.resolve().parent == ctx.config_dir.resolve():
+        return web.json_response(
+            {
+                "suggested": _next_available_filename(ctx.config_dir, filename),
+            }
+        )
+    return web.json_response({"suggested": filename})
+
+
 async def handle_clone(request: web.Request) -> web.Response:
     data = await request.post()
     filename = str(data.get("filename", "")).strip()
     source_file = str(data.get("source_file", "")).strip()
+    force = str(data.get("force", "")).strip() == "1"
     if not filename:
         return web.Response(
             text='<div class="flash error">No filename provided.</div>',
@@ -1078,6 +1101,17 @@ async def handle_clone(request: web.Request) -> web.Response:
         return web.Response(
             text='<div class="flash error">Invalid filename.</div>',
             content_type="text/html",
+        )
+
+    # Warn before overwriting an existing file unless the user confirmed.
+    if output_path.exists() and not force:
+        suggested = _next_available_filename(ctx.config_dir, filename)
+        return web.json_response(
+            {
+                "exists": True,
+                "filename": filename,
+                "suggested": suggested,
+            }
         )
 
     # When a source file is specified and differs from the active config,
@@ -1507,11 +1541,135 @@ async def _import_profiles_for_serial(
     return apply_usage_profiles(config_path, profiles)
 
 
+async def _finalize_clone(
+    request: web.Request,
+    config: dict[str, object],
+    origin_serial: str,
+    host: str,
+    *,
+    filename: str | None = None,
+) -> web.Response:
+    """Write a clone config, import profiles, generate history, and start the engine.
+
+    Shared by handle_clone_from_panel and handle_clone_confirm.
+    """
+    from span_panel_simulator.clone import write_clone_config
+
+    ctx = _ctx(request)
+
+    clone_path = write_clone_config(config, ctx.config_dir, origin_serial, filename=filename)
+
+    # Load the clone config into the dashboard editor
+    store = _store(request)
+    store.load_from_file(clone_path)
+    ctx.config_filter = clone_path.name
+
+    _LOGGER.info("Panel cloned from %s -> %s", host, clone_path.name)
+
+    # Automatically import HA usage profiles for the cloned panel.
+    # This must happen BEFORE history generation because it populates
+    # the recorder_entity mappings the generator needs.
+    profiles_imported = 0
+    _LOGGER.debug(
+        "Clone profile import: ha_client=%s, history_provider=%s",
+        ctx.ha_client is not None,
+        ctx.history_provider is not None,
+    )
+    if ctx.ha_client is not None and ctx.history_provider is not None:
+        try:
+            profiles_imported = await _import_profiles_for_serial(
+                ctx.ha_client, ctx.history_provider, clone_path, origin_serial
+            )
+            _LOGGER.info("Imported %d profiles before history generation", profiles_imported)
+        except Exception:
+            _LOGGER.debug("HA profile import after clone failed", exc_info=True)
+
+    # Check if recorder_entity mappings now exist in the written config
+    import yaml as _yaml
+
+    _check_raw = _yaml.safe_load(clone_path.read_text(encoding="utf-8"))
+    _check_entities = []
+    if isinstance(_check_raw, dict):
+        _check_tmpls = _check_raw.get("circuit_templates", {})
+        if isinstance(_check_tmpls, dict):
+            for _tn, _tv in _check_tmpls.items():
+                if isinstance(_tv, dict) and _tv.get("recorder_entity"):
+                    _check_entities.append(f"{_tn}={_tv['recorder_entity']}")
+    _LOGGER.info(
+        "Pre-generate check: %d recorder_entity mappings in %s: %s",
+        len(_check_entities),
+        clone_path.name,
+        _check_entities[:5],
+    )
+
+    # Generate synthetic history companion DB for offline replay.
+    # Runs after profile import so recorder_entity mappings are present.
+    try:
+        from span_panel_simulator.history_generator import SyntheticHistoryGenerator
+
+        gen = SyntheticHistoryGenerator()
+        history_db = await gen.generate(clone_path)
+        _LOGGER.info("Generated synthetic history: %s", history_db.name)
+    except Exception:
+        _LOGGER.warning(
+            "Synthetic history generation failed — panel will use per-tick synthesis",
+            exc_info=True,
+        )
+
+    # Start the clone engine (also triggers reload)
+    ctx.start_panel(clone_path.name)
+
+    if profiles_imported:
+        # Re-read config after profile application
+        store.load_from_file(clone_path)
+
+    # Redirect to refresh the full dashboard with the new config
+    return web.Response(status=200, headers={"HX-Redirect": "./"})
+
+
+def _next_available_filename(config_dir: Path, filename: str) -> str:
+    """Find the next available filename by appending a numeric suffix.
+
+    Given ``foo.yaml``, tries ``foo-2.yaml``, ``foo-3.yaml``, etc.
+    If the input already has a ``-N`` suffix, increments from there.
+    """
+    import re
+
+    # Split off .yaml / .yml extension
+    for ext in (".yaml", ".yml"):
+        if filename.endswith(ext):
+            stem = filename[: -len(ext)]
+            break
+    else:
+        stem, ext = filename, ".yaml"
+
+    # If the stem already ends with -N, start from N+1
+    match = re.match(r"^(.+)-(\d+)$", stem)
+    if match:
+        base = match.group(1)
+        start = int(match.group(2)) + 1
+    else:
+        base = stem
+        start = 2
+
+    idx = start
+    while True:
+        candidate = f"{base}-{idx}{ext}"
+        if not (config_dir / candidate).exists():
+            return candidate
+        idx += 1
+
+
+def _next_clone_filename(config_dir: Path, original_serial: str) -> str:
+    """Find the next available clone filename with a numeric suffix."""
+    return _next_available_filename(config_dir, f"{original_serial}-clone.yaml")
+
+
 async def handle_clone_from_panel(request: web.Request) -> web.Response:
     """Scrape a real SPAN panel via eBus, create a clone config, and import HA profiles."""
     from span_panel_simulator.clone import (
+        clone_config_path,
         translate_scraped_panel,
-        write_clone_config,
     )
     from span_panel_simulator.scraper import ScrapeError, register_with_panel, scrape_ebus
 
@@ -1577,74 +1735,104 @@ async def handle_clone_from_panel(request: web.Request) -> web.Response:
         except Exception:
             _LOGGER.debug("Could not fetch HA location", exc_info=True)
 
-    clone_path = write_clone_config(config, ctx.config_dir, scraped.serial_number)
+    # Check if the default clone file already exists
+    default_path = clone_config_path(ctx.config_dir, scraped.serial_number)
+    if default_path.exists():
+        # Store the pending config server-side and ask the user to confirm
+        import uuid
 
-    # Load the clone config into the dashboard editor
-    store = _store(request)
-    store.load_from_file(clone_path)
-    ctx.config_filter = clone_path.name
-
-    _LOGGER.info("Panel cloned from %s -> %s", host, clone_path.name)
-
-    # Automatically import HA usage profiles for the cloned panel.
-    # This must happen BEFORE history generation because it populates
-    # the recorder_entity mappings the generator needs.
-    profiles_imported = 0
-    _LOGGER.debug(
-        "Clone profile import: ha_client=%s, history_provider=%s",
-        ctx.ha_client is not None,
-        ctx.history_provider is not None,
-    )
-    if ctx.ha_client is not None and ctx.history_provider is not None:
-        try:
-            profiles_imported = await _import_profiles_for_serial(
-                ctx.ha_client, ctx.history_provider, clone_path, scraped.serial_number
-            )
-            _LOGGER.info("Imported %d profiles before history generation", profiles_imported)
-        except Exception:
-            _LOGGER.debug("HA profile import after clone failed", exc_info=True)
-
-    # Check if recorder_entity mappings now exist in the written config
-    import yaml as _yaml
-
-    _check_raw = _yaml.safe_load(clone_path.read_text(encoding="utf-8"))
-    _check_entities = []
-    if isinstance(_check_raw, dict):
-        _check_tmpls = _check_raw.get("circuit_templates", {})
-        if isinstance(_check_tmpls, dict):
-            for _tn, _tv in _check_tmpls.items():
-                if isinstance(_tv, dict) and _tv.get("recorder_entity"):
-                    _check_entities.append(f"{_tn}={_tv['recorder_entity']}")
-    _LOGGER.info(
-        "Pre-generate check: %d recorder_entity mappings in %s: %s",
-        len(_check_entities),
-        clone_path.name,
-        _check_entities[:5],
-    )
-
-    # Generate synthetic history companion DB for offline replay.
-    # Runs after profile import so recorder_entity mappings are present.
-    try:
-        from span_panel_simulator.history_generator import SyntheticHistoryGenerator
-
-        gen = SyntheticHistoryGenerator()
-        history_db = await gen.generate(clone_path)
-        _LOGGER.info("Generated synthetic history: %s", history_db.name)
-    except Exception:
-        _LOGGER.warning(
-            "Synthetic history generation failed — panel will use per-tick synthesis",
-            exc_info=True,
+        token = uuid.uuid4().hex
+        pending = request.app[APP_KEY_PENDING_CLONES]
+        pending[token] = {
+            "config": config,
+            "origin_serial": scraped.serial_number,
+            "host": host,
+        }
+        return _render(
+            "partials/clone_confirm.html",
+            request,
+            {
+                "token": token,
+                "existing_filename": default_path.name,
+                "default_rename": _next_clone_filename(ctx.config_dir, scraped.serial_number),
+            },
         )
 
-    # Start the clone engine (also triggers reload)
-    ctx.start_panel(clone_path.name)
+    return await _finalize_clone(
+        request,
+        config,
+        scraped.serial_number,
+        host,
+    )
 
-    if profiles_imported:
-        # Re-read config after profile application
-        store.load_from_file(clone_path)
 
-    # Redirect to refresh the full dashboard with the new config
-    return web.Response(status=200, headers={"HX-Redirect": "./"})
+async def handle_clone_panel_section(request: web.Request) -> web.Response:
+    """Return the clone panel section partial (used by cancel button)."""
+    return _render(
+        "partials/clone_panel.html",
+        request,
+        _clone_panel_context(request),
+    )
+
+
+async def handle_clone_confirm(request: web.Request) -> web.Response:
+    """Handle the user's confirmation on how to proceed with a duplicate clone."""
+    data = await request.post()
+    token = str(data.get("token", "")).strip()
+    action = str(data.get("action", "overwrite")).strip()
+    custom_name = str(data.get("custom_name", "")).strip()
+
+    pending = request.app[APP_KEY_PENDING_CLONES]
+    pending_data = pending.pop(token, None)
+
+    if pending_data is None:
+        return _render(
+            "partials/clone_panel.html",
+            request,
+            _clone_panel_context(
+                request,
+                clone_error="Clone session expired. Please try again.",
+            ),
+        )
+
+    raw_config = pending_data["config"]
+    if not isinstance(raw_config, dict):
+        return _render(
+            "partials/clone_panel.html",
+            request,
+            _clone_panel_context(
+                request,
+                clone_error="Clone session corrupted. Please try again.",
+            ),
+        )
+    config: dict[str, object] = raw_config
+    origin_serial = str(pending_data["origin_serial"])
+    host = str(pending_data["host"])
+
+    filename: str | None = None
+    if action == "rename" and custom_name:
+        # Ensure the custom name ends with .yaml
+        if not custom_name.endswith(".yaml"):
+            custom_name += ".yaml"
+        # Validate the filename is safe
+        if "/" in custom_name or "\\" in custom_name or custom_name.startswith("."):
+            return _render(
+                "partials/clone_panel.html",
+                request,
+                _clone_panel_context(
+                    request,
+                    clone_error="Invalid filename. Avoid slashes and leading dots.",
+                ),
+            )
+        filename = custom_name
+
+    return await _finalize_clone(
+        request,
+        config,
+        origin_serial,
+        host,
+        filename=filename,
+    )
 
 
 # -- HA profile import --

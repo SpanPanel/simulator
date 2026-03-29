@@ -643,14 +643,14 @@ class ConfigStore:
     # -- Battery charge mode --
 
     def get_battery_charge_mode(self, entity_id: str) -> str:
-        """Return the charge mode for a battery entity (default ``"custom"``)."""
+        """Return the charge mode for a battery entity (default ``"self-consumption"``)."""
         entity = self.get_entity(entity_id)
         bb = entity.battery_behavior or {}
-        return str(bb.get("charge_mode", "custom"))
+        return str(bb.get("charge_mode", "self-consumption"))
 
     def update_battery_charge_mode(self, entity_id: str, mode: str) -> None:
         """Set the charge mode on a battery entity's template."""
-        valid_modes = ("custom", "solar-gen", "solar-excess")
+        valid_modes = ("self-consumption", "custom", "backup-only")
         if mode not in valid_modes:
             raise ValueError(f"Invalid charge mode: {mode!r}")
 

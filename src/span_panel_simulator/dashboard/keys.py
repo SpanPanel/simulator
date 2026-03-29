@@ -15,3 +15,6 @@ from span_panel_simulator.dashboard.presets import PresetRegistry
 APP_KEY_STORE = web.AppKey("store", ConfigStore)
 APP_KEY_DASHBOARD_CONTEXT = web.AppKey("dashboard_context", DashboardContext)
 APP_KEY_PRESET_REGISTRY = web.AppKey("preset_registry", PresetRegistry)
+APP_KEY_PENDING_CLONES: web.AppKey[dict[str, dict[str, object]]] = web.AppKey(
+    "pending_clones", dict
+)

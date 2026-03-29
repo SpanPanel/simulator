@@ -100,7 +100,7 @@ class BatteryBehavior(TypedDict, total=False):
     """Battery behavior configuration."""
 
     enabled: bool
-    charge_mode: Literal["solar-gen", "solar-excess", "custom"]
+    charge_mode: Literal["self-consumption", "custom", "backup-only"]
     charge_power: float
     discharge_power: float
     idle_power: float

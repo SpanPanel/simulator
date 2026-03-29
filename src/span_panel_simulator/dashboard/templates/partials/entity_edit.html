@@ -21,7 +21,7 @@
         <input type="text" name="tabs" value="{{ e.tabs|join(', ') }}">
       </label>
       {% endif %}
-      {% if e.entity_type != 'pv' %}
+      {% if e.entity_type not in ('pv', 'battery') %}
       <label>Priority:
         <select name="priority">
           {% for p in priorities %}
@@ -30,6 +30,7 @@
         </select>
       </label>
       {% endif %}
+      {% if e.entity_type != 'battery' %}
       <label>Relay Behavior:
         <select name="relay_behavior">
           {% for r in relay_behaviors %}
@@ -37,6 +38,7 @@
           {% endfor %}
         </select>
       </label>
+      {% endif %}
       {% if e.entity_type != 'battery' %}
       <label>Breaker (A):
         <input type="number" name="breaker_rating"
@@ -81,6 +83,8 @@
         </label>
       </div>
     </fieldset>
+    {% elif e.entity_type == 'battery' %}
+    {# Battery: Energy Profile is not user-facing — inverter rates are in Battery Behavior below #}
     {% else %}
     <fieldset>
       <legend>Energy Profile</legend>

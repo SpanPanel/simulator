@@ -16,7 +16,7 @@
   <span class="badge badge-editing">{{ 'viewing' if p.is_default else 'editing' }}</span>
   {% endif %}
   <button class="btn btn-sm btn-secondary"
-          onclick="event.stopPropagation();var btn=this;var n=prompt('Clone as:','{{ p.filename.replace('default_', '') }}');if(n){btn.classList.add('busy');htmx.ajax('POST','clone',{target:'#flash-area',swap:'innerHTML',values:{filename:n,source_file:'{{ p.filename }}'}}).finally(function(){btn.classList.remove('busy');});}"
+          onclick="event.stopPropagation();cloneConfig(this,'{{ p.filename }}','{{ p.filename.replace('default_', '') }}')"
           title="Clone this config">
     Clone
   </button>
@@ -77,11 +77,78 @@
 
 <script>
 if (window._formDirty === undefined) window._formDirty = false;
-document.body.addEventListener('htmx:afterSwap', function(evt) {
-  if (evt.detail.target && evt.detail.target.id === 'entity-list-section') {
-    window._formDirty = false;
-  }
-});
+if (!window._cloneFnsBound) {
+  window._cloneFnsBound = true;
+  document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target && evt.detail.target.id === 'entity-list-section') {
+      window._formDirty = false;
+    }
+  });
+}
+function cloneConfig(btn, sourceFile, defaultName) {
+  fetch('clone-check?' + new URLSearchParams({filename: defaultName}))
+    .then(function(r) { return r.json(); })
+    .then(function(data) { return data.suggested || defaultName; })
+    .catch(function() { return defaultName; })
+    .then(function(suggested) {
+      var name = prompt('Clone as:', suggested);
+      if (!name) return;
+      _submitClone(sourceFile, name);
+    });
+}
+function _submitClone(sourceFile, name, force) {
+  document.body.classList.add('page-busy');
+  var vals = {filename: name, source_file: sourceFile};
+  if (force) vals.force = '1';
+  fetch('clone', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams(vals)
+  })
+  .then(function(r) {
+    var ct = r.headers.get('content-type') || '';
+    if (ct.indexOf('application/json') !== -1) {
+      return r.json().then(function(data) {
+        if (data.exists) {
+          document.body.classList.remove('page-busy');
+          _showOverwriteModal(data.filename, sourceFile);
+        }
+      });
+    }
+    var redirect = r.headers.get('HX-Redirect');
+    if (redirect) window.location.href = redirect;
+  })
+  .catch(function(err) {
+    var flash = document.getElementById('flash-area');
+    if (flash) flash.innerHTML = '<div class="flash error">Clone failed: ' + err.message + '</div>';
+  })
+  .finally(function() {
+    document.body.classList.remove('page-busy');
+  });
+}
+function _showOverwriteModal(filename, sourceFile) {
+  var modal = document.getElementById('overwrite-modal');
+  var nameEl = document.getElementById('overwrite-modal-filename');
+  nameEl.textContent = filename;
+  modal.style.display = 'flex';
+
+  var overwriteBtn = document.getElementById('overwrite-modal-confirm');
+  var cancelBtn = document.getElementById('overwrite-modal-cancel');
+
+  // Replace buttons to clear any previous listeners
+  var newOverwrite = overwriteBtn.cloneNode(true);
+  var newCancel = cancelBtn.cloneNode(true);
+  overwriteBtn.parentNode.replaceChild(newOverwrite, overwriteBtn);
+  cancelBtn.parentNode.replaceChild(newCancel, cancelBtn);
+
+  newOverwrite.addEventListener('click', function() {
+    modal.style.display = 'none';
+    _submitClone(sourceFile, filename, true);
+  });
+  newCancel.addEventListener('click', function() {
+    modal.style.display = 'none';
+  });
+}
 function switchPanel(filename) {
   fetch('check-dirty')
     .then(function(r) { return r.json(); })
@@ -92,8 +159,6 @@ function switchPanel(filename) {
           return;
         }
       }
-      // load-config responds with HX-Redirect, so HTMX handles the
-      // full page reload automatically — no target/swap needed.
       htmx.ajax('POST', 'load-config', {
         values: { config_file: filename }
       });

@@ -1,7 +1,7 @@
 """Simulation engine for the standalone eBus simulator.
 
 Orchestrates ``SimulatedCircuit`` instances, a ``SimulationClock``, and
-optional ``BatteryStorageEquipment`` (BSEE) to produce
+an ``EnergySystem`` (with ``BESSUnit``) to produce
 ``SpanPanelSnapshot`` objects from YAML configuration.
 
 Circuit-level logic lives in ``circuit.py``; time management in
@@ -23,10 +23,19 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from span_panel_simulator.behavior_mutable_state import BehaviorEngineMutableState
-from span_panel_simulator.bsee import BatteryStorageEquipment
 from span_panel_simulator.circuit import SimulatedCircuit
 from span_panel_simulator.clock import SimulationClock
 from span_panel_simulator.const import DEFAULT_FIRMWARE_VERSION
+from span_panel_simulator.energy import (
+    BESSConfig,
+    EnergySystem,
+    EnergySystemConfig,
+    GridConfig,
+    LoadConfig,
+    PowerInputs,
+    PVConfig,
+    SystemState,
+)
 from span_panel_simulator.exceptions import SimulationConfigurationError
 
 if TYPE_CHECKING:
@@ -89,7 +98,6 @@ class RealisticBehaviorEngine:
         self._recorder = recorder
         self._circuit_cycle_states: dict[str, dict[str, Any]] = {}
         self._last_battery_direction: str = "idle"
-        self._solar_excess_w: float = 0.0
         self._grid_offline: bool = False
         self._tz = self._resolve_timezone(config)
 
@@ -141,10 +149,6 @@ class RealisticBehaviorEngine:
         """Most recent battery direction set by charge mode logic."""
         return self._last_battery_direction
 
-    def set_solar_excess(self, excess_w: float) -> None:
-        """Set the solar excess watts for solar-excess charge mode."""
-        self._solar_excess_w = excess_w
-
     def set_grid_offline(self, offline: bool) -> None:
         """Propagate grid state so battery behaviour overrides schedules."""
         self._grid_offline = offline
@@ -154,7 +158,6 @@ class RealisticBehaviorEngine:
         return BehaviorEngineMutableState(
             circuit_cycle_states=copy.deepcopy(self._circuit_cycle_states),
             last_battery_direction=self._last_battery_direction,
-            solar_excess_w=self._solar_excess_w,
             grid_offline=self._grid_offline,
         )
 
@@ -162,7 +165,6 @@ class RealisticBehaviorEngine:
         """Restore fields previously captured with :meth:`capture_mutable_state`."""
         self._circuit_cycle_states = copy.deepcopy(state.circuit_cycle_states)
         self._last_battery_direction = state.last_battery_direction
-        self._solar_excess_w = state.solar_excess_w
         self._grid_offline = state.grid_offline
 
     def copy_mutable_state_from(self, other: RealisticBehaviorEngine) -> None:
@@ -474,11 +476,6 @@ class RealisticBehaviorEngine:
 
         current_hour = self.local_hour(current_time)
 
-        # Grid outage override: battery must discharge to supply loads
-        if self._grid_offline:
-            self._last_battery_direction = "discharging"
-            return self._get_discharge_power(battery_config, current_hour)
-
         # Skip inactive days — return idle power
         active_days: list[int] = battery_config.get("active_days", [])
         if active_days and self.local_weekday(current_time) not in active_days:
@@ -497,19 +494,15 @@ class RealisticBehaviorEngine:
             self._last_battery_direction = "idle"
             return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
-        charge_mode: str = battery_config.get("charge_mode", "custom")
+        charge_mode: str = battery_config.get("charge_mode", "self-consumption")
 
-        if charge_mode == "solar-gen":
-            return self._get_solar_gen_charge_power(
-                battery_config, current_time, stochastic_noise=stochastic_noise
-            )
+        if charge_mode in ("self-consumption", "backup-only"):
+            # Energy system drives BESS power for these modes; behavior
+            # engine returns idle power so circuit-level output is minimal.
+            self._last_battery_direction = "idle"
+            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
-        if charge_mode == "solar-excess":
-            return self._get_solar_excess_charge_power(
-                battery_config, stochastic_noise=stochastic_noise
-            )
-
-        # "custom" — original schedule-based logic
+        # "custom" (TOU) — original schedule-based logic
         custom_charge_hours: list[int] = battery_config.get("charge_hours", [])
         if current_hour in custom_charge_hours:
             self._last_battery_direction = "charging"
@@ -561,52 +554,6 @@ class RealisticBehaviorEngine:
         """Get demand factor from YAML configuration."""
         demand_profile: dict[int, float] = battery_config.get("demand_factor_profile", {})
         return demand_profile.get(hour, 0.3)
-
-    def _get_solar_gen_charge_power(
-        self,
-        battery_config: BatteryBehavior,
-        current_time: float,
-        *,
-        stochastic_noise: bool = True,
-    ) -> float:
-        """Charge at max_charge_power * solar_factor * weather_factor."""
-        lat = self._config["panel_config"].get("latitude", 37.7)
-        lon = self._config["panel_config"].get("longitude", -122.4)
-        factor = solar_production_factor(current_time, lat, lon)
-
-        if factor <= 0.0:
-            self._last_battery_direction = "idle"
-            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
-
-        monthly_factors: dict[int, float] | None = None
-        cached = get_cached_weather(lat, lon)
-        if cached is not None:
-            monthly_factors = cached.monthly_factors
-
-        weather = daily_weather_factor(
-            current_time,
-            seed=hash(self._config["panel_config"]["serial_number"]),
-            monthly_factors=monthly_factors,
-        )
-
-        max_charge: float = battery_config.get("max_charge_power", 3000.0)
-        self._last_battery_direction = "charging"
-        return abs(max_charge) * factor * weather
-
-    def _get_solar_excess_charge_power(
-        self,
-        battery_config: BatteryBehavior,
-        *,
-        stochastic_noise: bool = True,
-    ) -> float:
-        """Charge from surplus solar after loads are met."""
-        if self._solar_excess_w <= 0.0:
-            self._last_battery_direction = "idle"
-            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
-
-        max_charge: float = battery_config.get("max_charge_power", 3000.0)
-        self._last_battery_direction = "charging"
-        return min(self._solar_excess_w, abs(max_charge))
 
     # ------------------------------------------------------------------
     # Annual energy estimation (seeds initial circuit counters)
@@ -797,13 +744,15 @@ class RealisticBehaviorEngine:
                 ) / len(charge_hours)
                 consumed_wh = avg_charge * len(charge_hours) * 365
 
-        elif charge_mode == "solar-gen":
-            solar_factor = self._estimate_solar_annual_factor()
-            consumed_wh = max_charge * solar_factor * 8760
-
-        elif charge_mode == "solar-excess":
+        elif charge_mode == "self-consumption":
+            # Self-consumption charges from PV excess; estimate ~30% of
+            # solar capacity goes to battery on average.
             solar_factor = self._estimate_solar_annual_factor()
             consumed_wh = 0.3 * max_charge * solar_factor * 8760
+
+        elif charge_mode == "backup-only":
+            # Backup-only keeps the battery topped up; minimal cycling.
+            consumed_wh = max_charge * 0.05 * 8760
 
         return (produced_wh, consumed_wh)
 
@@ -840,7 +789,8 @@ class DynamicSimulationEngine:
         self._clock = SimulationClock()
         self._behavior_engine: RealisticBehaviorEngine | None = None
         self._circuits: dict[str, SimulatedCircuit] = {}
-        self._bsee: BatteryStorageEquipment | None = None
+        self._energy_system: EnergySystem | None = None
+        self._last_system_state: SystemState | None = None
 
         # Dynamic overrides (dispatched to circuits)
         self._dynamic_overrides: dict[str, dict[str, Any]] = {}
@@ -903,7 +853,7 @@ class DynamicSimulationEngine:
                     self._clock.set_time(anchor.isoformat())
 
             self._build_circuits()
-            self._bsee = self._create_bsee()
+            self._energy_system = self._build_energy_system()
             self._initialized = True
 
     async def _load_config_async(self) -> None:
@@ -979,27 +929,25 @@ class DynamicSimulationEngine:
     def set_grid_online(self, online: bool) -> None:
         """Force the grid online or offline."""
         self._forced_grid_offline = not online
-        if self._bsee is not None:
-            self._bsee.set_forced_offline(not online)
         if self._behavior_engine is not None:
             self._behavior_engine.set_grid_offline(not online)
 
     @property
     def is_grid_islandable(self) -> bool:
         """Whether PV can operate when grid is disconnected."""
-        if self._bsee is not None:
-            return self._bsee.grid_islandable
+        if self._energy_system is not None:
+            return self._energy_system.islandable
         return False
 
     def set_grid_islandable(self, islandable: bool) -> None:
         """Set whether PV can operate when grid is disconnected."""
-        if self._bsee is not None:
-            self._bsee.set_islandable(islandable)
+        if self._energy_system is not None:
+            self._energy_system.islandable = islandable
 
     @property
     def has_battery(self) -> bool:
         """Whether a BESS is configured."""
-        return self._bsee is not None
+        return self._energy_system is not None and self._energy_system.bess is not None
 
     # ------------------------------------------------------------------
     # Public properties & accessors
@@ -1037,8 +985,8 @@ class DynamicSimulationEngine:
     @property
     def soc_percentage(self) -> float | None:
         """Battery state-of-charge percentage, or None if no BESS."""
-        if self._bsee is not None:
-            return self._bsee.soe_percentage
+        if self._energy_system is not None and self._energy_system.bess is not None:
+            return self._energy_system.bess.soe_percentage
         return None
 
     @property
@@ -1075,39 +1023,20 @@ class DynamicSimulationEngine:
         """
         sim_time = self.get_current_simulation_time()
 
-        grid = 0.0
-        pv = 0.0
-        battery = 0.0
-        total_consumption = 0.0
-        total_production = 0.0
-        for circuit in self._circuits.values():
-            power = circuit.instant_power_w
-            if circuit.energy_mode == "producer":
-                pv += power
-                total_production += power
-            elif circuit.energy_mode == "bidirectional":
-                battery = power
-            else:
-                total_consumption += power
-
-        # Battery sign: positive = discharging (producer), negative = charging (consumer)
-        battery_state = self._bsee.battery_state if self._bsee is not None else "idle"
-        if battery_state == "discharging":
-            # Battery is a producer — offsets grid
-            total_production += battery
-        elif battery_state == "charging":
-            # Battery is a consumer — adds to grid demand
-            total_consumption += battery
-            battery = -battery
-
-        # Grid = net energy demand: all consumers - all producers
-        # Floors at zero (can't push to grid without net metering)
-        if self.grid_online:
-            grid = max(0.0, total_consumption - total_production)
+        if self._last_system_state is not None:
+            ss = self._last_system_state
+            grid = ss.grid_power_w
+            pv = ss.pv_power_w
+            battery = ss.bess_power_w
+            if ss.bess_state == "charging":
+                battery = -battery  # dashboard convention: negative = charging
+            consumption = ss.load_power_w
         else:
+            # Before first snapshot — return zeroed values
             grid = 0.0
-            if self.has_battery:
-                battery = total_consumption - pv
+            pv = 0.0
+            battery = 0.0
+            consumption = 0.0
 
         # Shedding info
         shed_ids: list[str] = []
@@ -1136,7 +1065,7 @@ class DynamicSimulationEngine:
             "grid_w": round(grid, 1),
             "pv_w": round(pv, 1),
             "battery_w": round(battery, 1),
-            "consumption_w": round(total_consumption, 1),
+            "consumption_w": round(consumption, 1),
             "simulation_time": sim_time,
             "grid_online": self.grid_online,
             "has_battery": self.has_battery,
@@ -1162,40 +1091,10 @@ class DynamicSimulationEngine:
 
         current_time = self._clock.current_time
 
-        # 1. Identify solar-excess battery circuits for two-pass tick
-        solar_excess_ids: set[str] = set()
-        for cid, circuit in self._circuits.items():
-            battery_cfg = circuit.template.get("battery_behavior", {})
-            if (
-                isinstance(battery_cfg, dict)
-                and battery_cfg.get("enabled", False)
-                and battery_cfg.get("charge_mode") == "solar-excess"
-            ):
-                solar_excess_ids.add(cid)
-
-        # Pass 1: tick all circuits except solar-excess batteries
-        for cid, circuit in self._circuits.items():
-            if cid in solar_excess_ids:
-                continue
+        # 1. Tick all circuits
+        for _cid, circuit in self._circuits.items():
             sync_override = self._get_sync_power_override(circuit)
             circuit.tick(current_time, power_override=sync_override)
-
-        # Pass 2: compute excess and tick solar-excess batteries
-        if solar_excess_ids and self._behavior_engine is not None:
-            pv_total = 0.0
-            load_total = 0.0
-            for circuit in self._circuits.values():
-                if circuit.circuit_id in solar_excess_ids:
-                    continue
-                if circuit.energy_mode == "producer":
-                    pv_total += circuit.instant_power_w
-                elif circuit.energy_mode != "bidirectional":
-                    load_total += circuit.instant_power_w
-            self._behavior_engine.set_solar_excess(max(0.0, pv_total - load_total))
-            for cid in solar_excess_ids:
-                circuit = self._circuits[cid]
-                sync_override = self._get_sync_power_override(circuit)
-                circuit.tick(current_time, power_override=sync_override)
 
         # 2. Apply global overrides
         self._apply_global_overrides()
@@ -1203,17 +1102,17 @@ class DynamicSimulationEngine:
         # 2b. Handle forced grid offline + load shedding
         shed_ids: set[str] = set()
         if self._forced_grid_offline:
-            if self._bsee is None:
+            if self._energy_system is None or self._energy_system.bess is None:
                 # No battery: panel is dead — zero all circuits
                 for circuit in self._circuits.values():
                     circuit._instant_power_w = 0.0
             else:
-                soc = self._bsee.soe_percentage
+                soc = self._energy_system.bess.soe_percentage
                 soc_threshold = self._config["panel_config"].get("soc_shed_threshold", 20.0)
                 for circuit in self._circuits.values():
                     # PV: shed if not islandable
                     if circuit.energy_mode == "producer":
-                        if not self._bsee.grid_islandable:
+                        if not self._energy_system.islandable:
                             circuit._instant_power_w = 0.0
                         continue
                     # Battery: never shed
@@ -1246,82 +1145,69 @@ class DynamicSimulationEngine:
         # 4. Add unmapped tabs
         self._add_unmapped_tabs(circuit_snapshots)
 
-        # 5. Aggregate totals
-        total_consumption = 0.0
-        total_production = 0.0
+        # 5. Aggregate energy accumulators
         total_produced_energy = 0.0
         total_consumed_energy = 0.0
-        battery_circuit_power = 0.0
 
         for circuit in self._circuits.values():
-            power = circuit.instant_power_w
-            if circuit.energy_mode == "producer":
-                total_production += power
-            elif circuit.energy_mode == "bidirectional":
-                battery_circuit_power = power
-            else:
-                total_consumption += power
             total_produced_energy += circuit.produced_energy_wh
             total_consumed_energy += circuit.consumed_energy_wh
 
-        # Site power = net demand at the panel lugs (loads - solar).
-        # This is what the SPAN panel's feedthrough CTs measure and is
-        # independent of any upstream BESS.
-        # See https://github.com/spanio/SPAN-API-Client-Docs
-        site_power = total_consumption - total_production
-
-        # Grid power = what the utility meter sees.  When a BESS is
-        # present upstream, battery discharge offsets grid import and
-        # battery charge increases it.
-        grid_power = site_power - battery_circuit_power
-
-        # Disconnected from grid → no grid power flow
-        if self._forced_grid_offline:
-            grid_power = 0.0
-
-        # 6. Battery / BSEE
+        # 5b. Resolve power flows via EnergySystem (single source of truth)
         battery_circuit = self._find_battery_circuit()
-        battery_power_w = battery_circuit.instant_power_w if battery_circuit else 0.0
-        if self._bsee is not None:
-            self._bsee.update(current_time, battery_power_w)
+        if self._energy_system is None:
+            raise SimulationConfigurationError("Energy system not initialized")
 
-            # Reflect effective power back — BSEE may have zeroed it
-            # (e.g. SOE hit backup reserve or full charge).
-            # Recompute grid_power since the battery contribution changed.
-            effective_power = self._bsee.battery_power_w
-            if battery_circuit is not None and effective_power != battery_power_w:
-                battery_circuit._instant_power_w = effective_power
-                battery_power_w = effective_power
-                grid_power = site_power - battery_power_w
+        inputs = self._collect_power_inputs()
+        system_state = self._energy_system.tick(current_time, inputs)
+        self._last_system_state = system_state
+        site_power = system_state.load_power_w - system_state.pv_power_w
+        grid_power = system_state.grid_power_w
 
+        # Reflect effective battery power back to circuit
+        if battery_circuit is not None and self._energy_system.bess is not None:
+            battery_circuit._instant_power_w = self._energy_system.bess.effective_power_w
+
+        # Reflect PV curtailment back to producer circuits so snapshots
+        # are consistent with the resolved system state.
+        if self._energy_system.pv is not None:
+            resolved_pv_w = system_state.pv_power_w
+            raw_pv_w = inputs.pv_available_w
+            if raw_pv_w > 0 and resolved_pv_w < raw_pv_w:
+                scale = resolved_pv_w / raw_pv_w
+                for circuit in self._circuits.values():
+                    if circuit.energy_mode == "producer":
+                        circuit._instant_power_w *= scale
+
+        # 6. Battery snapshot
+        bess = self._energy_system.bess
+        if bess is not None:
             battery_snapshot = SpanBatterySnapshot(
-                soe_percentage=self._bsee.soe_percentage,
-                soe_kwh=self._bsee.soe_kwh,
-                vendor_name=self._bsee.vendor_name,
-                product_name=self._bsee.product_name,
-                model=self._bsee.model,
-                serial_number=self._bsee.serial_number,
-                software_version=self._bsee.software_version,
-                nameplate_capacity_kwh=self._bsee.nameplate_capacity_kwh,
-                connected=self._bsee.connected,
-                feed_circuit_id=self._bsee.feed_circuit_id,
+                soe_percentage=system_state.soe_percentage,
+                soe_kwh=system_state.soe_kwh,
+                vendor_name=bess.vendor_name,
+                product_name=bess.product_name,
+                model=bess.model,
+                serial_number=bess.serial_number,
+                software_version=bess.software_version,
+                nameplate_capacity_kwh=bess.nameplate_capacity_kwh,
+                connected=bess.connected,
+                feed_circuit_id=bess.feed_circuit_id,
             )
-            dominant_power_source = self._bsee.dominant_power_source
-            grid_state = self._bsee.grid_state
-            grid_islandable = self._bsee.grid_islandable
+            dominant_power_source = self._energy_system.dominant_power_source
+            grid_state = self._energy_system.grid_state
+            grid_islandable = self._energy_system.islandable
             dsm_state = DSM_OFF_GRID if grid_state == "OFF_GRID" else DSM_ON_GRID
             current_run_config = PANEL_OFF_GRID if grid_state == "OFF_GRID" else PANEL_ON_GRID
+
             # Battery power flow uses SPAN panel sign convention
             # (matches real hardware per SpanPanel/span#184):
             #   positive = charging  (panel sending power TO battery)
             #   negative = discharging (battery sending power TO panel)
-            if self._forced_grid_offline:
-                # Off-grid: battery covers load deficit — always discharging
-                power_flow_battery = -(total_consumption - total_production)
-            elif self._bsee.battery_state == "discharging":
-                power_flow_battery = -battery_power_w
+            if system_state.bess_state == "discharging":
+                power_flow_battery = -system_state.bess_power_w
             else:
-                power_flow_battery = battery_power_w
+                power_flow_battery = system_state.bess_power_w
 
             # Rebuild battery circuit snapshot — the original was captured
             # before the BSEE update and off-grid deficit calculation, so it
@@ -1338,6 +1224,25 @@ class DynamicSimulationEngine:
                         instant_power_w=0.0,
                     )
                 circuit_snapshots[cid] = snap
+
+            # Rebuild PV circuit snapshots when curtailment reduced output
+            if (
+                self._energy_system.pv is not None
+                and inputs.pv_available_w > 0
+                and system_state.pv_power_w < inputs.pv_available_w
+            ):
+                for circuit in self._circuits.values():
+                    if circuit.energy_mode == "producer":
+                        cid = circuit.circuit_id
+                        snap = circuit.to_snapshot()
+                        if cid in shed_ids:
+                            snap = replace(
+                                snap,
+                                relay_state="OPEN",
+                                relay_requester="BACKUP",
+                                instant_power_w=0.0,
+                            )
+                        circuit_snapshots[cid] = snap
         else:
             battery_snapshot = SpanBatterySnapshot()
             if self._forced_grid_offline:
@@ -1395,7 +1300,8 @@ class DynamicSimulationEngine:
         # Main relay is open when grid is disconnected
         main_relay = "OPEN" if self._forced_grid_offline else MAIN_RELAY_CLOSED
         # Voltage drops to 0 when offline without battery
-        line_voltage = 0.0 if (self._forced_grid_offline and self._bsee is None) else 120.0
+        has_bess = self._energy_system is not None and self._energy_system.bess is not None
+        line_voltage = 0.0 if (self._forced_grid_offline and not has_bess) else 120.0
 
         # Panel model derived from tab count
         panel_model = _PANEL_SIZE_TO_MODEL.get(total_tabs)
@@ -1453,65 +1359,79 @@ class DynamicSimulationEngine:
     # Modeling computation
     # ------------------------------------------------------------------
 
-    def _aggregate_modeling_at_ts(
+    def _collect_circuit_powers_at_ts(
         self,
         ts: float,
         behavior: RealisticBehaviorEngine,
-        solar_excess_ids: set[str],
+        circuit_ids: set[str],
         *,
-        modeling_recorder_baseline: bool,
-    ) -> tuple[dict[str, float], float, float, float]:
-        """Return circuit powers, site power, sum of producer output, raw battery W."""
-        total_consumption = 0.0
-        total_production = 0.0
-        raw_battery_power = 0.0
+        use_recorder_baseline: bool,
+    ) -> dict[str, float]:
+        """Collect per-circuit power values at a timestamp.
+
+        Pure data collection — no energy balance math.  Only circuits
+        in *circuit_ids* are evaluated; others are omitted from the
+        result (they don't exist in this pass's system).
+        """
         circuit_powers: dict[str, float] = {}
 
-        for cid, circuit in self._circuits.items():
-            if cid in solar_excess_ids:
-                continue
+        for cid in circuit_ids:
+            circuit = self._circuits[cid]
             power = behavior.get_circuit_power(
                 cid,
                 circuit.template,
                 ts,
-                modeling_recorder_baseline=modeling_recorder_baseline,
+                modeling_recorder_baseline=use_recorder_baseline,
                 modeling_deterministic=True,
             )
             circuit_powers[cid] = power
 
+        return circuit_powers
+
+    @staticmethod
+    def _is_battery_circuit(circuit: SimulatedCircuit) -> bool:
+        """True when the circuit is the configured BESS (not EVSE or other bidirectional)."""
+        battery_cfg = circuit.template.get("battery_behavior", {})
+        return isinstance(battery_cfg, dict) and bool(battery_cfg.get("enabled", False))
+
+    def _powers_to_energy_inputs(
+        self,
+        circuit_powers: dict[str, float],
+    ) -> PowerInputs:
+        """Convert per-circuit power dict into PowerInputs for the energy system.
+
+        Only the BESS circuit is excluded from the power summation — the
+        energy system determines BESS power from the inverter rate and
+        bus state.  Other bidirectional circuits (e.g. EVSE with V2G)
+        are treated as load.
+        """
+        pv_power = 0.0
+        load_power = 0.0
+
+        for cid, power in circuit_powers.items():
+            circuit = self._circuits[cid]
             if circuit.energy_mode == "producer":
-                total_production += power
-            elif circuit.energy_mode == "bidirectional":
-                raw_battery_power = power
+                pv_power += power
+            elif self._is_battery_circuit(circuit):
+                continue
             else:
-                total_consumption += power
+                load_power += power
 
-        if solar_excess_ids:
-            excess = max(0.0, total_production - total_consumption)
-            behavior.set_solar_excess(excess)
-            for cid in solar_excess_ids:
-                circuit = self._circuits[cid]
-                power = behavior.get_circuit_power(
-                    cid,
-                    circuit.template,
-                    ts,
-                    modeling_recorder_baseline=modeling_recorder_baseline,
-                    modeling_deterministic=True,
-                )
-                circuit_powers[cid] = power
-                raw_battery_power = power
-
-        site_power = total_consumption - total_production
-        return circuit_powers, site_power, total_production, raw_battery_power
+        return PowerInputs(
+            pv_available_w=pv_power,
+            load_demand_w=load_power,
+            grid_connected=True,  # caller overrides if needed
+        )
 
     async def compute_modeling_data(self, horizon_hours: int) -> dict[str, Any]:
         """Compute Before/After modeling data over recorder history.
 
         Performs **read-only** passes — no runtime state is mutated.
         **Before** uses HA recorder replay wherever ``recorder_entity`` data
-        exists (ignores ``user_modified``), with site power **without** BESS.
-        **After** uses current templates (SYN / overrides) and applies BSEE
-        for grid and battery traces.
+        exists (ignores ``user_modified``), ticking an ``EnergySystem``
+        built from recorder-backed circuits only.
+        **After** uses current templates (SYN / overrides) and ticks an
+        ``EnergySystem`` with all circuits to resolve grid and battery traces.
 
         Returns the response dict matching the ``GET /modeling-data`` schema
         (including ``pv_power_before``, ``pv_power_after``, and legacy
@@ -1561,36 +1481,17 @@ class DynamicSimulationEngine:
             )
             cloned_behavior.copy_mutable_state_from(be)
 
-        # Identify solar-excess battery circuits
-        solar_excess_ids: set[str] = set()
-        for cid, circuit in self._circuits.items():
-            battery_cfg = circuit.template.get("battery_behavior", {})
-            if (
-                isinstance(battery_cfg, dict)
-                and battery_cfg.get("enabled", False)
-                and battery_cfg.get("charge_mode") == "solar-excess"
-            ):
-                solar_excess_ids.add(cid)
+        # Partition circuits: baseline set (recorder-backed) vs full set
+        baseline_circuit_ids = {
+            cid for cid, c in self._circuits.items() if c.template.get("recorder_entity")
+        }
+        all_circuit_ids = set(self._circuits.keys())
 
-        # BSEE for the After pass (applies current config).
-        # The Before pass needs no BSEE — the recorder already contains
-        # the battery's charge/discharge power with correct sign
-        # (negative = charging, positive = discharging).
-        cloned_bsee: BatteryStorageEquipment | None = None
-        battery_circuit = self._find_battery_circuit()
-        if self._bsee is not None and battery_circuit is not None:
-            battery_cfg = battery_circuit.template.get("battery_behavior", {})
-            if isinstance(battery_cfg, dict):
-                cloned_bsee = BatteryStorageEquipment(
-                    battery_behavior=dict(battery_cfg),
-                    panel_serial=self._config["panel_config"]["serial_number"],
-                    feed_circuit_id=battery_circuit.circuit_id,
-                    nameplate_capacity_kwh=self._bsee.nameplate_capacity_kwh,
-                    behavior_engine=cloned_behavior,
-                    panel_timezone=(cloned_behavior.panel_timezone if cloned_behavior else None),
-                )
+        # Build energy systems for each pass
+        before_energy_system = self._build_energy_system(circuit_ids=baseline_circuit_ids)
+        after_energy_system = self._build_energy_system()
 
-        if cloned_behavior is None:
+        if cloned_behavior is None or after_energy_system is None:
             return {"error": "Simulation not initialised"}
 
         # Result arrays
@@ -1604,50 +1505,53 @@ class DynamicSimulationEngine:
         circuit_arrays_after: dict[str, list[float]] = {cid: [] for cid in self._circuits}
 
         for ts in timestamps:
-            # Baseline vs after use the same engine; restore mutable state between
-            # passes so cycling / solar-excess bookkeeping does not cross-contaminate.
+            # Restore mutable state between passes so cycling
+            # bookkeeping does not cross-contaminate.
             modeling_checkpoint = cloned_behavior.capture_mutable_state()
 
-            powers_b, site_b, prod_b, raw_batt_b = self._aggregate_modeling_at_ts(
+            # --- Before pass: only recorder-backed circuits ---
+            powers_b = self._collect_circuit_powers_at_ts(
                 ts,
                 cloned_behavior,
-                solar_excess_ids,
-                modeling_recorder_baseline=True,
+                baseline_circuit_ids,
+                use_recorder_baseline=True,
             )
+            inputs_b = self._powers_to_energy_inputs(powers_b)
+            if before_energy_system is not None:
+                state_b = before_energy_system.tick(ts, inputs_b)
+                grid_before = state_b.grid_power_w
+                pv_before = state_b.pv_power_w
+                batt_before = state_b.bess_power_w
+                if state_b.bess_state == "discharging":
+                    batt_before = -batt_before
+            else:
+                grid_before = inputs_b.load_demand_w - inputs_b.pv_available_w
+                pv_before = inputs_b.pv_available_w
+                batt_before = 0.0
 
             cloned_behavior.restore_mutable_state(modeling_checkpoint)
 
-            powers_a, site_a, prod_a, raw_batt_a = self._aggregate_modeling_at_ts(
+            # --- After pass: all current circuits ---
+            powers_a = self._collect_circuit_powers_at_ts(
                 ts,
                 cloned_behavior,
-                solar_excess_ids,
-                modeling_recorder_baseline=False,
+                all_circuit_ids,
+                use_recorder_baseline=False,
             )
+            inputs_a = self._powers_to_energy_inputs(powers_a)
 
-            # Before: recorder data already has correct battery sign
-            # (negative = charging, positive = discharging).  Invert to
-            # match the grid convention (discharge reduces grid import).
-            signed_battery_before = -raw_batt_b
-
-            # After: BSEE applies current config (SOE tracking, user edits).
-            # Same sign convention as Before: negate raw power so that
-            # discharge (positive raw) reduces grid and charge (negative
-            # raw) increases grid.  BSEE may clamp power to 0 when SOE
-            # bounds are reached.
-            signed_battery_after = 0.0
-            if cloned_bsee is not None:
-                cloned_bsee.update(ts, raw_batt_a)
-                signed_battery_after = -cloned_bsee.battery_power_w
-
-            grid_before = site_b + signed_battery_before
-            grid_after = site_a + signed_battery_after
+            state_a = after_energy_system.tick(ts, inputs_a)
+            grid_after = state_a.grid_power_w
+            batt_after = state_a.bess_power_w
+            if state_a.bess_state == "discharging":
+                batt_after = -batt_after
 
             site_power_arr.append(round(grid_before, 1))
-            pv_before_arr.append(round(prod_b, 1))
+            pv_before_arr.append(round(pv_before, 1))
             grid_power_arr.append(round(grid_after, 1))
-            pv_after_arr.append(round(prod_a, 1))
-            battery_power_arr.append(round(signed_battery_after, 1))
-            battery_before_arr.append(round(signed_battery_before, 1))
+            pv_after_arr.append(round(state_a.pv_power_w, 1))
+            battery_power_arr.append(round(batt_after, 1))
+            battery_before_arr.append(round(batt_before, 1))
 
             for cid in self._circuits:
                 circuit_arrays_before[cid].append(round(powers_b.get(cid, 0.0), 1))
@@ -1798,6 +1702,34 @@ class DynamicSimulationEngine:
                     is_never_backup=False,
                 )
 
+    def _collect_power_inputs(self) -> PowerInputs:
+        """Collect current circuit state into PowerInputs for the energy system.
+
+        This method gathers raw measurements from circuits — it does NOT
+        resolve energy scheduling.  Schedule resolution is the energy
+        module's responsibility (inside ``EnergySystem.tick``).
+
+        Only the BESS circuit is excluded from load; other bidirectional
+        circuits (e.g. EVSE with V2G) are treated as load.
+        """
+        pv_power = 0.0
+        load_power = 0.0
+
+        for circuit in self._circuits.values():
+            power = circuit.instant_power_w
+            if circuit.energy_mode == "producer":
+                pv_power += power
+            elif self._is_battery_circuit(circuit):
+                continue
+            else:
+                load_power += power
+
+        return PowerInputs(
+            pv_available_w=pv_power,
+            load_demand_w=load_power,
+            grid_connected=not self._forced_grid_offline,
+        )
+
     def _find_battery_circuit(self) -> SimulatedCircuit | None:
         """Find the battery circuit instance, if any."""
         for circuit in self._circuits.values():
@@ -1806,32 +1738,85 @@ class DynamicSimulationEngine:
                 return circuit
         return None
 
-    def _create_bsee(self) -> BatteryStorageEquipment | None:
-        """Create a BSEE if the config contains a battery circuit."""
+    def _build_energy_system(
+        self,
+        *,
+        circuit_ids: set[str] | None = None,
+    ) -> EnergySystem | None:
+        """Construct an EnergySystem from circuit configuration.
+
+        When *circuit_ids* is provided, only those circuits participate
+        in the energy system.  This is used for the modeling baseline
+        pass where only recorder-backed circuits existed.  When ``None``
+        (the default), all current circuits are included.
+        """
         if not self._config:
             return None
-        for circuit_def in self._config["circuits"]:
-            template_name = circuit_def.get("template", "")
-            template: CircuitTemplateExtended | dict[str, Any] = self._config[
-                "circuit_templates"
-            ].get(template_name, {})
-            if not isinstance(template, dict):
-                continue
-            battery_cfg = template.get("battery_behavior", {})
+
+        included = {
+            cid: c
+            for cid, c in self._circuits.items()
+            if circuit_ids is None or cid in circuit_ids
+        }
+
+        grid_config = GridConfig(connected=not self._forced_grid_offline)
+
+        pv_config: PVConfig | None = None
+        for circuit in included.values():
+            if circuit.energy_mode == "producer":
+                nameplate = float(circuit.template["energy_profile"]["typical_power"])
+                # Dashboard stores inverter type as template priority
+                # (MUST_HAVE = hybrid, anything else = ac_coupled)
+                inverter_type = (
+                    "hybrid" if circuit.template.get("priority") == "MUST_HAVE" else "ac_coupled"
+                )
+                pv_config = PVConfig(nameplate_w=abs(nameplate), inverter_type=inverter_type)
+                break
+
+        bess_config: BESSConfig | None = None
+        for circuit in included.values():
+            battery_cfg = circuit.template.get("battery_behavior", {})
             if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
-                battery_dict: dict[str, Any] = dict(battery_cfg)
-                nameplate: float = float(battery_cfg.get("nameplate_capacity_kwh", 13.5))
+                nameplate = float(battery_cfg.get("nameplate_capacity_kwh", 13.5))
+                # Hybrid status is a PV inverter property — derive from
+                # the PV config already resolved above.
+                hybrid = pv_config is not None and pv_config.inverter_type == "hybrid"
+                charge_hours_raw: list[int] = battery_cfg.get("charge_hours", [])
+                discharge_hours_raw: list[int] = battery_cfg.get("discharge_hours", [])
                 panel_tz = (
-                    self._behavior_engine.panel_timezone
+                    str(self._behavior_engine.panel_timezone)
                     if self._behavior_engine is not None
-                    else ZoneInfo(RealisticBehaviorEngine._DEFAULT_TZ)
+                    else RealisticBehaviorEngine._DEFAULT_TZ
                 )
-                return BatteryStorageEquipment(
-                    battery_behavior=battery_dict,
+                charge_mode = str(battery_cfg.get("charge_mode", "self-consumption"))
+                bess_config = BESSConfig(
+                    nameplate_kwh=nameplate,
+                    max_charge_w=abs(float(battery_cfg.get("max_charge_power", 3500.0))),
+                    max_discharge_w=abs(float(battery_cfg.get("max_discharge_power", 3500.0))),
+                    charge_efficiency=float(battery_cfg.get("charge_efficiency", 0.95)),
+                    discharge_efficiency=float(battery_cfg.get("discharge_efficiency", 0.95)),
+                    backup_reserve_pct=float(battery_cfg.get("backup_reserve_pct", 20.0)),
+                    hybrid=hybrid,
+                    initial_soe_kwh=(
+                        self._energy_system.bess.soe_kwh
+                        if self._energy_system is not None and self._energy_system.bess is not None
+                        else None
+                    ),
                     panel_serial=self._config["panel_config"]["serial_number"],
-                    feed_circuit_id=circuit_def["id"],
-                    nameplate_capacity_kwh=nameplate,
-                    behavior_engine=self._behavior_engine,
+                    feed_circuit_id=circuit.circuit_id,
+                    charge_hours=tuple(charge_hours_raw),
+                    discharge_hours=tuple(discharge_hours_raw),
                     panel_timezone=panel_tz,
+                    charge_mode=charge_mode,
                 )
-        return None
+                break
+
+        loads = [LoadConfig() for c in included.values() if c.energy_mode == "consumer"]
+
+        config = EnergySystemConfig(
+            grid=grid_config,
+            pv=pv_config,
+            bess=bess_config,
+            loads=loads,
+        )
+        return EnergySystem.from_config(config)

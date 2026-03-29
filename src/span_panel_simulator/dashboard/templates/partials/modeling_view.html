@@ -33,27 +33,65 @@
     <span class="text-muted">Loading modeling data...</span>
   </div>
 
-  <!-- Before chart -->
+  <!-- Energy summary table -->
   <div id="modeling-charts" style="display:none">
+
+    <!-- Before chart + table -->
     <div class="modeling-chart-block">
       <div class="modeling-chart-label">
         <span class="modeling-chart-title">Before</span>
         <span class="text-muted">(Grid Power — recorder baseline)</span>
-        <span id="modeling-before-kwh" class="modeling-kwh" style="color:#ef4444"></span>
       </div>
+      <table class="modeling-summary-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Energy (kWh)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="modeling-row-horizon">
+            <td class="modeling-row-label">Full Horizon</td>
+            <td id="modeling-before-horizon" class="modeling-col-before"></td>
+          </tr>
+          <tr class="modeling-row-visible">
+            <td class="modeling-row-label">Visible Range</td>
+            <td id="modeling-before-visible" class="modeling-col-before"></td>
+          </tr>
+        </tbody>
+      </table>
       <div class="power-chart-wrap modeling-chart-wrap">
         <canvas id="modeling-before-canvas"></canvas>
       </div>
     </div>
 
-    <!-- After chart -->
+    <!-- After chart + table -->
     <div class="modeling-chart-block">
       <div class="modeling-chart-label">
         <span class="modeling-chart-title">After</span>
         <span class="text-muted">(Grid Power — current config)</span>
-        <span id="modeling-after-kwh" class="modeling-kwh" style="color:#10b981"></span>
-        <span id="modeling-savings" class="modeling-savings"></span>
       </div>
+      <table class="modeling-summary-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Energy (kWh)</th>
+            <th>Difference</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="modeling-row-horizon">
+            <td class="modeling-row-label">Full Horizon</td>
+            <td id="modeling-after-horizon" class="modeling-col-after"></td>
+            <td id="modeling-diff-horizon" class="modeling-col-diff"></td>
+          </tr>
+          <tr class="modeling-row-visible">
+            <td class="modeling-row-label">Visible Range</td>
+            <td id="modeling-after-visible" class="modeling-col-after"></td>
+            <td id="modeling-diff-visible" class="modeling-col-diff"></td>
+          </tr>
+        </tbody>
+      </table>
       <div class="power-chart-wrap modeling-chart-wrap">
         <canvas id="modeling-after-canvas"></canvas>
       </div>
@@ -97,15 +135,20 @@
   var horizonSelect = document.getElementById('modeling-horizon');
   var spinner = document.getElementById('modeling-spinner');
   var chartsWrap = document.getElementById('modeling-charts');
-  var beforeKwhEl = document.getElementById('modeling-before-kwh');
-  var afterKwhEl = document.getElementById('modeling-after-kwh');
-  var savingsEl = document.getElementById('modeling-savings');
   var rangeStartEl = document.getElementById('modeling-range-start');
   var rangeEndEl = document.getElementById('modeling-range-end');
   var horizonDatesEl = document.getElementById('modeling-horizon-dates');
   var sliderEl = document.getElementById('modeling-range-slider');
   var pvCheckbox = document.getElementById('modeling-show-pv');
   var batteryCheckbox = document.getElementById('modeling-show-battery');
+
+  // Summary table cells
+  var beforeHorizonEl = document.getElementById('modeling-before-horizon');
+  var beforeVisibleEl = document.getElementById('modeling-before-visible');
+  var afterHorizonEl = document.getElementById('modeling-after-horizon');
+  var afterVisibleEl = document.getElementById('modeling-after-visible');
+  var diffHorizonEl = document.getElementById('modeling-diff-horizon');
+  var diffVisibleEl = document.getElementById('modeling-diff-visible');
 
   // ---------------------------------------------------------------
   // Entry / Exit
@@ -230,28 +273,19 @@
     var batteryPower = d.battery_power.slice(visibleStart, visibleEnd + 1);
     var batteryBefore = (d.battery_power_before || d.battery_power || []).slice(visibleStart, visibleEnd + 1);
 
-    // Energy summaries — split import/export for distinct cost treatment
-    var beforeEnergy = computeEnergy(sitePower, d.resolution_s);
-    var afterEnergy = computeEnergy(gridPower, d.resolution_s);
-    var beforeNet = beforeEnergy.imported - beforeEnergy.exported;
-    var afterNet = afterEnergy.imported - afterEnergy.exported;
-    var savingsKwh = beforeNet - afterNet;
-    var savingsPct = beforeNet > 0 ? (savingsKwh / beforeNet * 100) : 0;
+    // Energy summaries — visible range
+    var visBeforeEnergy = computeEnergy(sitePower, d.resolution_s);
+    var visAfterEnergy = computeEnergy(gridPower, d.resolution_s);
+    populateEnergyCell(beforeVisibleEl, visBeforeEnergy);
+    populateEnergyCell(afterVisibleEl, visAfterEnergy);
+    populateDiffCell(diffVisibleEl, visBeforeEnergy, visAfterEnergy);
 
-    beforeKwhEl.textContent = formatKwh(beforeNet) + ' kWh';
-    if (beforeEnergy.exported > 0.5) {
-      beforeKwhEl.textContent += '  (' + formatKwh(beforeEnergy.imported) + ' imported, ' + formatKwh(beforeEnergy.exported) + ' exported)';
-    }
-    afterKwhEl.textContent = formatKwh(afterNet) + ' kWh';
-    if (afterEnergy.exported > 0.5) {
-      afterKwhEl.textContent += '  (' + formatKwh(afterEnergy.imported) + ' imported, ' + formatKwh(afterEnergy.exported) + ' exported)';
-    }
-    if (savingsKwh > 0) {
-      savingsEl.textContent = 'Savings: ' + formatKwh(savingsKwh) + ' kWh (' + savingsPct.toFixed(1) + '%)';
-      savingsEl.style.display = '';
-    } else {
-      savingsEl.style.display = 'none';
-    }
+    // Energy summaries — full horizon (always computed over entire dataset)
+    var fullBeforeEnergy = computeEnergy(d.site_power, d.resolution_s);
+    var fullAfterEnergy = computeEnergy(d.grid_power, d.resolution_s);
+    populateEnergyCell(beforeHorizonEl, fullBeforeEnergy);
+    populateEnergyCell(afterHorizonEl, fullAfterEnergy);
+    populateDiffCell(diffHorizonEl, fullBeforeEnergy, fullAfterEnergy);
 
     // Slider labels
     rangeStartEl.textContent = formatDate(ts[0], d.time_zone);
@@ -376,6 +410,22 @@
   // ---------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------
+  function populateEnergyCell(el, energy) {
+    var net = energy.imported - energy.exported;
+    el.textContent = formatKwh(net) + ' (' + formatKwh(energy.imported) + ' imp, ' + formatKwh(energy.exported) + ' exp)';
+  }
+
+  function populateDiffCell(el, beforeEnergy, afterEnergy) {
+    // Difference based on imported energy (what the user pays for)
+    var diffKwh = beforeEnergy.imported - afterEnergy.imported;
+    var pct = beforeEnergy.imported > 0 ? (diffKwh / beforeEnergy.imported * 100) : 0;
+    var sign = diffKwh > 0 ? '\u2212' : '+';  // reduction = minus, increase = plus
+    var absDiff = Math.abs(diffKwh);
+    el.textContent = sign + formatKwh(absDiff) + ' kWh (' + Math.abs(pct).toFixed(1) + '%)';
+    // Green when imports decreased (good), red when increased
+    el.className = 'modeling-col-diff ' + (diffKwh > 0 ? 'diff-positive' : diffKwh < 0 ? 'diff-negative' : '');
+  }
+
   function computeEnergy(powerArr, resolutionS) {
     // Split import (positive power = buying from grid) and
     // export (negative power = selling/crediting to grid).
