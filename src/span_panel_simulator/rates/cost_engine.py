@@ -40,7 +40,7 @@ def compute_costs(
     export_credit = 0.0
     months_seen: set[tuple[int, int]] = set()
 
-    for ts, pwr in zip(timestamps, power_kw, strict=False):
+    for ts, pwr in zip(timestamps, power_kw, strict=True):
         import_rate, export_rate = resolve_rate(ts, tz, record)
         energy_kwh = pwr * resolution_s / 3600
 
