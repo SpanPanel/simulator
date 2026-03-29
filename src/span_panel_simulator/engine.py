@@ -1388,15 +1388,22 @@ class DynamicSimulationEngine:
 
         return circuit_powers
 
+    @staticmethod
+    def _is_battery_circuit(circuit: SimulatedCircuit) -> bool:
+        """True when the circuit is the configured BESS (not EVSE or other bidirectional)."""
+        battery_cfg = circuit.template.get("battery_behavior", {})
+        return isinstance(battery_cfg, dict) and bool(battery_cfg.get("enabled", False))
+
     def _powers_to_energy_inputs(
         self,
         circuit_powers: dict[str, float],
     ) -> PowerInputs:
         """Convert per-circuit power dict into PowerInputs for the energy system.
 
-        Battery circuits are excluded from the power summation — the
+        Only the BESS circuit is excluded from the power summation — the
         energy system determines BESS power from the inverter rate and
-        bus state, not from the behavior engine's synthetic output.
+        bus state.  Other bidirectional circuits (e.g. EVSE with V2G)
+        are treated as load.
         """
         pv_power = 0.0
         load_power = 0.0
@@ -1405,7 +1412,9 @@ class DynamicSimulationEngine:
             circuit = self._circuits[cid]
             if circuit.energy_mode == "producer":
                 pv_power += power
-            elif circuit.energy_mode != "bidirectional":
+            elif self._is_battery_circuit(circuit):
+                continue
+            else:
                 load_power += power
 
         return PowerInputs(
@@ -1699,6 +1708,9 @@ class DynamicSimulationEngine:
         This method gathers raw measurements from circuits — it does NOT
         resolve energy scheduling.  Schedule resolution is the energy
         module's responsibility (inside ``EnergySystem.tick``).
+
+        Only the BESS circuit is excluded from load; other bidirectional
+        circuits (e.g. EVSE with V2G) are treated as load.
         """
         pv_power = 0.0
         load_power = 0.0
@@ -1707,7 +1719,9 @@ class DynamicSimulationEngine:
             power = circuit.instant_power_w
             if circuit.energy_mode == "producer":
                 pv_power += power
-            elif circuit.energy_mode != "bidirectional":
+            elif self._is_battery_circuit(circuit):
+                continue
+            else:
                 load_power += power
 
         return PowerInputs(
