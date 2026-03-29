@@ -1414,67 +1414,88 @@ class DynamicSimulationEngine:
     # Modeling computation
     # ------------------------------------------------------------------
 
-    def _aggregate_modeling_at_ts(
+    def _collect_circuit_powers_at_ts(
         self,
         ts: float,
         behavior: RealisticBehaviorEngine,
+        circuit_ids: set[str],
         solar_excess_ids: set[str],
         *,
-        modeling_recorder_baseline: bool,
-    ) -> tuple[dict[str, float], float, float, float]:
-        """Return circuit powers, site power, sum of producer output, raw battery W."""
-        total_consumption = 0.0
-        total_production = 0.0
-        raw_battery_power = 0.0
-        circuit_powers: dict[str, float] = {}
+        use_recorder_baseline: bool,
+    ) -> dict[str, float]:
+        """Collect per-circuit power values at a timestamp.
 
-        for cid, circuit in self._circuits.items():
+        Pure data collection — no energy balance math.  Only circuits
+        in *circuit_ids* are evaluated; others are omitted from the
+        result (they don't exist in this pass's system).
+
+        Solar-excess battery circuits are handled in a second pass
+        after the excess is known from the first pass.
+        """
+        circuit_powers: dict[str, float] = {}
+        pv_total = 0.0
+        load_total = 0.0
+
+        for cid in circuit_ids:
             if cid in solar_excess_ids:
                 continue
+            circuit = self._circuits[cid]
             power = behavior.get_circuit_power(
                 cid,
                 circuit.template,
                 ts,
-                modeling_recorder_baseline=modeling_recorder_baseline,
+                modeling_recorder_baseline=use_recorder_baseline,
                 modeling_deterministic=True,
             )
-
-            # Baseline pass: circuits with no recorder data should produce 0
-            # — they didn't exist in the baseline system.  Without this
-            # guard the behavior engine synthesises power for user-added
-            # circuits (battery, PV, loads) that leaks into the "Before"
-            # graph.
-            if modeling_recorder_baseline and not circuit.template.get("recorder_entity"):
-                power = 0.0
-
             circuit_powers[cid] = power
-
             if circuit.energy_mode == "producer":
-                total_production += power
-            elif circuit.energy_mode == "bidirectional":
-                raw_battery_power = power
-            else:
-                total_consumption += power
+                pv_total += power
+            elif circuit.energy_mode != "bidirectional":
+                load_total += power
 
-        if solar_excess_ids:
-            excess = max(0.0, total_production - total_consumption)
+        # Solar-excess batteries need the excess computed from other circuits
+        active_solar_excess = solar_excess_ids & circuit_ids
+        if active_solar_excess:
+            excess = max(0.0, pv_total - load_total)
             behavior.set_solar_excess(excess)
-            for cid in solar_excess_ids:
+            for cid in active_solar_excess:
                 circuit = self._circuits[cid]
                 power = behavior.get_circuit_power(
                     cid,
                     circuit.template,
                     ts,
-                    modeling_recorder_baseline=modeling_recorder_baseline,
+                    modeling_recorder_baseline=use_recorder_baseline,
                     modeling_deterministic=True,
                 )
-                if modeling_recorder_baseline and not circuit.template.get("recorder_entity"):
-                    power = 0.0
                 circuit_powers[cid] = power
-                raw_battery_power = power
 
-        site_power = total_consumption - total_production
-        return circuit_powers, site_power, total_production, raw_battery_power
+        return circuit_powers
+
+    def _powers_to_energy_inputs(
+        self,
+        circuit_powers: dict[str, float],
+    ) -> PowerInputs:
+        """Convert per-circuit power dict into PowerInputs for the energy system."""
+        pv_power = 0.0
+        load_power = 0.0
+        bess_power = 0.0
+
+        for cid, power in circuit_powers.items():
+            circuit = self._circuits[cid]
+            if circuit.energy_mode == "producer":
+                pv_power += power
+            elif circuit.energy_mode == "bidirectional":
+                bess_power = power
+            else:
+                load_power += power
+
+        return PowerInputs(
+            pv_available_w=pv_power,
+            bess_requested_w=abs(bess_power),
+            bess_scheduled_state="idle",  # caller sets this
+            load_demand_w=load_power,
+            grid_connected=True,  # caller overrides if needed
+        )
 
     async def compute_modeling_data(self, horizon_hours: int) -> dict[str, Any]:
         """Compute Before/After modeling data over recorder history.
@@ -1544,7 +1565,14 @@ class DynamicSimulationEngine:
             ):
                 solar_excess_ids.add(cid)
 
-        # Energy system for the After pass
+        # Partition circuits: baseline set (recorder-backed) vs full set
+        baseline_circuit_ids = {
+            cid for cid, c in self._circuits.items() if c.template.get("recorder_entity")
+        }
+        all_circuit_ids = set(self._circuits.keys())
+
+        # Build energy systems for each pass
+        before_energy_system = self._build_energy_system(circuit_ids=baseline_circuit_ids)
         after_energy_system = self._build_energy_system()
 
         if cloned_behavior is None or after_energy_system is None:
@@ -1561,62 +1589,67 @@ class DynamicSimulationEngine:
         circuit_arrays_after: dict[str, list[float]] = {cid: [] for cid in self._circuits}
 
         for ts in timestamps:
-            # Baseline vs after use the same engine; restore mutable state between
-            # passes so cycling / solar-excess bookkeeping does not cross-contaminate.
+            # Restore mutable state between passes so cycling / solar-excess
+            # bookkeeping does not cross-contaminate.
             modeling_checkpoint = cloned_behavior.capture_mutable_state()
 
-            powers_b, site_b, prod_b, raw_batt_b = self._aggregate_modeling_at_ts(
+            # --- Before pass: only recorder-backed circuits ---
+            powers_b = self._collect_circuit_powers_at_ts(
                 ts,
                 cloned_behavior,
+                baseline_circuit_ids,
                 solar_excess_ids,
-                modeling_recorder_baseline=True,
+                use_recorder_baseline=True,
             )
+            inputs_b = self._powers_to_energy_inputs(powers_b)
+            if before_energy_system is not None:
+                state_b = before_energy_system.tick(ts, inputs_b)
+                grid_before = state_b.grid_power_w
+                pv_before = state_b.pv_power_w
+                batt_before = state_b.bess_power_w
+                if state_b.bess_state == "discharging":
+                    batt_before = -batt_before
+            else:
+                grid_before = inputs_b.load_demand_w - inputs_b.pv_available_w
+                pv_before = inputs_b.pv_available_w
+                batt_before = 0.0
 
             cloned_behavior.restore_mutable_state(modeling_checkpoint)
 
-            powers_a, site_a, prod_a, raw_batt_a = self._aggregate_modeling_at_ts(
+            # --- After pass: all current circuits ---
+            powers_a = self._collect_circuit_powers_at_ts(
                 ts,
                 cloned_behavior,
+                all_circuit_ids,
                 solar_excess_ids,
-                modeling_recorder_baseline=False,
+                use_recorder_baseline=False,
             )
+            inputs_a = self._powers_to_energy_inputs(powers_a)
 
-            # Before: recorder data already has correct battery sign
-            # (negative = charging, positive = discharging).  Invert to
-            # match the grid convention (discharge reduces grid import).
-            signed_battery_before = -raw_batt_b
-
-            # After: use energy system for power flow resolution
-            # Determine battery state from schedule
-            bess_state = "idle"
-            if self._energy_system is not None and self._energy_system.bess is not None:
-                bess_state = self._energy_system.bess.resolve_scheduled_state(
-                    ts, forced_offline=self._forced_grid_offline
+            # Set battery schedule state for the after pass
+            if after_energy_system.bess is not None:
+                inputs_a = PowerInputs(
+                    pv_available_w=inputs_a.pv_available_w,
+                    bess_requested_w=inputs_a.bess_requested_w,
+                    bess_scheduled_state=after_energy_system.bess.resolve_scheduled_state(
+                        ts, forced_offline=self._forced_grid_offline
+                    ),
+                    load_demand_w=inputs_a.load_demand_w,
+                    grid_connected=inputs_a.grid_connected,
                 )
 
-            inputs_a = PowerInputs(
-                pv_available_w=prod_a,
-                bess_requested_w=abs(raw_batt_a),
-                bess_scheduled_state=bess_state,
-                load_demand_w=max(0.0, site_a + prod_a),  # consumption = site + production
-                grid_connected=True,
-            )
             state_a = after_energy_system.tick(ts, inputs_a)
             grid_after = state_a.grid_power_w
-            # Battery sign for modeling: negative = discharge reduces grid
+            batt_after = state_a.bess_power_w
             if state_a.bess_state == "discharging":
-                signed_battery_after = -state_a.bess_power_w
-            else:
-                signed_battery_after = state_a.bess_power_w
-
-            grid_before = site_b + signed_battery_before
+                batt_after = -batt_after
 
             site_power_arr.append(round(grid_before, 1))
-            pv_before_arr.append(round(prod_b, 1))
+            pv_before_arr.append(round(pv_before, 1))
             grid_power_arr.append(round(grid_after, 1))
-            pv_after_arr.append(round(prod_a, 1))
-            battery_power_arr.append(round(signed_battery_after, 1))
-            battery_before_arr.append(round(signed_battery_before, 1))
+            pv_after_arr.append(round(state_a.pv_power_w, 1))
+            battery_power_arr.append(round(batt_after, 1))
+            battery_before_arr.append(round(batt_before, 1))
 
             for cid in self._circuits:
                 circuit_arrays_before[cid].append(round(powers_b.get(cid, 0.0), 1))
@@ -1803,15 +1836,31 @@ class DynamicSimulationEngine:
                 return circuit
         return None
 
-    def _build_energy_system(self) -> EnergySystem | None:
-        """Construct an EnergySystem from current circuit configuration."""
+    def _build_energy_system(
+        self,
+        *,
+        circuit_ids: set[str] | None = None,
+    ) -> EnergySystem | None:
+        """Construct an EnergySystem from circuit configuration.
+
+        When *circuit_ids* is provided, only those circuits participate
+        in the energy system.  This is used for the modeling baseline
+        pass where only recorder-backed circuits existed.  When ``None``
+        (the default), all current circuits are included.
+        """
         if not self._config:
             return None
+
+        included = {
+            cid: c
+            for cid, c in self._circuits.items()
+            if circuit_ids is None or cid in circuit_ids
+        }
 
         grid_config = GridConfig(connected=not self._forced_grid_offline)
 
         pv_config: PVConfig | None = None
-        for circuit in self._circuits.values():
+        for circuit in included.values():
             if circuit.energy_mode == "producer":
                 nameplate = float(circuit.template["energy_profile"]["typical_power"])
                 inverter_type = str(circuit.template.get("inverter_type", "ac_coupled"))
@@ -1819,9 +1868,8 @@ class DynamicSimulationEngine:
                 break
 
         bess_config: BESSConfig | None = None
-        battery_circuit = self._find_battery_circuit()
-        if battery_circuit is not None:
-            battery_cfg = battery_circuit.template.get("battery_behavior", {})
+        for circuit in included.values():
+            battery_cfg = circuit.template.get("battery_behavior", {})
             if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
                 nameplate = float(battery_cfg.get("nameplate_capacity_kwh", 13.5))
                 hybrid = battery_cfg.get("inverter_type") == "hybrid"
@@ -1846,13 +1894,14 @@ class DynamicSimulationEngine:
                         else None
                     ),
                     panel_serial=self._config["panel_config"]["serial_number"],
-                    feed_circuit_id=battery_circuit.circuit_id,
+                    feed_circuit_id=circuit.circuit_id,
                     charge_hours=tuple(charge_hours_raw),
                     discharge_hours=tuple(discharge_hours_raw),
                     panel_timezone=panel_tz,
                 )
+                break
 
-        loads = [LoadConfig() for c in self._circuits.values() if c.energy_mode == "consumer"]
+        loads = [LoadConfig() for c in included.values() if c.energy_mode == "consumer"]
 
         config = EnergySystemConfig(
             grid=grid_config,
