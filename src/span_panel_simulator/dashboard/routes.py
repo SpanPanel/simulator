@@ -34,6 +34,9 @@ from span_panel_simulator.dashboard.presets import (
     is_random_days_preset,
     match_battery_preset,
 )
+from span_panel_simulator.ha_api.opower import (
+    async_discover_opower,
+)
 from span_panel_simulator.rates.cost_engine import compute_costs
 from span_panel_simulator.rates.openei import (
     OpenEIError,
@@ -426,6 +429,54 @@ async def handle_get_rate_attribution(request: web.Request) -> web.Response:
     )
 
 
+async def handle_get_opower_accounts(request: web.Request) -> web.Response:
+    """GET /rates/opower-accounts — discover opower ELEC accounts from HA."""
+    ctx = _ctx(request)
+    if ctx.ha_client is None:
+        return web.json_response([])
+    try:
+        accounts = await async_discover_opower(ctx.ha_client)
+    except Exception:
+        _LOGGER.exception("Failed to discover opower accounts")
+        return web.json_response([])
+    return web.json_response(
+        [
+            {
+                "device_id": a.device_id,
+                "utility_name": a.utility_name,
+                "account_number": a.account_number,
+                "cost_entity_id": a.cost_entity_id,
+                "usage_entity_id": a.usage_entity_id,
+            }
+            for a in accounts
+        ]
+    )
+
+
+async def handle_get_opower_account(request: web.Request) -> web.Response:
+    """GET /rates/opower-account — get saved opower account."""
+    account = _rate_cache(request).get_opower_account()
+    if account is None:
+        return web.json_response({"configured": False})
+    return web.json_response({**account, "configured": True})
+
+
+async def handle_put_opower_account(request: web.Request) -> web.Response:
+    """PUT /rates/opower-account — save selected opower account."""
+    body = await request.json()
+    device_id = body.get("device_id", "").strip()
+    if not device_id:
+        return web.json_response({"error": "device_id is required"}, status=400)
+    _rate_cache(request).set_opower_account(
+        device_id=device_id,
+        utility_name=body.get("utility_name", ""),
+        account_number=body.get("account_number", ""),
+        cost_entity_id=body.get("cost_entity_id", ""),
+        usage_entity_id=body.get("usage_entity_id", ""),
+    )
+    return web.json_response({"ok": True})
+
+
 def setup_routes(app: web.Application) -> None:
     """Register all dashboard routes."""
     # Full page
@@ -528,6 +579,11 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_put("/rates/current", handle_put_current_rate)
     app.router.add_get("/rates/detail/{label}", handle_get_rate_detail)
     app.router.add_get("/rates/attribution/{label}", handle_get_rate_attribution)
+
+    # Opower account management
+    app.router.add_get("/rates/opower-accounts", handle_get_opower_accounts)
+    app.router.add_get("/rates/opower-account", handle_get_opower_account)
+    app.router.add_put("/rates/opower-account", handle_put_opower_account)
 
 
 # -- Full page --
