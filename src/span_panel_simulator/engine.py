@@ -1475,23 +1475,24 @@ class DynamicSimulationEngine:
         self,
         circuit_powers: dict[str, float],
     ) -> PowerInputs:
-        """Convert per-circuit power dict into PowerInputs for the energy system."""
+        """Convert per-circuit power dict into PowerInputs for the energy system.
+
+        Battery circuits are excluded from the power summation — the
+        energy system determines BESS power from the inverter rate and
+        bus state, not from the behavior engine's synthetic output.
+        """
         pv_power = 0.0
         load_power = 0.0
-        bess_power = 0.0
 
         for cid, power in circuit_powers.items():
             circuit = self._circuits[cid]
             if circuit.energy_mode == "producer":
                 pv_power += power
-            elif circuit.energy_mode == "bidirectional":
-                bess_power = power
-            else:
+            elif circuit.energy_mode != "bidirectional":
                 load_power += power
 
         return PowerInputs(
             pv_available_w=pv_power,
-            bess_requested_w=abs(bess_power),
             bess_scheduled_state="idle",  # caller sets this
             load_demand_w=load_power,
             grid_connected=True,  # caller overrides if needed
@@ -1630,7 +1631,6 @@ class DynamicSimulationEngine:
             if after_energy_system.bess is not None:
                 inputs_a = PowerInputs(
                     pv_available_w=inputs_a.pv_available_w,
-                    bess_requested_w=inputs_a.bess_requested_w,
                     bess_scheduled_state=after_energy_system.bess.resolve_scheduled_state(
                         ts, forced_offline=self._forced_grid_offline
                     ),
@@ -1804,7 +1804,6 @@ class DynamicSimulationEngine:
         """Collect current circuit state into PowerInputs for the energy system."""
         pv_power = 0.0
         load_power = 0.0
-        bess_power = 0.0
         bess_state = "idle"
 
         for circuit in self._circuits.values():
@@ -1812,7 +1811,6 @@ class DynamicSimulationEngine:
             if circuit.energy_mode == "producer":
                 pv_power += power
             elif circuit.energy_mode == "bidirectional":
-                bess_power = power
                 if self._energy_system is not None and self._energy_system.bess is not None:
                     bess_state = self._energy_system.bess.effective_state
                 elif self._behavior_engine is not None:
@@ -1822,7 +1820,6 @@ class DynamicSimulationEngine:
 
         return PowerInputs(
             pv_available_w=pv_power,
-            bess_requested_w=bess_power,
             bess_scheduled_state=bess_state,
             load_demand_w=load_power,
             grid_connected=not self._forced_grid_offline,

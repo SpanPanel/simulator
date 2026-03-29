@@ -115,7 +115,17 @@ class EnergySystem:
             self.pv.available_power_w = inputs.pv_available_w
         if self.bess is not None:
             self.bess.scheduled_state = inputs.bess_scheduled_state
-            self.bess.requested_power_w = inputs.bess_requested_w
+
+            # Real BESS behaviour: request the full inverter rate for the
+            # scheduled state.  The bus resolution (GFE throttle + SOE
+            # bounds) limits actual power to what the home needs — exactly
+            # how a Powerwall or similar system operates.
+            if self.bess.scheduled_state == "discharging":
+                self.bess.requested_power_w = self.bess.max_discharge_w
+            elif self.bess.scheduled_state == "charging":
+                self.bess.requested_power_w = self.bess.max_charge_w
+            else:
+                self.bess.requested_power_w = 0.0
 
             # Non-hybrid islanding override: if grid disconnected and PV
             # is offline, BESS must discharge regardless of schedule

@@ -59,7 +59,6 @@ class TestGFEThrottling:
             PowerInputs(
                 pv_available_w=2000.0,
                 bess_scheduled_state="discharging",
-                bess_requested_w=5000.0,
                 load_demand_w=3000.0,
                 grid_connected=True,
             ),
@@ -80,7 +79,6 @@ class TestGFEThrottling:
             1000.0,
             PowerInputs(
                 bess_scheduled_state="discharging",
-                bess_requested_w=5000.0,
                 load_demand_w=3000.0,
                 grid_connected=True,
             ),
@@ -103,7 +101,6 @@ class TestGFEThrottling:
             PowerInputs(
                 pv_available_w=5000.0,
                 bess_scheduled_state="discharging",
-                bess_requested_w=5000.0,
                 load_demand_w=2000.0,
                 grid_connected=True,
             ),
@@ -128,7 +125,6 @@ class TestIslanding:
             PowerInputs(
                 pv_available_w=4000.0,
                 bess_scheduled_state="discharging",
-                bess_requested_w=5000.0,
                 load_demand_w=3000.0,
                 grid_connected=False,
             ),
@@ -152,7 +148,6 @@ class TestIslanding:
             PowerInputs(
                 pv_available_w=3000.0,
                 bess_scheduled_state="discharging",
-                bess_requested_w=5000.0,
                 load_demand_w=5000.0,
                 grid_connected=False,
             ),
@@ -176,7 +171,6 @@ class TestIslanding:
             PowerInputs(
                 pv_available_w=5000.0,
                 bess_scheduled_state="charging",
-                bess_requested_w=3000.0,
                 load_demand_w=2000.0,
                 grid_connected=False,
             ),
@@ -201,7 +195,6 @@ class TestIslanding:
             PowerInputs(
                 pv_available_w=5000.0,
                 bess_scheduled_state="charging",
-                bess_requested_w=3000.0,
                 load_demand_w=3000.0,
                 grid_connected=False,
             ),
@@ -225,7 +218,6 @@ class TestGridImpact:
             1000.0,
             PowerInputs(
                 bess_scheduled_state="charging",
-                bess_requested_w=3000.0,
                 load_demand_w=2000.0,
                 grid_connected=True,
             ),
@@ -245,7 +237,6 @@ class TestGridImpact:
             1000.0,
             PowerInputs(
                 bess_scheduled_state="discharging",
-                bess_requested_w=3000.0,
                 load_demand_w=5000.0,
                 grid_connected=True,
             ),
@@ -272,7 +263,6 @@ class TestGridImpact:
             PowerInputs(
                 load_demand_w=5000.0,
                 bess_scheduled_state="discharging",
-                bess_requested_w=3000.0,
             ),
         )
         assert state_b.balanced and state_a.balanced
@@ -294,7 +284,6 @@ class TestIndependentInstances:
             1000.0,
             PowerInputs(
                 bess_scheduled_state="discharging",
-                bess_requested_w=3000.0,
                 load_demand_w=3000.0,
             ),
         )
@@ -302,7 +291,6 @@ class TestIndependentInstances:
             4600.0,
             PowerInputs(
                 bess_scheduled_state="discharging",
-                bess_requested_w=3000.0,
                 load_demand_w=3000.0,
             ),
         )
@@ -311,7 +299,6 @@ class TestIndependentInstances:
             1000.0,
             PowerInputs(
                 bess_scheduled_state="discharging",
-                bess_requested_w=3000.0,
                 load_demand_w=3000.0,
             ),
         )
@@ -358,7 +345,6 @@ class TestNameplateDuration:
 
         inputs = PowerInputs(
             bess_scheduled_state="discharging",
-            bess_requested_w=2500.0,
             load_demand_w=2500.0,
             grid_connected=True,
         )
