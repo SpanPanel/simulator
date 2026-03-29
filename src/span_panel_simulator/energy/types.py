@@ -50,14 +50,13 @@ class BusState:
 class PowerInputs:
     """External inputs fed into the energy resolution pipeline.
 
-    The BESS operates like a real system — it delivers whatever power
-    the home needs (up to its inverter rate), gated only by schedule
-    and SOE.  There is no ``bess_requested_w``; the energy system uses
-    the max inverter rate from the BESSConfig.
+    Contains only raw measurements and grid status.  All energy
+    scheduling (charge mode, TOU hours, islanding overrides) is
+    resolved internally by ``EnergySystem.tick`` — callers should
+    not pre-compute BESS state.
     """
 
     pv_available_w: float = 0.0
-    bess_scheduled_state: str = "idle"
     load_demand_w: float = 0.0
     grid_connected: bool = True
 

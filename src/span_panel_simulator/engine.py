@@ -1380,7 +1380,6 @@ class DynamicSimulationEngine:
 
         return PowerInputs(
             pv_available_w=pv_power,
-            bess_scheduled_state="idle",  # caller sets this
             load_demand_w=load_power,
             grid_connected=True,  # caller overrides if needed
         )
@@ -1391,8 +1390,8 @@ class DynamicSimulationEngine:
         Performs **read-only** passes — no runtime state is mutated.
         **Before** uses HA recorder replay wherever ``recorder_entity`` data
         exists (ignores ``user_modified``), with site power **without** BESS.
-        **After** uses current templates (SYN / overrides) and applies BSEE
-        for grid and battery traces.
+        **After** uses current templates (SYN / overrides) and ticks an
+        ``EnergySystem`` to resolve grid and battery traces.
 
         Returns the response dict matching the ``GET /modeling-data`` schema
         (including ``pv_power_before``, ``pv_power_after``, and legacy
@@ -1500,17 +1499,6 @@ class DynamicSimulationEngine:
                 use_recorder_baseline=False,
             )
             inputs_a = self._powers_to_energy_inputs(powers_a)
-
-            # Set battery schedule state for the after pass
-            if after_energy_system.bess is not None:
-                inputs_a = PowerInputs(
-                    pv_available_w=inputs_a.pv_available_w,
-                    bess_scheduled_state=after_energy_system.bess.resolve_scheduled_state(
-                        ts, forced_offline=self._forced_grid_offline
-                    ),
-                    load_demand_w=inputs_a.load_demand_w,
-                    grid_connected=inputs_a.grid_connected,
-                )
 
             state_a = after_energy_system.tick(ts, inputs_a)
             grid_after = state_a.grid_power_w
@@ -1675,26 +1663,24 @@ class DynamicSimulationEngine:
                 )
 
     def _collect_power_inputs(self) -> PowerInputs:
-        """Collect current circuit state into PowerInputs for the energy system."""
+        """Collect current circuit state into PowerInputs for the energy system.
+
+        This method gathers raw measurements from circuits — it does NOT
+        resolve energy scheduling.  Schedule resolution is the energy
+        module's responsibility (inside ``EnergySystem.tick``).
+        """
         pv_power = 0.0
         load_power = 0.0
-        bess_state = "idle"
 
         for circuit in self._circuits.values():
             power = circuit.instant_power_w
             if circuit.energy_mode == "producer":
                 pv_power += power
-            elif circuit.energy_mode == "bidirectional":
-                if self._energy_system is not None and self._energy_system.bess is not None:
-                    bess_state = self._energy_system.bess.effective_state
-                elif self._behavior_engine is not None:
-                    bess_state = self._behavior_engine.last_battery_direction
-            else:
+            elif circuit.energy_mode != "bidirectional":
                 load_power += power
 
         return PowerInputs(
             pv_available_w=pv_power,
-            bess_scheduled_state=bess_state,
             load_demand_w=load_power,
             grid_connected=not self._forced_grid_offline,
         )
@@ -1743,7 +1729,8 @@ class DynamicSimulationEngine:
             battery_cfg = circuit.template.get("battery_behavior", {})
             if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
                 nameplate = float(battery_cfg.get("nameplate_capacity_kwh", 13.5))
-                hybrid = battery_cfg.get("inverter_type") == "hybrid"
+                # inverter_type is stored as template priority by config_store
+                hybrid = circuit.template.get("priority") == "MUST_HAVE"
                 charge_hours_raw: list[int] = battery_cfg.get("charge_hours", [])
                 discharge_hours_raw: list[int] = battery_cfg.get("discharge_hours", [])
                 panel_tz = (

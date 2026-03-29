@@ -12,6 +12,13 @@ from span_panel_simulator.energy.types import (
     PVConfig,
 )
 
+# All tests use ts=1000.0 which maps to hour 16 in America/Los_Angeles.
+# TOU schedule hours are set accordingly to control BESS state via config
+# rather than leaking scheduling into PowerInputs.
+_TS = 1000.0
+_DISCHARGE_AT_TS = (16,)
+_CHARGE_AT_TS = (16,)
+
 
 def _grid_online() -> GridConfig:
     return GridConfig(connected=True)
@@ -34,6 +41,8 @@ def _bess(
     backup_reserve_pct: float = 20.0,
     initial_soe_kwh: float | None = None,
     charge_mode: str = "custom",
+    charge_hours: tuple[int, ...] = (),
+    discharge_hours: tuple[int, ...] = (),
 ) -> BESSConfig:
     return BESSConfig(
         nameplate_kwh=nameplate_kwh,
@@ -43,6 +52,8 @@ def _bess(
         backup_reserve_pct=backup_reserve_pct,
         initial_soe_kwh=initial_soe_kwh,
         charge_mode=charge_mode,
+        charge_hours=charge_hours,
+        discharge_hours=discharge_hours,
     )
 
 
@@ -52,15 +63,14 @@ class TestGFEThrottling:
             EnergySystemConfig(
                 grid=_grid_online(),
                 pv=_pv(),
-                bess=_bess(),
+                bess=_bess(discharge_hours=_DISCHARGE_AT_TS),
                 loads=[LoadConfig(demand_w=3000.0)],
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
                 pv_available_w=2000.0,
-                bess_scheduled_state="discharging",
                 load_demand_w=3000.0,
                 grid_connected=True,
             ),
@@ -73,14 +83,13 @@ class TestGFEThrottling:
         system = EnergySystem.from_config(
             EnergySystemConfig(
                 grid=_grid_online(),
-                bess=_bess(),
+                bess=_bess(discharge_hours=_DISCHARGE_AT_TS),
                 loads=[LoadConfig(demand_w=3000.0)],
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
-                bess_scheduled_state="discharging",
                 load_demand_w=3000.0,
                 grid_connected=True,
             ),
@@ -90,19 +99,19 @@ class TestGFEThrottling:
         assert abs(state.bess_power_w - 3000.0) < 0.01
 
     def test_bess_idle_when_pv_exceeds_load(self) -> None:
+        """BESS scheduled to discharge but PV surplus means no deficit — GFE idles."""
         system = EnergySystem.from_config(
             EnergySystemConfig(
                 grid=_grid_online(),
                 pv=_pv(),
-                bess=_bess(),
+                bess=_bess(discharge_hours=_DISCHARGE_AT_TS),
                 loads=[LoadConfig(demand_w=2000.0)],
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
                 pv_available_w=5000.0,
-                bess_scheduled_state="discharging",
                 load_demand_w=2000.0,
                 grid_connected=True,
             ),
@@ -114,19 +123,19 @@ class TestGFEThrottling:
 
 class TestIslanding:
     def test_non_hybrid_pv_offline_bess_covers_all(self) -> None:
+        """Non-hybrid off-grid: PV sheds, BESS forced to discharge by islanding override."""
         system = EnergySystem.from_config(
             EnergySystemConfig(
                 grid=_grid_offline(),
                 pv=_pv(inverter_type="ac_coupled"),
-                bess=_bess(hybrid=False),
+                bess=_bess(hybrid=False, discharge_hours=_DISCHARGE_AT_TS),
                 loads=[LoadConfig(demand_w=3000.0)],
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
                 pv_available_w=4000.0,
-                bess_scheduled_state="discharging",
                 load_demand_w=3000.0,
                 grid_connected=False,
             ),
@@ -141,15 +150,14 @@ class TestIslanding:
             EnergySystemConfig(
                 grid=_grid_offline(),
                 pv=_pv(inverter_type="hybrid"),
-                bess=_bess(hybrid=True),
+                bess=_bess(hybrid=True, discharge_hours=_DISCHARGE_AT_TS),
                 loads=[LoadConfig(demand_w=5000.0)],
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
                 pv_available_w=3000.0,
-                bess_scheduled_state="discharging",
                 load_demand_w=5000.0,
                 grid_connected=False,
             ),
@@ -164,15 +172,19 @@ class TestIslanding:
             EnergySystemConfig(
                 grid=_grid_offline(),
                 pv=_pv(inverter_type="hybrid"),
-                bess=_bess(hybrid=True, max_charge_w=3000.0, initial_soe_kwh=5.0),
+                bess=_bess(
+                    hybrid=True,
+                    max_charge_w=3000.0,
+                    initial_soe_kwh=5.0,
+                    charge_hours=_CHARGE_AT_TS,
+                ),
                 loads=[LoadConfig(demand_w=2000.0)],
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
                 pv_available_w=5000.0,
-                bess_scheduled_state="charging",
                 load_demand_w=2000.0,
                 grid_connected=False,
             ),
@@ -184,19 +196,19 @@ class TestIslanding:
         assert state.grid_power_w == 0.0
 
     def test_non_hybrid_island_ignores_solar_excess(self) -> None:
+        """Non-hybrid off-grid: PV sheds, non-hybrid islanding override forces discharge."""
         system = EnergySystem.from_config(
             EnergySystemConfig(
                 grid=_grid_offline(),
                 pv=_pv(inverter_type="ac_coupled"),
-                bess=_bess(hybrid=False),
+                bess=_bess(hybrid=False, charge_hours=_CHARGE_AT_TS),
                 loads=[LoadConfig(demand_w=3000.0)],
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
                 pv_available_w=5000.0,
-                bess_scheduled_state="charging",
                 load_demand_w=3000.0,
                 grid_connected=False,
             ),
@@ -207,19 +219,156 @@ class TestIslanding:
         assert state.bess_state == "discharging"
 
 
+class TestPVCurtailment:
+    """PV curtailment when islanded and production exceeds absorbable demand.
+
+    Real hybrid inverters reduce their MPPT setpoint when islanded so that
+    PV never produces more than load + achievable BESS charge.  These tests
+    verify the simulator reproduces that behavior.
+    """
+
+    def test_curtails_pv_when_surplus_exceeds_bess_charge(self) -> None:
+        """PV 7kW, load 2kW, BESS charge 3kW max => curtail PV to 5kW."""
+        system = EnergySystem.from_config(
+            EnergySystemConfig(
+                grid=_grid_offline(),
+                pv=_pv(inverter_type="hybrid"),
+                bess=_bess(
+                    hybrid=True,
+                    max_charge_w=3000.0,
+                    initial_soe_kwh=5.0,
+                    charge_mode="self-consumption",
+                ),
+                loads=[LoadConfig(demand_w=2000.0)],
+            )
+        )
+        state = system.tick(
+            _TS,
+            PowerInputs(
+                pv_available_w=7000.0,
+                load_demand_w=2000.0,
+                grid_connected=False,
+            ),
+        )
+        assert state.balanced
+        assert state.pv_power_w == 5000.0
+        assert state.bess_state == "charging"
+        assert state.bess_power_w == 3000.0
+        assert state.grid_power_w == 0.0
+
+    def test_curtails_pv_to_load_when_no_bess_charge_headroom(self) -> None:
+        """BESS nearly full — can't absorb charge, so PV curtails to load only."""
+        system = EnergySystem.from_config(
+            EnergySystemConfig(
+                grid=_grid_offline(),
+                pv=_pv(inverter_type="hybrid"),
+                bess=_bess(
+                    hybrid=True,
+                    max_charge_w=3000.0,
+                    initial_soe_kwh=13.5,  # full
+                    charge_mode="self-consumption",
+                ),
+                loads=[LoadConfig(demand_w=2000.0)],
+            )
+        )
+        state = system.tick(
+            _TS,
+            PowerInputs(
+                pv_available_w=6000.0,
+                load_demand_w=2000.0,
+                grid_connected=False,
+            ),
+        )
+        assert state.balanced
+        assert abs(state.pv_power_w - 2000.0) < 0.01
+        assert state.bess_state == "idle"
+        assert state.grid_power_w == 0.0
+
+    def test_curtails_pv_to_load_when_no_bess(self) -> None:
+        """Islanded PV-only system (no battery) curtails to match load."""
+        system = EnergySystem.from_config(
+            EnergySystemConfig(
+                grid=_grid_offline(),
+                pv=_pv(inverter_type="hybrid"),
+                loads=[LoadConfig(demand_w=1500.0)],
+            )
+        )
+        # PV-only system needs islandable set explicitly
+        system.islandable = True
+        state = system.tick(
+            _TS,
+            PowerInputs(
+                pv_available_w=4000.0,
+                load_demand_w=1500.0,
+                grid_connected=False,
+            ),
+        )
+        assert state.balanced
+        assert abs(state.pv_power_w - 1500.0) < 0.01
+        assert state.grid_power_w == 0.0
+
+    def test_no_curtailment_when_grid_connected(self) -> None:
+        """Grid absorbs surplus — no curtailment needed."""
+        system = EnergySystem.from_config(
+            EnergySystemConfig(
+                grid=_grid_online(),
+                pv=_pv(inverter_type="hybrid"),
+                bess=_bess(hybrid=True, initial_soe_kwh=13.5),
+                loads=[LoadConfig(demand_w=2000.0)],
+            )
+        )
+        state = system.tick(
+            _TS,
+            PowerInputs(
+                pv_available_w=6000.0,
+                load_demand_w=2000.0,
+                grid_connected=True,
+            ),
+        )
+        assert state.balanced
+        assert state.pv_power_w == 6000.0
+        # Grid exports the surplus (negative = export)
+        assert state.grid_power_w < 0
+
+    def test_no_curtailment_when_demand_absorbs_all(self) -> None:
+        """Load + BESS charge >= PV — no curtailment needed."""
+        system = EnergySystem.from_config(
+            EnergySystemConfig(
+                grid=_grid_offline(),
+                pv=_pv(inverter_type="hybrid"),
+                bess=_bess(
+                    hybrid=True,
+                    max_charge_w=3500.0,
+                    initial_soe_kwh=5.0,
+                    charge_mode="self-consumption",
+                ),
+                loads=[LoadConfig(demand_w=3000.0)],
+            )
+        )
+        state = system.tick(
+            _TS,
+            PowerInputs(
+                pv_available_w=5000.0,
+                load_demand_w=3000.0,
+                grid_connected=False,
+            ),
+        )
+        assert state.balanced
+        assert state.pv_power_w == 5000.0
+
+
 class TestGridImpact:
     def test_charging_increases_grid_import(self) -> None:
         system = EnergySystem.from_config(
             EnergySystemConfig(
                 grid=_grid_online(),
-                bess=_bess(max_charge_w=3000.0),
+                bess=_bess(max_charge_w=3000.0, charge_hours=_CHARGE_AT_TS),
                 loads=[LoadConfig(demand_w=2000.0)],
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
-                bess_scheduled_state="charging",
                 load_demand_w=2000.0,
                 grid_connected=True,
             ),
@@ -231,14 +380,13 @@ class TestGridImpact:
         system = EnergySystem.from_config(
             EnergySystemConfig(
                 grid=_grid_online(),
-                bess=_bess(max_discharge_w=3000.0),
+                bess=_bess(max_discharge_w=3000.0, discharge_hours=_DISCHARGE_AT_TS),
                 loads=[LoadConfig(demand_w=5000.0)],
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
-                bess_scheduled_state="discharging",
                 load_demand_w=5000.0,
                 grid_connected=True,
             ),
@@ -253,19 +401,16 @@ class TestGridImpact:
         )
         config_with_bess = EnergySystemConfig(
             grid=_grid_online(),
-            bess=_bess(max_discharge_w=3000.0),
+            bess=_bess(max_discharge_w=3000.0, discharge_hours=_DISCHARGE_AT_TS),
             loads=[LoadConfig(demand_w=5000.0)],
         )
         sys_b = EnergySystem.from_config(config_no_bess)
         sys_a = EnergySystem.from_config(config_with_bess)
 
-        state_b = sys_b.tick(1000.0, PowerInputs(load_demand_w=5000.0))
+        state_b = sys_b.tick(_TS, PowerInputs(load_demand_w=5000.0))
         state_a = sys_a.tick(
-            1000.0,
-            PowerInputs(
-                load_demand_w=5000.0,
-                bess_scheduled_state="discharging",
-            ),
+            _TS,
+            PowerInputs(load_demand_w=5000.0),
         )
         assert state_b.balanced and state_a.balanced
         assert abs(state_b.grid_power_w - 5000.0) < 0.01
@@ -276,33 +421,24 @@ class TestIndependentInstances:
     def test_two_instances_share_no_state(self) -> None:
         config = EnergySystemConfig(
             grid=_grid_online(),
-            bess=_bess(initial_soe_kwh=10.0),
+            bess=_bess(initial_soe_kwh=10.0, discharge_hours=_DISCHARGE_AT_TS),
             loads=[LoadConfig(demand_w=3000.0)],
         )
         sys1 = EnergySystem.from_config(config)
         sys2 = EnergySystem.from_config(config)
 
         sys1.tick(
-            1000.0,
-            PowerInputs(
-                bess_scheduled_state="discharging",
-                load_demand_w=3000.0,
-            ),
+            _TS,
+            PowerInputs(load_demand_w=3000.0),
         )
         sys1.tick(
             4600.0,
-            PowerInputs(
-                bess_scheduled_state="discharging",
-                load_demand_w=3000.0,
-            ),
+            PowerInputs(load_demand_w=3000.0),
         )
 
         state2 = sys2.tick(
-            1000.0,
-            PowerInputs(
-                bess_scheduled_state="discharging",
-                load_demand_w=3000.0,
-            ),
+            _TS,
+            PowerInputs(load_demand_w=3000.0),
         )
         assert state2.soe_kwh == 10.0
 
@@ -319,7 +455,7 @@ class TestEVSE:
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
                 load_demand_w=10200.0,
                 grid_connected=True,
@@ -332,21 +468,31 @@ class TestEVSE:
 
 class TestNameplateDuration:
     def test_larger_nameplate_sustains_longer(self) -> None:
+        # Ticks run from ts=60 to ts=7260 (hours 16-18 in America/Los_Angeles)
         small_config = EnergySystemConfig(
             grid=_grid_online(),
-            bess=_bess(nameplate_kwh=5.0, max_discharge_w=2500.0, initial_soe_kwh=2.5),
+            bess=_bess(
+                nameplate_kwh=5.0,
+                max_discharge_w=2500.0,
+                initial_soe_kwh=2.5,
+                discharge_hours=(16, 17, 18),
+            ),
             loads=[LoadConfig(demand_w=2500.0)],
         )
         large_config = EnergySystemConfig(
             grid=_grid_online(),
-            bess=_bess(nameplate_kwh=20.0, max_discharge_w=2500.0, initial_soe_kwh=10.0),
+            bess=_bess(
+                nameplate_kwh=20.0,
+                max_discharge_w=2500.0,
+                initial_soe_kwh=10.0,
+                discharge_hours=(16, 17, 18),
+            ),
             loads=[LoadConfig(demand_w=2500.0)],
         )
         small = EnergySystem.from_config(small_config)
         large = EnergySystem.from_config(large_config)
 
         inputs = PowerInputs(
-            bess_scheduled_state="discharging",
             load_demand_w=2500.0,
             grid_connected=True,
         )
@@ -378,7 +524,7 @@ class TestSelfConsumptionMode:
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
                 pv_available_w=2000.0,
                 load_demand_w=4000.0,
@@ -404,7 +550,7 @@ class TestSelfConsumptionMode:
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
                 pv_available_w=5000.0,
                 load_demand_w=2000.0,
@@ -426,7 +572,7 @@ class TestSelfConsumptionMode:
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
                 pv_available_w=3000.0,
                 load_demand_w=3000.0,
@@ -455,7 +601,7 @@ class TestBackupOnlyMode:
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
                 load_demand_w=2000.0,
                 grid_connected=True,
@@ -477,7 +623,7 @@ class TestBackupOnlyMode:
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
                 load_demand_w=2000.0,
                 grid_connected=True,
@@ -496,7 +642,7 @@ class TestBackupOnlyMode:
             )
         )
         state = system.tick(
-            1000.0,
+            _TS,
             PowerInputs(
                 load_demand_w=3000.0,
                 grid_connected=False,

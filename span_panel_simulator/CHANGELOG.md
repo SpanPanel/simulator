@@ -9,6 +9,7 @@
 - Backup Only mode: battery holds at full SOC and only discharges during grid outages
 - BESS operates at full inverter rate like a real system — GFE throttle limits discharge to actual load deficit
 - Hybrid inverter support: PV stays online during islanding when co-located with BESS
+- PV curtailment during islanding: hybrid inverter reduces output to match load + BESS charge capacity when grid is disconnected, matching real MPPT setpoint behavior
 
 ### Improvements
 

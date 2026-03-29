@@ -327,7 +327,7 @@ class TestBESSUnitHybridPV:
             pv_source=pv,
             soe_kwh=6.75,
         )
-        bess.update_pv_online_status(grid_connected=False)
+        bess.update_pv_online_status(pv_allowed=False)
         assert pv.online is True
 
     def test_non_hybrid_sheds_pv_when_grid_disconnected(self) -> None:
@@ -344,7 +344,7 @@ class TestBESSUnitHybridPV:
             pv_source=pv,
             soe_kwh=6.75,
         )
-        bess.update_pv_online_status(grid_connected=False)
+        bess.update_pv_online_status(pv_allowed=False)
         assert pv.online is False
 
     def test_non_hybrid_pv_online_when_grid_connected(self) -> None:
@@ -361,5 +361,5 @@ class TestBESSUnitHybridPV:
             pv_source=pv,
             soe_kwh=6.75,
         )
-        bess.update_pv_online_status(grid_connected=True)
+        bess.update_pv_online_status(pv_allowed=True)
         assert pv.online is True

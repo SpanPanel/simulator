@@ -100,15 +100,22 @@ class EnergySystem:
         components.append(grid)
 
         bus = PanelBus(components=components)
-        return EnergySystem(bus=bus, grid=grid, pv=pv, bess=bess, load=load)
+        system = EnergySystem(bus=bus, grid=grid, pv=pv, bess=bess, load=load)
+        # Default islandable from inverter type — hybrid can island, AC-coupled cannot.
+        system.islandable = bess.hybrid if bess is not None else False
+        return system
 
     def tick(self, ts: float, inputs: PowerInputs) -> SystemState:
         # 1. Apply topology
         self.grid.connected = inputs.grid_connected
+
+        # PV stays online if grid is connected OR system is islandable.
+        pv_allowed = inputs.grid_connected or self.islandable
+
         if self.bess is not None:
-            self.bess.update_pv_online_status(inputs.grid_connected)
-        elif self.pv is not None and not inputs.grid_connected:
-            self.pv.online = False
+            self.bess.update_pv_online_status(pv_allowed)
+        elif self.pv is not None:
+            self.pv.online = pv_allowed
 
         # 2. Set component inputs
         self.load.demand_w = inputs.load_demand_w
@@ -144,8 +151,14 @@ class EnergySystem:
                     self.bess.scheduled_state = "idle"
                     self.bess.requested_power_w = 0.0
 
-            else:  # custom (TOU): use schedule
-                self.bess.scheduled_state = inputs.bess_scheduled_state
+            else:  # custom (TOU): resolve from BESS schedule config + timestamp
+                # Only force discharge for non-hybrid off-grid — hybrid systems
+                # can follow their TOU schedule while islanded.  The non-hybrid
+                # islanding override below (line ~165) handles the non-hybrid case.
+                self.bess.scheduled_state = self.bess.resolve_scheduled_state(
+                    ts,
+                    forced_offline=not inputs.grid_connected and not self.bess.hybrid,
+                )
                 if self.bess.scheduled_state == "discharging":
                     self.bess.requested_power_w = self.bess.max_discharge_w
                 elif self.bess.scheduled_state == "charging":
@@ -162,11 +175,36 @@ class EnergySystem:
         # 3. Resolve bus
         bus_state = self.bus.resolve()
 
-        # 4. Integrate BESS energy
+        # 4. PV curtailment for islanded operation.
+        #
+        # When the grid is disconnected the SLACK component (GridMeter)
+        # cannot absorb surplus production.  Real hybrid inverters handle
+        # this by reducing their MPPT setpoint so PV output never exceeds
+        # instantaneous demand (load + achievable BESS charge).  Without
+        # this step the bus would report an imbalance even though the
+        # physical system would simply curtail.
+        #
+        # We detect the condition after the first resolve: if the bus has
+        # a supply surplus (net_deficit < 0) and the grid contributed
+        # nothing (disconnected), clamp PV to remove the excess and
+        # re-resolve so all component effective values are consistent.
+        if (
+            self.pv is not None
+            and self.pv.online
+            and not inputs.grid_connected
+            and not bus_state.is_balanced()
+        ):
+            surplus_w = bus_state.total_supply_w - bus_state.total_demand_w
+            if surplus_w > 0:
+                curtailed = max(0.0, self.pv.available_power_w - surplus_w)
+                self.pv.available_power_w = curtailed
+                bus_state = self.bus.resolve()
+
+        # 5. Integrate BESS energy
         if self.bess is not None:
             self.bess.integrate_energy(ts)
 
-        # 5. Return resolved state
+        # 6. Return resolved state
         pv_power = 0.0
         if self.pv is not None and self.pv.online:
             pv_power = self.pv.available_power_w
