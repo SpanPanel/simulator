@@ -11,6 +11,7 @@ from aiohttp import web
 from span_panel_simulator.dashboard.config_store import ConfigStore
 from span_panel_simulator.dashboard.context import DashboardContext
 from span_panel_simulator.dashboard.presets import PresetRegistry
+from span_panel_simulator.rates.cache import RateCache
 
 APP_KEY_STORE = web.AppKey("store", ConfigStore)
 APP_KEY_DASHBOARD_CONTEXT = web.AppKey("dashboard_context", DashboardContext)
@@ -18,3 +19,4 @@ APP_KEY_PRESET_REGISTRY = web.AppKey("preset_registry", PresetRegistry)
 APP_KEY_PENDING_CLONES: web.AppKey[dict[str, dict[str, object]]] = web.AppKey(
     "pending_clones", dict
 )
+APP_KEY_RATE_CACHE = web.AppKey("rate_cache", RateCache)

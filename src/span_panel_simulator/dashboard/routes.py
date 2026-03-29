@@ -25,6 +25,7 @@ from span_panel_simulator.dashboard.keys import (
     APP_KEY_DASHBOARD_CONTEXT,
     APP_KEY_PENDING_CLONES,
     APP_KEY_PRESET_REGISTRY,
+    APP_KEY_RATE_CACHE,
     APP_KEY_STORE,
 )
 from span_panel_simulator.dashboard.modeling_config import resolve_modeling_config_filename
@@ -33,11 +34,18 @@ from span_panel_simulator.dashboard.presets import (
     is_random_days_preset,
     match_battery_preset,
 )
+from span_panel_simulator.rates.openei import (
+    OpenEIError,
+    fetch_rate_detail,
+    fetch_rate_plans,
+    fetch_utilities,
+)
 from span_panel_simulator.solar import compute_solar_curve
 from span_panel_simulator.weather import fetch_historical_weather, get_cached_weather
 
 if TYPE_CHECKING:
     from span_panel_simulator.dashboard.config_store import ConfigStore
+    from span_panel_simulator.rates.cache import RateCache
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,6 +83,10 @@ def _available_entity_types(store: ConfigStore) -> list[str]:
 
 def _store(request: web.Request) -> ConfigStore:
     return request.app[APP_KEY_STORE]
+
+
+def _rate_cache(request: web.Request) -> RateCache:
+    return request.app[APP_KEY_RATE_CACHE]
 
 
 def _ctx(request: web.Request) -> DashboardContext:
@@ -250,6 +262,169 @@ def _battery_profile_context(request: web.Request, entity_id: str) -> dict[str, 
     }
 
 
+async def handle_get_openei_config(request: web.Request) -> web.Response:
+    """GET /rates/openei-config"""
+    config = _rate_cache(request).get_openei_config()
+    return web.json_response({"api_url": config.api_url, "api_key": config.api_key})
+
+
+async def handle_put_openei_config(request: web.Request) -> web.Response:
+    """PUT /rates/openei-config"""
+    body = await request.json()
+    api_url = body.get("api_url", "").strip()
+    api_key = body.get("api_key", "").strip()
+    if not api_url or not api_key:
+        return web.json_response({"error": "api_url and api_key are required"}, status=400)
+    _rate_cache(request).set_openei_config(api_url, api_key)
+    return web.json_response({"ok": True})
+
+
+async def handle_get_utilities(request: web.Request) -> web.Response:
+    """GET /rates/utilities?lat=&lon="""
+    lat = request.query.get("lat")
+    lon = request.query.get("lon")
+    if lat is None or lon is None:
+        return web.json_response({"error": "lat and lon are required"}, status=400)
+    config = _rate_cache(request).get_openei_config()
+    if not config.api_key:
+        return web.json_response({"error": "OpenEI API key not configured"}, status=400)
+    try:
+        results = await fetch_utilities(float(lat), float(lon), config.api_url, config.api_key)
+    except OpenEIError as e:
+        return web.json_response({"error": str(e)}, status=502)
+    return web.json_response(
+        [{"utility_name": u.utility_name, "eia_id": u.eia_id} for u in results]
+    )
+
+
+async def handle_get_rate_plans(request: web.Request) -> web.Response:
+    """GET /rates/plans?utility=&sector="""
+    utility = request.query.get("utility")
+    if not utility:
+        return web.json_response({"error": "utility is required"}, status=400)
+    sector = request.query.get("sector", "Residential")
+    config = _rate_cache(request).get_openei_config()
+    if not config.api_key:
+        return web.json_response({"error": "OpenEI API key not configured"}, status=400)
+    try:
+        plans = await fetch_rate_plans(utility, config.api_url, config.api_key, sector)
+    except OpenEIError as e:
+        return web.json_response({"error": str(e)}, status=502)
+    return web.json_response(
+        [
+            {
+                "label": p.label,
+                "name": p.name,
+                "startdate": p.startdate,
+                "enddate": p.enddate,
+                "description": p.description,
+            }
+            for p in plans
+        ]
+    )
+
+
+async def handle_fetch_rate(request: web.Request) -> web.Response:
+    """POST /rates/fetch {label}"""
+    body = await request.json()
+    label = body.get("label", "").strip()
+    if not label:
+        return web.json_response({"error": "label is required"}, status=400)
+    config = _rate_cache(request).get_openei_config()
+    if not config.api_key:
+        return web.json_response({"error": "OpenEI API key not configured"}, status=400)
+    try:
+        record = await fetch_rate_detail(label, config.api_url, config.api_key)
+    except OpenEIError as e:
+        return web.json_response({"error": str(e)}, status=502)
+    cache = _rate_cache(request)
+    cache.cache_rate(label, record)
+    return web.json_response(
+        {
+            "label": label,
+            "utility": record.get("utility", ""),
+            "name": record.get("name", ""),
+        }
+    )
+
+
+async def handle_refresh_rate(request: web.Request) -> web.Response:
+    """POST /rates/refresh {label}"""
+    body = await request.json()
+    label = body.get("label", "").strip()
+    if not label:
+        return web.json_response({"error": "label is required"}, status=400)
+    config = _rate_cache(request).get_openei_config()
+    if not config.api_key:
+        return web.json_response({"error": "OpenEI API key not configured"}, status=400)
+    try:
+        record = await fetch_rate_detail(label, config.api_url, config.api_key)
+    except OpenEIError as e:
+        return web.json_response({"error": str(e)}, status=502)
+    _rate_cache(request).cache_rate(label, record)
+    return web.json_response({"ok": True, "label": label})
+
+
+async def handle_get_rates_cache(request: web.Request) -> web.Response:
+    """GET /rates/cache"""
+    return web.json_response(_rate_cache(request).list_cached_rates())
+
+
+async def handle_get_current_rate(request: web.Request) -> web.Response:
+    """GET /rates/current"""
+    cache = _rate_cache(request)
+    label = cache.get_current_rate_label()
+    if label is None:
+        return web.json_response({"label": None})
+    entry = cache.get_cached_rate(label)
+    if entry is None:
+        return web.json_response({"label": label, "error": "cached record missing"})
+    return web.json_response(
+        {
+            "label": label,
+            "utility": entry.record.get("utility", ""),
+            "name": entry.record.get("name", ""),
+            "retrieved_at": entry.retrieved_at,
+        }
+    )
+
+
+async def handle_put_current_rate(request: web.Request) -> web.Response:
+    """PUT /rates/current {label}"""
+    body = await request.json()
+    label = body.get("label", "").strip()
+    if not label:
+        return web.json_response({"error": "label is required"}, status=400)
+    _rate_cache(request).set_current_rate_label(label)
+    return web.json_response({"ok": True})
+
+
+async def handle_get_rate_detail(request: web.Request) -> web.Response:
+    """GET /rates/detail/{label}"""
+    label = request.match_info["label"]
+    entry = _rate_cache(request).get_cached_rate(label)
+    if entry is None:
+        return web.json_response({"error": "not found"}, status=404)
+    return web.json_response(entry.record)
+
+
+async def handle_get_rate_attribution(request: web.Request) -> web.Response:
+    """GET /rates/attribution/{label}"""
+    label = request.match_info["label"]
+    entry = _rate_cache(request).get_cached_rate(label)
+    if entry is None:
+        return web.json_response({"error": "not found"}, status=404)
+    return web.json_response(
+        {
+            "provider": entry.attribution.provider,
+            "url": entry.attribution.url,
+            "license": entry.attribution.license,
+            "api_version": entry.attribution.api_version,
+            "retrieved_at": entry.retrieved_at,
+        }
+    )
+
+
 def setup_routes(app: web.Application) -> None:
     """Register all dashboard routes."""
     # Full page
@@ -339,6 +514,19 @@ def setup_routes(app: web.Application) -> None:
 
     # Panel discovery (mDNS + HA manifest)
     app.router.add_get("/discovered-panels", handle_discovered_panels)
+
+    # Rate plan management
+    app.router.add_get("/rates/openei-config", handle_get_openei_config)
+    app.router.add_put("/rates/openei-config", handle_put_openei_config)
+    app.router.add_get("/rates/utilities", handle_get_utilities)
+    app.router.add_get("/rates/plans", handle_get_rate_plans)
+    app.router.add_post("/rates/fetch", handle_fetch_rate)
+    app.router.add_post("/rates/refresh", handle_refresh_rate)
+    app.router.add_get("/rates/cache", handle_get_rates_cache)
+    app.router.add_get("/rates/current", handle_get_current_rate)
+    app.router.add_put("/rates/current", handle_put_current_rate)
+    app.router.add_get("/rates/detail/{label}", handle_get_rate_detail)
+    app.router.add_get("/rates/attribution/{label}", handle_get_rate_attribution)
 
 
 # -- Full page --
