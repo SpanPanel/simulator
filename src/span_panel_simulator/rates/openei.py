@@ -76,7 +76,12 @@ async def fetch_rate_plans(
     api_key: str,
     sector: str = "Residential",
 ) -> list[RatePlanSummary]:
-    """Fetch available rate plans for a utility."""
+    """Fetch available rate plans for a utility.
+
+    Returns only the latest version of each plan name (by startdate).
+    URDB often has multiple versions spanning 10+ years; users almost
+    always want the current rates.
+    """
     params = {
         "version": "3",
         "format": "json",
@@ -88,17 +93,28 @@ async def fetch_rate_plans(
     data = await _get_json(api_url, params)
     items = data.get("items", [])
 
-    plans: list[RatePlanSummary] = []
+    # Keep only the latest version of each plan name.
+    latest_by_name: dict[str, dict[str, Any]] = {}
     for item in items:
+        name: str = item.get("name", "")
+        startdate = int(item.get("startdate", 0) or 0)
+        existing = latest_by_name.get(name)
+        if existing is None or startdate > int(existing.get("startdate", 0) or 0):
+            latest_by_name[name] = item
+
+    plans: list[RatePlanSummary] = []
+    for item in latest_by_name.values():
+        enddate_raw = item.get("enddate")
         plans.append(
             RatePlanSummary(
-                label=item.get("label", ""),
-                name=item.get("name", ""),
-                startdate=item.get("startdate", 0),
-                enddate=item.get("enddate"),
-                description=item.get("description", ""),
+                label=str(item.get("label", "")),
+                name=str(item.get("name", "")),
+                startdate=int(item.get("startdate", 0) or 0),
+                enddate=int(enddate_raw) if enddate_raw is not None else None,
+                description=str(item.get("description", "")),
             )
         )
+    plans.sort(key=lambda p: p.name)
     return plans
 
 

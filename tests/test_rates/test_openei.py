@@ -78,9 +78,42 @@ class TestFetchRatePlans:
         with patch("span_panel_simulator.rates.openei._get_json", return_value=response_data):
             result = await fetch_rate_plans("Pacific Gas & Electric Co", API_URL, API_KEY)
         assert len(result) == 2
-        assert result[0].label == "abc123"
+        # Sorted by name
         assert result[0].name == "E-TOU-C"
-        assert result[1].enddate == 1704067200
+        assert result[1].name == "E-TOU-D"
+
+    @pytest.mark.asyncio
+    async def test_keeps_only_latest_version_per_name(self) -> None:
+        response_data = {
+            "items": [
+                {
+                    "label": "old_2020",
+                    "name": "E-TOU-C",
+                    "startdate": 1577836800,
+                    "enddate": 1672531200,
+                    "description": "2020 version",
+                },
+                {
+                    "label": "current_2024",
+                    "name": "E-TOU-C",
+                    "startdate": 1704067200,
+                    "enddate": None,
+                    "description": "2024 version",
+                },
+                {
+                    "label": "mid_2022",
+                    "name": "E-TOU-C",
+                    "startdate": 1640995200,
+                    "enddate": 1704067200,
+                    "description": "2022 version",
+                },
+            ]
+        }
+        with patch("span_panel_simulator.rates.openei._get_json", return_value=response_data):
+            result = await fetch_rate_plans("PG&E", API_URL, API_KEY)
+        assert len(result) == 1
+        assert result[0].label == "current_2024"
+        assert result[0].description == "2024 version"
 
 
 class TestFetchRateDetail:
