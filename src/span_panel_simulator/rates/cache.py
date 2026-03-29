@@ -125,6 +125,46 @@ class RateCache:
         }
         self._save()
 
+    # -- Opower account selection ----------------------------------------
+
+    def get_opower_account(self) -> dict[str, str] | None:
+        """Return the saved opower account selection, or None."""
+        account = self._data.get("opower_account")
+        if not account or not isinstance(account, dict):
+            return None
+        if not account.get("device_id"):
+            return None
+        return {
+            "device_id": str(account.get("device_id", "")),
+            "utility_name": str(account.get("utility_name", "")),
+            "account_number": str(account.get("account_number", "")),
+            "cost_entity_id": str(account.get("cost_entity_id", "")),
+            "usage_entity_id": str(account.get("usage_entity_id", "")),
+        }
+
+    def set_opower_account(
+        self,
+        device_id: str,
+        utility_name: str,
+        account_number: str,
+        cost_entity_id: str,
+        usage_entity_id: str,
+    ) -> None:
+        """Save the opower account selection."""
+        self._data["opower_account"] = {
+            "device_id": device_id,
+            "utility_name": utility_name,
+            "account_number": account_number,
+            "cost_entity_id": cost_entity_id,
+            "usage_entity_id": usage_entity_id,
+        }
+        self._save()
+
+    def clear_opower_account(self) -> None:
+        """Remove the saved opower account selection."""
+        self._data.pop("opower_account", None)
+        self._save()
+
     # -- Persistence -----------------------------------------------------
 
     def _load(self) -> dict[str, Any]:

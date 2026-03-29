@@ -105,3 +105,54 @@ class TestRateCache:
         assert cache.get_cached_rate("abc123") is not None
         cache.delete_cached_rate("abc123")
         assert cache.get_cached_rate("abc123") is None
+
+
+class TestOpowerAccount:
+    """Opower account selection persistence."""
+
+    def test_no_opower_account_returns_none(self, tmp_path: Path) -> None:
+        cache = RateCache(tmp_path / "rates_cache.yaml")
+        assert cache.get_opower_account() is None
+
+    def test_set_and_get_opower_account(self, tmp_path: Path) -> None:
+        cache = RateCache(tmp_path / "rates_cache.yaml")
+        cache.set_opower_account(
+            device_id="device_elec_1",
+            utility_name="PG&E",
+            account_number="3021618479",
+            cost_entity_id="sensor.opower_pge_elec_cost_to_date",
+            usage_entity_id="sensor.opower_pge_elec_usage_to_date",
+        )
+        account = cache.get_opower_account()
+        assert account is not None
+        assert account["device_id"] == "device_elec_1"
+        assert account["utility_name"] == "PG&E"
+        assert account["cost_entity_id"] == "sensor.opower_pge_elec_cost_to_date"
+
+    def test_opower_account_persists(self, tmp_path: Path) -> None:
+        path = tmp_path / "rates_cache.yaml"
+        cache1 = RateCache(path)
+        cache1.set_opower_account(
+            device_id="device_elec_1",
+            utility_name="PG&E",
+            account_number="3021618479",
+            cost_entity_id="sensor.opower_pge_elec_cost_to_date",
+            usage_entity_id="sensor.opower_pge_elec_usage_to_date",
+        )
+        cache2 = RateCache(path)
+        account = cache2.get_opower_account()
+        assert account is not None
+        assert account["device_id"] == "device_elec_1"
+
+    def test_clear_opower_account(self, tmp_path: Path) -> None:
+        cache = RateCache(tmp_path / "rates_cache.yaml")
+        cache.set_opower_account(
+            device_id="d1",
+            utility_name="U",
+            account_number="A",
+            cost_entity_id="c",
+            usage_entity_id="u",
+        )
+        assert cache.get_opower_account() is not None
+        cache.clear_opower_account()
+        assert cache.get_opower_account() is None
