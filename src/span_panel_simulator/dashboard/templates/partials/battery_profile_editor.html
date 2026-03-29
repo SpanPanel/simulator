@@ -33,6 +33,7 @@
     </p>
   </div>
 
+  {% if battery_charge_mode == 'custom' %}
   <div class="battery-section">
     <h4 class="battery-section-heading">Discharge Preset</h4>
     <div class="charge-mode-selector">
@@ -67,7 +68,7 @@
   <form hx-put="entities/{{ entity.id }}/battery-profile"
         hx-target="#battery-profile-{{ entity.id }}" hx-swap="innerHTML"
         hx-disabled-elt="find button">
-    <div class="profile-grid{% if battery_charge_mode != 'custom' %} charge-hours-dimmed{% endif %}">
+    <div class="profile-grid">
       {% for h in range(24) %}
       <div class="profile-hour">
         <label>{{ '%02d' % h }}:00</label>
@@ -89,4 +90,5 @@
     </div>
     <button type="submit" class="btn btn-sm">Save Schedule</button>
   </form>
+  {% endif %}
 </fieldset>
