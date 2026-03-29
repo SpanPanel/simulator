@@ -16,5 +16,4 @@ class BehaviorEngineMutableState:
 
     circuit_cycle_states: dict[str, dict[str, Any]]
     last_battery_direction: str
-    solar_excess_w: float
     grid_offline: bool

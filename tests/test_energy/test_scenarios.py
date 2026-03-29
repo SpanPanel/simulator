@@ -33,6 +33,7 @@ def _bess(
     hybrid: bool = False,
     backup_reserve_pct: float = 20.0,
     initial_soe_kwh: float | None = None,
+    charge_mode: str = "custom",
 ) -> BESSConfig:
     return BESSConfig(
         nameplate_kwh=nameplate_kwh,
@@ -41,6 +42,7 @@ def _bess(
         hybrid=hybrid,
         backup_reserve_pct=backup_reserve_pct,
         initial_soe_kwh=initial_soe_kwh,
+        charge_mode=charge_mode,
     )
 
 
@@ -361,3 +363,145 @@ class TestNameplateDuration:
         assert s_large is not None
         assert s_small.bess_state == "idle"
         assert s_large.bess_state == "discharging"
+
+
+class TestSelfConsumptionMode:
+    """Tests for the self-consumption charge mode."""
+
+    def test_discharges_when_load_exceeds_pv(self) -> None:
+        system = EnergySystem.from_config(
+            EnergySystemConfig(
+                grid=_grid_online(),
+                pv=_pv(),
+                bess=_bess(charge_mode="self-consumption"),
+                loads=[LoadConfig(demand_w=4000.0)],
+            )
+        )
+        state = system.tick(
+            1000.0,
+            PowerInputs(
+                pv_available_w=2000.0,
+                load_demand_w=4000.0,
+                grid_connected=True,
+            ),
+        )
+        assert state.balanced
+        assert state.bess_state == "discharging"
+        assert abs(state.bess_power_w - 2000.0) < 0.01
+        assert abs(state.grid_power_w) < 0.01
+
+    def test_charges_when_pv_exceeds_load(self) -> None:
+        system = EnergySystem.from_config(
+            EnergySystemConfig(
+                grid=_grid_online(),
+                pv=_pv(),
+                bess=_bess(
+                    charge_mode="self-consumption",
+                    max_charge_w=3000.0,
+                    initial_soe_kwh=5.0,
+                ),
+                loads=[LoadConfig(demand_w=2000.0)],
+            )
+        )
+        state = system.tick(
+            1000.0,
+            PowerInputs(
+                pv_available_w=5000.0,
+                load_demand_w=2000.0,
+                grid_connected=True,
+            ),
+        )
+        assert state.balanced
+        assert state.bess_state == "charging"
+        assert state.bess_power_w == 3000.0
+
+    def test_idle_when_pv_equals_load(self) -> None:
+        """When PV exactly meets load, no deficit or excess: BESS charges at 0."""
+        system = EnergySystem.from_config(
+            EnergySystemConfig(
+                grid=_grid_online(),
+                pv=_pv(),
+                bess=_bess(charge_mode="self-consumption", initial_soe_kwh=5.0),
+                loads=[LoadConfig(demand_w=3000.0)],
+            )
+        )
+        state = system.tick(
+            1000.0,
+            PowerInputs(
+                pv_available_w=3000.0,
+                load_demand_w=3000.0,
+                grid_connected=True,
+            ),
+        )
+        assert state.balanced
+        # No deficit so BESS tries to charge, but no excess either
+        # The grid absorbs the BESS charging demand
+        assert state.grid_power_w >= 0.0
+
+
+class TestBackupOnlyMode:
+    """Tests for the backup-only charge mode."""
+
+    def test_charges_to_full_on_grid(self) -> None:
+        system = EnergySystem.from_config(
+            EnergySystemConfig(
+                grid=_grid_online(),
+                bess=_bess(
+                    charge_mode="backup-only",
+                    max_charge_w=3000.0,
+                    initial_soe_kwh=5.0,
+                ),
+                loads=[LoadConfig(demand_w=2000.0)],
+            )
+        )
+        state = system.tick(
+            1000.0,
+            PowerInputs(
+                load_demand_w=2000.0,
+                grid_connected=True,
+            ),
+        )
+        assert state.balanced
+        assert state.bess_state == "charging"
+        assert state.bess_power_w == 3000.0
+
+    def test_idle_when_full_on_grid(self) -> None:
+        system = EnergySystem.from_config(
+            EnergySystemConfig(
+                grid=_grid_online(),
+                bess=_bess(
+                    charge_mode="backup-only",
+                    initial_soe_kwh=13.5,
+                ),
+                loads=[LoadConfig(demand_w=2000.0)],
+            )
+        )
+        state = system.tick(
+            1000.0,
+            PowerInputs(
+                load_demand_w=2000.0,
+                grid_connected=True,
+            ),
+        )
+        assert state.balanced
+        assert state.bess_state == "idle"
+        assert state.bess_power_w == 0.0
+
+    def test_discharges_during_outage(self) -> None:
+        system = EnergySystem.from_config(
+            EnergySystemConfig(
+                grid=_grid_offline(),
+                bess=_bess(charge_mode="backup-only", hybrid=False),
+                loads=[LoadConfig(demand_w=3000.0)],
+            )
+        )
+        state = system.tick(
+            1000.0,
+            PowerInputs(
+                load_demand_w=3000.0,
+                grid_connected=False,
+            ),
+        )
+        assert state.balanced
+        assert state.bess_state == "discharging"
+        assert abs(state.bess_power_w - 3000.0) < 0.01

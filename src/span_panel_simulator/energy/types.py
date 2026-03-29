@@ -109,6 +109,7 @@ class BESSConfig:
     charge_hours: tuple[int, ...] = ()
     discharge_hours: tuple[int, ...] = ()
     panel_timezone: str = "America/Los_Angeles"
+    charge_mode: str = "self-consumption"
 
 
 @dataclass(frozen=True)

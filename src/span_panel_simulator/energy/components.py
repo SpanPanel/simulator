@@ -109,6 +109,7 @@ class BESSUnit(Component):
         charge_hours: tuple[int, ...] = (),
         discharge_hours: tuple[int, ...] = (),
         panel_timezone: ZoneInfo | None = None,
+        charge_mode: str = "self-consumption",
     ) -> None:
         self.nameplate_capacity_kwh = nameplate_capacity_kwh
         self.max_charge_w = max_charge_w
@@ -122,6 +123,8 @@ class BESSUnit(Component):
         self.soe_kwh = soe_kwh
         self.scheduled_state = scheduled_state
         self.requested_power_w = requested_power_w
+
+        self.charge_mode = charge_mode
 
         # Identity / schedule
         self.panel_serial = panel_serial

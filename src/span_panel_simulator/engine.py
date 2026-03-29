@@ -98,7 +98,6 @@ class RealisticBehaviorEngine:
         self._recorder = recorder
         self._circuit_cycle_states: dict[str, dict[str, Any]] = {}
         self._last_battery_direction: str = "idle"
-        self._solar_excess_w: float = 0.0
         self._grid_offline: bool = False
         self._tz = self._resolve_timezone(config)
 
@@ -150,10 +149,6 @@ class RealisticBehaviorEngine:
         """Most recent battery direction set by charge mode logic."""
         return self._last_battery_direction
 
-    def set_solar_excess(self, excess_w: float) -> None:
-        """Set the solar excess watts for solar-excess charge mode."""
-        self._solar_excess_w = excess_w
-
     def set_grid_offline(self, offline: bool) -> None:
         """Propagate grid state so battery behaviour overrides schedules."""
         self._grid_offline = offline
@@ -163,7 +158,6 @@ class RealisticBehaviorEngine:
         return BehaviorEngineMutableState(
             circuit_cycle_states=copy.deepcopy(self._circuit_cycle_states),
             last_battery_direction=self._last_battery_direction,
-            solar_excess_w=self._solar_excess_w,
             grid_offline=self._grid_offline,
         )
 
@@ -171,7 +165,6 @@ class RealisticBehaviorEngine:
         """Restore fields previously captured with :meth:`capture_mutable_state`."""
         self._circuit_cycle_states = copy.deepcopy(state.circuit_cycle_states)
         self._last_battery_direction = state.last_battery_direction
-        self._solar_excess_w = state.solar_excess_w
         self._grid_offline = state.grid_offline
 
     def copy_mutable_state_from(self, other: RealisticBehaviorEngine) -> None:
@@ -501,19 +494,15 @@ class RealisticBehaviorEngine:
             self._last_battery_direction = "idle"
             return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
-        charge_mode: str = battery_config.get("charge_mode", "custom")
+        charge_mode: str = battery_config.get("charge_mode", "self-consumption")
 
-        if charge_mode == "solar-gen":
-            return self._get_solar_gen_charge_power(
-                battery_config, current_time, stochastic_noise=stochastic_noise
-            )
+        if charge_mode in ("self-consumption", "backup-only"):
+            # Energy system drives BESS power for these modes; behavior
+            # engine returns idle power so circuit-level output is minimal.
+            self._last_battery_direction = "idle"
+            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
-        if charge_mode == "solar-excess":
-            return self._get_solar_excess_charge_power(
-                battery_config, stochastic_noise=stochastic_noise
-            )
-
-        # "custom" — original schedule-based logic
+        # "custom" (TOU) — original schedule-based logic
         custom_charge_hours: list[int] = battery_config.get("charge_hours", [])
         if current_hour in custom_charge_hours:
             self._last_battery_direction = "charging"
@@ -565,52 +554,6 @@ class RealisticBehaviorEngine:
         """Get demand factor from YAML configuration."""
         demand_profile: dict[int, float] = battery_config.get("demand_factor_profile", {})
         return demand_profile.get(hour, 0.3)
-
-    def _get_solar_gen_charge_power(
-        self,
-        battery_config: BatteryBehavior,
-        current_time: float,
-        *,
-        stochastic_noise: bool = True,
-    ) -> float:
-        """Charge at max_charge_power * solar_factor * weather_factor."""
-        lat = self._config["panel_config"].get("latitude", 37.7)
-        lon = self._config["panel_config"].get("longitude", -122.4)
-        factor = solar_production_factor(current_time, lat, lon)
-
-        if factor <= 0.0:
-            self._last_battery_direction = "idle"
-            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
-
-        monthly_factors: dict[int, float] | None = None
-        cached = get_cached_weather(lat, lon)
-        if cached is not None:
-            monthly_factors = cached.monthly_factors
-
-        weather = daily_weather_factor(
-            current_time,
-            seed=hash(self._config["panel_config"]["serial_number"]),
-            monthly_factors=monthly_factors,
-        )
-
-        max_charge: float = battery_config.get("max_charge_power", 3000.0)
-        self._last_battery_direction = "charging"
-        return abs(max_charge) * factor * weather
-
-    def _get_solar_excess_charge_power(
-        self,
-        battery_config: BatteryBehavior,
-        *,
-        stochastic_noise: bool = True,
-    ) -> float:
-        """Charge from surplus solar after loads are met."""
-        if self._solar_excess_w <= 0.0:
-            self._last_battery_direction = "idle"
-            return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
-
-        max_charge: float = battery_config.get("max_charge_power", 3000.0)
-        self._last_battery_direction = "charging"
-        return min(self._solar_excess_w, abs(max_charge))
 
     # ------------------------------------------------------------------
     # Annual energy estimation (seeds initial circuit counters)
@@ -801,13 +744,15 @@ class RealisticBehaviorEngine:
                 ) / len(charge_hours)
                 consumed_wh = avg_charge * len(charge_hours) * 365
 
-        elif charge_mode == "solar-gen":
-            solar_factor = self._estimate_solar_annual_factor()
-            consumed_wh = max_charge * solar_factor * 8760
-
-        elif charge_mode == "solar-excess":
+        elif charge_mode == "self-consumption":
+            # Self-consumption charges from PV excess; estimate ~30% of
+            # solar capacity goes to battery on average.
             solar_factor = self._estimate_solar_annual_factor()
             consumed_wh = 0.3 * max_charge * solar_factor * 8760
+
+        elif charge_mode == "backup-only":
+            # Backup-only keeps the battery topped up; minimal cycling.
+            consumed_wh = max_charge * 0.05 * 8760
 
         return (produced_wh, consumed_wh)
 
@@ -1146,40 +1091,10 @@ class DynamicSimulationEngine:
 
         current_time = self._clock.current_time
 
-        # 1. Identify solar-excess battery circuits for two-pass tick
-        solar_excess_ids: set[str] = set()
-        for cid, circuit in self._circuits.items():
-            battery_cfg = circuit.template.get("battery_behavior", {})
-            if (
-                isinstance(battery_cfg, dict)
-                and battery_cfg.get("enabled", False)
-                and battery_cfg.get("charge_mode") == "solar-excess"
-            ):
-                solar_excess_ids.add(cid)
-
-        # Pass 1: tick all circuits except solar-excess batteries
-        for cid, circuit in self._circuits.items():
-            if cid in solar_excess_ids:
-                continue
+        # 1. Tick all circuits
+        for _cid, circuit in self._circuits.items():
             sync_override = self._get_sync_power_override(circuit)
             circuit.tick(current_time, power_override=sync_override)
-
-        # Pass 2: compute excess and tick solar-excess batteries
-        if solar_excess_ids and self._behavior_engine is not None:
-            pv_total = 0.0
-            load_total = 0.0
-            for circuit in self._circuits.values():
-                if circuit.circuit_id in solar_excess_ids:
-                    continue
-                if circuit.energy_mode == "producer":
-                    pv_total += circuit.instant_power_w
-                elif circuit.energy_mode != "bidirectional":
-                    load_total += circuit.instant_power_w
-            self._behavior_engine.set_solar_excess(max(0.0, pv_total - load_total))
-            for cid in solar_excess_ids:
-                circuit = self._circuits[cid]
-                sync_override = self._get_sync_power_override(circuit)
-                circuit.tick(current_time, power_override=sync_override)
 
         # 2. Apply global overrides
         self._apply_global_overrides()
@@ -1419,7 +1334,6 @@ class DynamicSimulationEngine:
         ts: float,
         behavior: RealisticBehaviorEngine,
         circuit_ids: set[str],
-        solar_excess_ids: set[str],
         *,
         use_recorder_baseline: bool,
     ) -> dict[str, float]:
@@ -1428,17 +1342,10 @@ class DynamicSimulationEngine:
         Pure data collection — no energy balance math.  Only circuits
         in *circuit_ids* are evaluated; others are omitted from the
         result (they don't exist in this pass's system).
-
-        Solar-excess battery circuits are handled in a second pass
-        after the excess is known from the first pass.
         """
         circuit_powers: dict[str, float] = {}
-        pv_total = 0.0
-        load_total = 0.0
 
         for cid in circuit_ids:
-            if cid in solar_excess_ids:
-                continue
             circuit = self._circuits[cid]
             power = behavior.get_circuit_power(
                 cid,
@@ -1448,26 +1355,6 @@ class DynamicSimulationEngine:
                 modeling_deterministic=True,
             )
             circuit_powers[cid] = power
-            if circuit.energy_mode == "producer":
-                pv_total += power
-            elif circuit.energy_mode != "bidirectional":
-                load_total += power
-
-        # Solar-excess batteries need the excess computed from other circuits
-        active_solar_excess = solar_excess_ids & circuit_ids
-        if active_solar_excess:
-            excess = max(0.0, pv_total - load_total)
-            behavior.set_solar_excess(excess)
-            for cid in active_solar_excess:
-                circuit = self._circuits[cid]
-                power = behavior.get_circuit_power(
-                    cid,
-                    circuit.template,
-                    ts,
-                    modeling_recorder_baseline=use_recorder_baseline,
-                    modeling_deterministic=True,
-                )
-                circuit_powers[cid] = power
 
         return circuit_powers
 
@@ -1555,17 +1442,6 @@ class DynamicSimulationEngine:
             )
             cloned_behavior.copy_mutable_state_from(be)
 
-        # Identify solar-excess battery circuits
-        solar_excess_ids: set[str] = set()
-        for cid, circuit in self._circuits.items():
-            battery_cfg = circuit.template.get("battery_behavior", {})
-            if (
-                isinstance(battery_cfg, dict)
-                and battery_cfg.get("enabled", False)
-                and battery_cfg.get("charge_mode") == "solar-excess"
-            ):
-                solar_excess_ids.add(cid)
-
         # Partition circuits: baseline set (recorder-backed) vs full set
         baseline_circuit_ids = {
             cid for cid, c in self._circuits.items() if c.template.get("recorder_entity")
@@ -1590,7 +1466,7 @@ class DynamicSimulationEngine:
         circuit_arrays_after: dict[str, list[float]] = {cid: [] for cid in self._circuits}
 
         for ts in timestamps:
-            # Restore mutable state between passes so cycling / solar-excess
+            # Restore mutable state between passes so cycling
             # bookkeeping does not cross-contaminate.
             modeling_checkpoint = cloned_behavior.capture_mutable_state()
 
@@ -1599,7 +1475,6 @@ class DynamicSimulationEngine:
                 ts,
                 cloned_behavior,
                 baseline_circuit_ids,
-                solar_excess_ids,
                 use_recorder_baseline=True,
             )
             inputs_b = self._powers_to_energy_inputs(powers_b)
@@ -1622,7 +1497,6 @@ class DynamicSimulationEngine:
                 ts,
                 cloned_behavior,
                 all_circuit_ids,
-                solar_excess_ids,
                 use_recorder_baseline=False,
             )
             inputs_a = self._powers_to_energy_inputs(powers_a)
@@ -1877,6 +1751,7 @@ class DynamicSimulationEngine:
                     if self._behavior_engine is not None
                     else RealisticBehaviorEngine._DEFAULT_TZ
                 )
+                charge_mode = str(battery_cfg.get("charge_mode", "self-consumption"))
                 bess_config = BESSConfig(
                     nameplate_kwh=nameplate,
                     max_charge_w=abs(float(battery_cfg.get("max_charge_power", 3500.0))),
@@ -1895,6 +1770,7 @@ class DynamicSimulationEngine:
                     charge_hours=tuple(charge_hours_raw),
                     discharge_hours=tuple(discharge_hours_raw),
                     panel_timezone=panel_tz,
+                    charge_mode=charge_mode,
                 )
                 break
 

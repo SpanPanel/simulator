@@ -86,6 +86,7 @@ class EnergySystem:
                 charge_hours=bc.charge_hours,
                 discharge_hours=bc.discharge_hours,
                 panel_timezone=ZoneInfo(bc.panel_timezone),
+                charge_mode=bc.charge_mode,
             )
 
         total_demand = sum(lc.demand_w for lc in config.loads)
@@ -114,21 +115,46 @@ class EnergySystem:
         if self.pv is not None:
             self.pv.available_power_w = inputs.pv_available_w
         if self.bess is not None:
-            self.bess.scheduled_state = inputs.bess_scheduled_state
+            if self.bess.charge_mode == "self-consumption":
+                # Real-time response: determine direction from load vs PV.
+                # Discharge: covers grid import up to inverter rate (GFE
+                #   throttle limits to actual deficit).
+                # Charge: absorbs only the PV excess — never pulls from
+                #   grid.  Clamped to inverter rate.
+                preliminary_deficit = inputs.load_demand_w - inputs.pv_available_w
+                if preliminary_deficit > 0:
+                    self.bess.scheduled_state = "discharging"
+                    self.bess.requested_power_w = self.bess.max_discharge_w
+                elif preliminary_deficit < 0:
+                    excess = -preliminary_deficit
+                    self.bess.scheduled_state = "charging"
+                    self.bess.requested_power_w = min(excess, self.bess.max_charge_w)
+                else:
+                    self.bess.scheduled_state = "idle"
+                    self.bess.requested_power_w = 0.0
 
-            # Real BESS behaviour: request the full inverter rate for the
-            # scheduled state.  The bus resolution (GFE throttle + SOE
-            # bounds) limits actual power to what the home needs — exactly
-            # how a Powerwall or similar system operates.
-            if self.bess.scheduled_state == "discharging":
-                self.bess.requested_power_w = self.bess.max_discharge_w
-            elif self.bess.scheduled_state == "charging":
-                self.bess.requested_power_w = self.bess.max_charge_w
-            else:
-                self.bess.requested_power_w = 0.0
+            elif self.bess.charge_mode == "backup-only":
+                if not inputs.grid_connected:
+                    self.bess.scheduled_state = "discharging"
+                    self.bess.requested_power_w = self.bess.max_discharge_w
+                elif self.bess.soe_percentage < 100.0:
+                    self.bess.scheduled_state = "charging"
+                    self.bess.requested_power_w = self.bess.max_charge_w
+                else:
+                    self.bess.scheduled_state = "idle"
+                    self.bess.requested_power_w = 0.0
 
-            # Non-hybrid islanding override: if grid disconnected and PV
-            # is offline, BESS must discharge regardless of schedule
+            else:  # custom (TOU): use schedule
+                self.bess.scheduled_state = inputs.bess_scheduled_state
+                if self.bess.scheduled_state == "discharging":
+                    self.bess.requested_power_w = self.bess.max_discharge_w
+                elif self.bess.scheduled_state == "charging":
+                    self.bess.requested_power_w = self.bess.max_charge_w
+                else:
+                    self.bess.requested_power_w = 0.0
+
+            # Non-hybrid islanding override (applies to ALL modes):
+            # if grid disconnected and PV is offline, BESS must discharge
             if not inputs.grid_connected and not self.bess.hybrid:
                 self.bess.scheduled_state = "discharging"
                 self.bess.requested_power_w = self.bess.max_discharge_w
