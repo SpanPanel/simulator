@@ -33,6 +33,26 @@
     <span class="text-muted">Loading modeling data...</span>
   </div>
 
+  <!-- Opower billing data (conditional, only when HA + opower detected) -->
+  <div id="modeling-opower-section" style="display:none; margin-bottom:0.75rem">
+    <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap">
+      <div style="font-weight:500; font-size:0.85rem">Billing Data (Opower)</div>
+      <div id="opower-account-display" class="text-muted" style="font-size:0.8rem"></div>
+      <button type="button" class="btn btn-xs" id="btn-opower-change" style="display:none">Change</button>
+    </div>
+  </div>
+
+  <!-- Opower account picker dialog -->
+  <div id="opower-picker-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center">
+    <div class="card" style="width:min(400px,90vw); margin:2rem">
+      <h3 style="margin-top:0">Select Electric Account</h3>
+      <div id="opower-picker-list" style="margin-bottom:1rem"></div>
+      <div style="text-align:right">
+        <button type="button" class="btn btn-xs" id="btn-opower-picker-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Rate plan selection -->
   <div id="modeling-rate-section" style="display:none; margin-bottom:1rem">
     <div class="modeling-rate-row" style="display:flex; gap:1.5rem; align-items:flex-start; flex-wrap:wrap">
@@ -232,6 +252,13 @@
   var proposedRateLabel = null;
   var rateDialogTarget = 'current';
 
+  // -- Opower state --
+  var opowerSectionEl = document.getElementById('modeling-opower-section');
+  var opowerDisplayEl = document.getElementById('opower-account-display');
+  var opowerChangeBtn = document.getElementById('btn-opower-change');
+  var opowerPickerOverlay = document.getElementById('opower-picker-overlay');
+  var opowerAccounts = [];
+
   var OVERLAY_COLORS = ['#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#e879f9'];
 
   // DOM refs
@@ -283,6 +310,7 @@
       cb.closest('.entity-row').classList.remove('overlay-active');
     });
     rateSectionEl.style.display = '';
+    loadOpowerAccounts();
     loadCurrentRate();
     fetchModelingData(horizonSelect.value);
   }
@@ -295,6 +323,7 @@
     modelingData = null;
     chartsWrap.style.display = 'none';
     rateSectionEl.style.display = 'none';
+    opowerSectionEl.style.display = 'none';
     proposedRateLabel = null;
   }
 
@@ -568,8 +597,18 @@
 
   function populateCostCell(el, costs) {
     if (!costs) { el.textContent = ''; return; }
-    el.textContent = formatDollar(costs.import_cost) + ' imp, ' + formatDollar(costs.export_credit)
-      + ' exp \u2014 Net: ' + formatDollar(costs.net_cost);
+    if (costs.source === 'opower') {
+      var text = 'Cost: ' + formatDollar(costs.net_cost) + ' (billed)';
+      if (costs.days_with_data && costs.horizon_days && costs.days_with_data < costs.horizon_days * 0.9) {
+        var months = Math.round(costs.days_with_data / 30);
+        var totalMonths = Math.round(costs.horizon_days / 30);
+        text += ' (' + months + ' of ' + totalMonths + ' months)';
+      }
+      el.textContent = text;
+    } else {
+      el.textContent = formatDollar(costs.import_cost) + ' imp, ' + formatDollar(costs.export_credit)
+        + ' exp \u2014 Net: ' + formatDollar(costs.net_cost);
+    }
   }
 
   function populateCostDiffCell(el, beforeCosts, afterCosts) {
@@ -657,6 +696,75 @@
   function getChartGridColor() {
     if (typeof window.chartGridColor === 'function') return window.chartGridColor();
     return getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#333';
+  }
+
+  // ---------------------------------------------------------------
+  // Opower helpers
+  // ---------------------------------------------------------------
+  function loadOpowerAccounts() {
+    fetch('rates/opower-accounts')
+      .then(function(r) { return r.json(); })
+      .then(function(accounts) {
+        opowerAccounts = accounts;
+        if (accounts.length === 0) {
+          opowerSectionEl.style.display = 'none';
+          return;
+        }
+        opowerSectionEl.style.display = '';
+        fetch('rates/opower-account')
+          .then(function(r) { return r.json(); })
+          .then(function(saved) {
+            if (saved.configured) {
+              showOpowerAccount(saved);
+            } else if (accounts.length === 1) {
+              selectOpowerAccount(accounts[0]);
+            } else {
+              openOpowerPicker();
+            }
+          });
+      })
+      .catch(function() {
+        opowerSectionEl.style.display = 'none';
+      });
+  }
+
+  function showOpowerAccount(account) {
+    opowerDisplayEl.textContent = account.utility_name + ' \u2014 ELEC ' + account.account_number;
+    opowerChangeBtn.style.display = opowerAccounts.length > 1 ? '' : 'none';
+  }
+
+  function selectOpowerAccount(account) {
+    fetch('rates/opower-account', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(account),
+    }).then(function() {
+      showOpowerAccount(account);
+      closeOpowerPicker();
+      fetchModelingData(horizonSelect.value);
+    });
+  }
+
+  function openOpowerPicker() {
+    var list = document.getElementById('opower-picker-list');
+    list.innerHTML = '';
+    for (var i = 0; i < opowerAccounts.length; i++) {
+      var acct = opowerAccounts[i];
+      var btn = document.createElement('button');
+      btn.className = 'btn btn-xs';
+      btn.style.cssText = 'display:block; width:100%; text-align:left; margin-bottom:0.5rem; padding:0.5rem';
+      btn.textContent = acct.utility_name + ' \u2014 ELEC ' + acct.account_number;
+      btn.dataset.index = String(i);
+      btn.addEventListener('click', function() {
+        selectOpowerAccount(opowerAccounts[parseInt(this.dataset.index)]);
+      });
+      list.appendChild(btn);
+    }
+    opowerPickerOverlay.style.display = 'flex';
+  }
+
+  function closeOpowerPicker() {
+    opowerPickerOverlay.style.display = 'none';
   }
 
   // ---------------------------------------------------------------
@@ -876,6 +984,10 @@
     useRateBtn.disabled = !planSelect.value;
   });
   document.getElementById('btn-rate-dialog-use').addEventListener('click', useSelectedRate);
+
+  // Opower event listeners
+  opowerChangeBtn.addEventListener('click', openOpowerPicker);
+  document.getElementById('btn-opower-picker-cancel').addEventListener('click', closeOpowerPicker);
 
   // Attribution popup
   attributionBtn.addEventListener('click', function() {
