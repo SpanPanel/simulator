@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.0.7 — 2026-03-28
+
+### Features
+
+- BESS charge modes: Self-Consumption (default), Time-of-Use, and Backup Only replace the old solar-gen/solar-excess/custom modes
+- Self-Consumption mode: battery automatically discharges to offset grid import and charges from surplus solar — no schedule needed
+- Backup Only mode: battery holds at full SOC and only discharges during grid outages
+- BESS operates at full inverter rate like a real system — GFE throttle limits discharge to actual load deficit
+- Hybrid inverter support: PV stays online during islanding when co-located with BESS
+
+### Improvements
+
+- Battery editor shows only installation-relevant fields (nameplate, reserve, inverter rates, charge mode)
+- Modeling Before/After labels always show imported/exported breakdown
+- Schedule controls hidden when charge mode doesn't use them
+
+### Fixes
+
+- BESS discharge no longer pushes grid power negative (GFE constraint)
+- Modeling Before graph no longer shows user-added circuits that didn't exist in the baseline
+- Grid-offline mode respects charge mode instead of forcing unconditional discharge
+
+### Refactor
+
+- Component-based energy system replaces scattered inline energy balance calculations
+
 ## 1.0.6 — 2026-03-26
 
 ### Features
