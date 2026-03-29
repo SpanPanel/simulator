@@ -268,12 +268,25 @@ def update_config_from_scrape(
     return changed
 
 
+def clone_config_path(config_dir: Path, original_serial: str) -> Path:
+    """Return the default clone config path for a given serial."""
+    return config_dir / f"{original_serial}-clone.yaml"
+
+
 def write_clone_config(
     config: dict[str, object],
     config_dir: Path,
     original_serial: str,
+    *,
+    filename: str | None = None,
 ) -> Path:
     """Validate and write a cloned config to the config directory.
+
+    Args:
+        config: The config dict to write.
+        config_dir: Directory to write into.
+        original_serial: Original panel serial (used for default filename).
+        filename: Optional custom filename override (must end with .yaml).
 
     Returns the path to the written file.
 
@@ -282,7 +295,8 @@ def write_clone_config(
     """
     validate_yaml_config(config)
 
-    filename = f"{original_serial}-clone.yaml"
+    if filename is None:
+        filename = f"{original_serial}-clone.yaml"
     output_path = config_dir / filename
     output_path.write_text(
         yaml.dump(config, default_flow_style=False, sort_keys=False),

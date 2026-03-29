@@ -1168,6 +1168,17 @@ class DynamicSimulationEngine:
         if battery_circuit is not None and self._energy_system.bess is not None:
             battery_circuit._instant_power_w = self._energy_system.bess.effective_power_w
 
+        # Reflect PV curtailment back to producer circuits so snapshots
+        # are consistent with the resolved system state.
+        if self._energy_system.pv is not None:
+            resolved_pv_w = system_state.pv_power_w
+            raw_pv_w = inputs.pv_available_w
+            if raw_pv_w > 0 and resolved_pv_w < raw_pv_w:
+                scale = resolved_pv_w / raw_pv_w
+                for circuit in self._circuits.values():
+                    if circuit.energy_mode == "producer":
+                        circuit._instant_power_w *= scale
+
         # 6. Battery snapshot
         bess = self._energy_system.bess
         if bess is not None:
@@ -1213,6 +1224,25 @@ class DynamicSimulationEngine:
                         instant_power_w=0.0,
                     )
                 circuit_snapshots[cid] = snap
+
+            # Rebuild PV circuit snapshots when curtailment reduced output
+            if (
+                self._energy_system.pv is not None
+                and inputs.pv_available_w > 0
+                and system_state.pv_power_w < inputs.pv_available_w
+            ):
+                for circuit in self._circuits.values():
+                    if circuit.energy_mode == "producer":
+                        cid = circuit.circuit_id
+                        snap = circuit.to_snapshot()
+                        if cid in shed_ids:
+                            snap = replace(
+                                snap,
+                                relay_state="OPEN",
+                                relay_requester="BACKUP",
+                                instant_power_w=0.0,
+                            )
+                        circuit_snapshots[cid] = snap
         else:
             battery_snapshot = SpanBatterySnapshot()
             if self._forced_grid_offline:
@@ -1720,7 +1750,11 @@ class DynamicSimulationEngine:
         for circuit in included.values():
             if circuit.energy_mode == "producer":
                 nameplate = float(circuit.template["energy_profile"]["typical_power"])
-                inverter_type = str(circuit.template.get("inverter_type", "ac_coupled"))
+                # Dashboard stores inverter type as template priority
+                # (MUST_HAVE = hybrid, anything else = ac_coupled)
+                inverter_type = (
+                    "hybrid" if circuit.template.get("priority") == "MUST_HAVE" else "ac_coupled"
+                )
                 pv_config = PVConfig(nameplate_w=abs(nameplate), inverter_type=inverter_type)
                 break
 
@@ -1729,8 +1763,9 @@ class DynamicSimulationEngine:
             battery_cfg = circuit.template.get("battery_behavior", {})
             if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
                 nameplate = float(battery_cfg.get("nameplate_capacity_kwh", 13.5))
-                # inverter_type is stored as template priority by config_store
-                hybrid = circuit.template.get("priority") == "MUST_HAVE"
+                # Hybrid status is a PV inverter property — derive from
+                # the PV config already resolved above.
+                hybrid = pv_config is not None and pv_config.inverter_type == "hybrid"
                 charge_hours_raw: list[int] = battery_cfg.get("charge_hours", [])
                 discharge_hours_raw: list[int] = battery_cfg.get("discharge_hours", [])
                 panel_tz = (

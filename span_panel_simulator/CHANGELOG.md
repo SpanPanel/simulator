@@ -16,10 +16,13 @@
 - Battery editor shows only installation-relevant fields (nameplate, reserve, inverter rates, charge mode)
 - Modeling Before/After labels always show imported/exported breakdown
 - Schedule controls hidden when charge mode doesn't use them
+- Clone dialog pre-fills a safe filename with auto-suffix when the target already exists; overwrite requires explicit confirmation via modal
 
 ### Fixes
 
 - Page-level busy cursor during slow operations (start/stop/restart panel, clone, modeling setup) prevents unintended clicks
+- Clone from panel prompts before overwriting an existing config file
+- PV curtailment during islanding now reflected in circuit snapshots so dashboard power readings stay consistent
 - BESS discharge no longer pushes grid power negative (GFE constraint)
 - Modeling Before graph no longer shows user-added circuits that didn't exist in the baseline
 - Grid-offline mode respects charge mode instead of forcing unconditional discharge

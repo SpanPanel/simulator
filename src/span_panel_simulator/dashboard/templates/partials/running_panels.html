@@ -16,4 +16,13 @@
   <div id="panels-list" hx-get="panels-list" hx-trigger="every 5s, refreshPanels from:body" hx-swap="innerHTML">
     {% include "partials/panels_list_rows.html" %}
   </div>
+  <div id="overwrite-modal" class="clone-modal-backdrop" style="display:none">
+    <div class="clone-modal">
+      <p><strong id="overwrite-modal-filename"></strong> already exists.</p>
+      <div class="clone-modal-buttons">
+        <button id="overwrite-modal-confirm" class="btn btn-sm btn-danger">Overwrite</button>
+        <button id="overwrite-modal-cancel" class="btn btn-sm">Cancel</button>
+      </div>
+    </div>
+  </div>
 </section>

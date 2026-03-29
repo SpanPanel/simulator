@@ -36,8 +36,8 @@
 
     // Page-level busy cursor for slow HTMX operations
     var _pageBusyPaths = ['start-panel', 'stop-panel', 'restart-panel',
-                          'clone-from-panel', 'import', 'save-reload',
-                          'sync-panel-source'];
+                          'clone-from-panel', 'clone-confirm', 'import',
+                          'save-reload', 'sync-panel-source'];
     document.body.addEventListener('htmx:beforeRequest', function(evt) {
       var path = evt.detail.pathInfo.requestPath;
       if (_pageBusyPaths.some(function(p) { return path.indexOf(p) !== -1; })) {
