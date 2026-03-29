@@ -51,7 +51,7 @@ def create_dashboard_app(context: DashboardContext) -> web.Application:
     app[APP_KEY_DASHBOARD_CONTEXT] = context
     app[APP_KEY_PRESET_REGISTRY] = init_presets(context.config_dir)
     app[APP_KEY_PENDING_CLONES] = {}
-    app[APP_KEY_RATE_CACHE] = RateCache(context.config_dir / "rates_cache.yaml")
+    app[APP_KEY_RATE_CACHE] = RateCache(context.config_dir / "rates" / "rates_cache.yaml")
 
     template_dir = Path(__file__).parent / "templates"
     env = aiohttp_jinja2.setup(

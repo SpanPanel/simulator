@@ -26,4 +26,4 @@ span_panel_simulator/docs/2026-03-*-*.md
 span_panel_simulator/docs/cost-and-montecarlo-specs.md
 
 # Rate cache contains API keys — never commit
-configs/rates_cache.yaml
+configs/rates/
