@@ -16,6 +16,7 @@ venv/
 .DS_Store
 .envrc
 .superpowers/
+**/superpowers/
 .last_config
 configs/rates/rates_cache.yaml
 
@@ -27,3 +28,4 @@ span_panel_simulator/docs/cost-and-montecarlo-specs.md
 
 # Rate cache contains API keys — never commit
 configs/rates/
+configs/*_history.db
