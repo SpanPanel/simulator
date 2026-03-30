@@ -21,7 +21,9 @@ BASE_HTTP_PORT=$(jq -r '.base_http_port // 8081' "${OPTIONS_FILE}")
 
 # Auto-detect host IP for TLS cert SAN.
 # Inside a bridge-networked container the default gateway is the host.
-ADVERTISE_ADDRESS=$(ip route | awk '/default/ { print $3 }' || true)
+# Strip control characters — some container ip implementations emit trailing
+# non-printables that would break Python string literals or cert generation.
+ADVERTISE_ADDRESS=$(ip route | awk '/default/ { print $3 }' | tr -d '[:cntrl:]' || true)
 export ADVERTISE_ADDRESS
 export CERT_DIR="/data/certs"
 export BROKER_USERNAME="span"
@@ -43,10 +45,11 @@ mkdir -p "${CERT_DIR}"
 
 # Generate TLS certs
 python3 -c "
+import os
 from span_panel_simulator.certs import generate_certificates
 from pathlib import Path
-addr = '${ADVERTISE_ADDRESS}' or None
-generate_certificates(Path('${CERT_DIR}'), advertise_address=addr)
+addr = os.environ.get('ADVERTISE_ADDRESS') or None
+generate_certificates(Path(os.environ['CERT_DIR']), advertise_address=addr)
 "
 
 chmod 644 "${CERT_DIR}"/*.crt "${CERT_DIR}"/*.key

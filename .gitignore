@@ -17,6 +17,7 @@ venv/
 .envrc
 .superpowers/
 .last_config
+configs/rates/rates_cache.yaml
 
 # Roadmap and planning docs (not published yet)
 span_panel_simulator/docs/roadmap/
