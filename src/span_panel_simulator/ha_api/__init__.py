@@ -17,10 +17,20 @@ from span_panel_simulator.ha_api.manifest import (
     PanelManifest,
     fetch_all_manifests,
 )
+from span_panel_simulator.ha_api.opower import (
+    OpowerAccount,
+    OpowerCostResult,
+    async_discover_opower,
+    async_get_opower_cost,
+)
 
 __all__ = [
     "CircuitManifestEntry",
     "HAClient",
+    "OpowerAccount",
+    "OpowerCostResult",
     "PanelManifest",
+    "async_discover_opower",
+    "async_get_opower_cost",
     "fetch_all_manifests",
 ]

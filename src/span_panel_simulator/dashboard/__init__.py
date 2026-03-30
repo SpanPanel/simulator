@@ -19,10 +19,12 @@ from span_panel_simulator.dashboard.keys import (
     APP_KEY_DASHBOARD_CONTEXT,
     APP_KEY_PENDING_CLONES,
     APP_KEY_PRESET_REGISTRY,
+    APP_KEY_RATE_CACHE,
     APP_KEY_STORE,
 )
 from span_panel_simulator.dashboard.presets import init_presets
 from span_panel_simulator.dashboard.routes import setup_routes
+from span_panel_simulator.rates.cache import RateCache
 
 __all__ = ["DashboardContext", "create_dashboard_app"]
 
@@ -49,6 +51,7 @@ def create_dashboard_app(context: DashboardContext) -> web.Application:
     app[APP_KEY_DASHBOARD_CONTEXT] = context
     app[APP_KEY_PRESET_REGISTRY] = init_presets(context.config_dir)
     app[APP_KEY_PENDING_CLONES] = {}
+    app[APP_KEY_RATE_CACHE] = RateCache(context.config_dir / "rates" / "rates_cache.yaml")
 
     template_dir = Path(__file__).parent / "templates"
     env = aiohttp_jinja2.setup(

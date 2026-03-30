@@ -33,6 +33,115 @@
     <span class="text-muted">Loading modeling data...</span>
   </div>
 
+  <!-- Opower billing data (conditional, only when HA + opower detected) -->
+  <div id="modeling-opower-section" style="display:none; margin-bottom:0.75rem">
+    <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap">
+      <div style="font-weight:500; font-size:0.85rem">Billing Data (Opower)</div>
+      <div id="opower-account-display" class="text-muted" style="font-size:0.8rem"></div>
+      <button type="button" class="btn btn-xs" id="btn-opower-change" style="display:none">Change</button>
+    </div>
+  </div>
+
+  <!-- Opower account picker dialog -->
+  <div id="opower-picker-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center">
+    <div class="card" style="width:min(400px,90vw); margin:2rem">
+      <h3 style="margin-top:0">Select Electric Account</h3>
+      <div id="opower-picker-list" style="margin-bottom:1rem"></div>
+      <div style="text-align:right">
+        <button type="button" class="btn btn-xs" id="btn-opower-picker-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rate plan selection -->
+  <div id="modeling-rate-section" style="display:none; margin-bottom:1rem">
+    <div class="modeling-rate-row" style="display:flex; gap:1.5rem; align-items:flex-start; flex-wrap:wrap">
+      <!-- Current rate -->
+      <div class="modeling-rate-slot" style="flex:1; min-width:220px">
+        <div style="font-weight:500; font-size:0.85rem; margin-bottom:0.25rem">
+          Current Rate
+          <button type="button" class="btn btn-xs" id="btn-rate-attribution"
+                  style="display:none; margin-left:0.25rem; font-size:0.65rem"
+                  title="Data source attribution">&#9432;</button>
+        </div>
+        <div id="rate-current-display" class="text-muted" style="font-size:0.8rem">
+          No rate plan selected
+        </div>
+        <div style="margin-top:0.25rem">
+          <button type="button" class="btn btn-xs" id="btn-rate-current-configure">Configure</button>
+          <button type="button" class="btn btn-xs" id="btn-rate-current-refresh" style="display:none">Refresh</button>
+        </div>
+      </div>
+      <!-- Proposed rate -->
+      <div class="modeling-rate-slot" style="flex:1; min-width:220px">
+        <div style="font-weight:500; font-size:0.85rem; margin-bottom:0.25rem">Proposed Rate</div>
+        <div id="rate-proposed-display" class="text-muted" style="font-size:0.8rem">
+          Using current rate for comparison
+        </div>
+        <div style="margin-top:0.25rem">
+          <button type="button" class="btn btn-xs" id="btn-rate-proposed-set">Set Proposed Rate</button>
+          <button type="button" class="btn btn-xs" id="btn-rate-proposed-clear" style="display:none">Clear</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OpenEI rate selection dialog -->
+  <div id="rate-dialog-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center">
+    <div class="card" style="width:min(480px,90vw); max-height:80vh; overflow-y:auto; margin:2rem">
+      <h3 style="margin-top:0">OpenEI Rate Plan</h3>
+      <div style="margin-bottom:1rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border)">
+        <div style="font-weight:500; font-size:0.85rem; margin-bottom:0.5rem">API Settings</div>
+        <label style="font-size:0.8rem; display:block; margin-bottom:0.25rem">
+          API URL
+          <input type="text" id="rate-api-url" class="input-sm" style="width:100%"
+                 placeholder="https://api.openei.org/utility_rates">
+        </label>
+        <label style="font-size:0.8rem; display:block; margin-bottom:0.25rem">
+          API Key
+          <input type="text" id="rate-api-key" class="input-sm" style="width:100%"
+                 placeholder="Enter your OpenEI API key">
+        </label>
+        <div style="display:flex; gap:0.5rem; align-items:center; margin-top:0.25rem">
+          <button type="button" class="btn btn-xs" id="btn-rate-save-config">Save</button>
+          <a href="https://api.openei.org/signup/" target="_blank" rel="noopener"
+             style="font-size:0.7rem">Get a free API key</a>
+        </div>
+      </div>
+      <div style="margin-bottom:1rem">
+        <div style="font-weight:500; font-size:0.85rem; margin-bottom:0.5rem">Select Rate Plan</div>
+        <label style="font-size:0.8rem; display:block; margin-bottom:0.25rem">
+          Utility
+          <select id="rate-utility-select" class="input-sm" style="width:100%">
+            <option value="">Loading utilities...</option>
+          </select>
+        </label>
+        <label style="font-size:0.8rem; display:block; margin-bottom:0.25rem">
+          Rate Plan
+          <select id="rate-plan-select" class="input-sm" style="width:100%" disabled>
+            <option value="">Select a utility first</option>
+          </select>
+        </label>
+        <div id="rate-dialog-error" class="text-muted" style="font-size:0.75rem; color:#ef4444; display:none"></div>
+      </div>
+      <div style="display:flex; gap:0.5rem; justify-content:flex-end">
+        <button type="button" class="btn btn-xs" id="btn-rate-dialog-cancel">Cancel</button>
+        <button type="button" class="btn btn-xs btn-primary" id="btn-rate-dialog-use" disabled>Use This Rate</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Attribution popup -->
+  <div id="rate-attribution-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1001; justify-content:center; align-items:center">
+    <div class="card" style="width:min(360px,85vw); margin:2rem">
+      <h3 style="margin-top:0">Rate Data Source</h3>
+      <div id="rate-attribution-content" style="font-size:0.8rem"></div>
+      <div style="text-align:right; margin-top:0.75rem">
+        <button type="button" class="btn btn-xs" id="btn-attribution-close">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Energy summary table -->
   <div id="modeling-charts" style="display:none">
 
@@ -47,16 +156,19 @@
           <tr>
             <th></th>
             <th>Energy (kWh)</th>
+            <th class="modeling-col-cost" style="display:none">Cost</th>
           </tr>
         </thead>
         <tbody>
           <tr class="modeling-row-horizon">
             <td class="modeling-row-label">Full Horizon</td>
             <td id="modeling-before-horizon" class="modeling-col-before"></td>
+            <td id="modeling-before-cost-horizon" class="modeling-col-cost" style="display:none"></td>
           </tr>
           <tr class="modeling-row-visible">
             <td class="modeling-row-label">Visible Range</td>
             <td id="modeling-before-visible" class="modeling-col-before"></td>
+            <td id="modeling-before-cost-visible" class="modeling-col-cost" style="display:none"></td>
           </tr>
         </tbody>
       </table>
@@ -77,6 +189,8 @@
             <th></th>
             <th>Energy (kWh)</th>
             <th>Difference</th>
+            <th class="modeling-col-cost" style="display:none">Cost</th>
+            <th class="modeling-col-cost" style="display:none">Savings</th>
           </tr>
         </thead>
         <tbody>
@@ -84,11 +198,15 @@
             <td class="modeling-row-label">Full Horizon</td>
             <td id="modeling-after-horizon" class="modeling-col-after"></td>
             <td id="modeling-diff-horizon" class="modeling-col-diff"></td>
+            <td id="modeling-after-cost-horizon" class="modeling-col-cost" style="display:none"></td>
+            <td id="modeling-cost-diff-horizon" class="modeling-col-cost" style="display:none"></td>
           </tr>
           <tr class="modeling-row-visible">
             <td class="modeling-row-label">Visible Range</td>
             <td id="modeling-after-visible" class="modeling-col-after"></td>
             <td id="modeling-diff-visible" class="modeling-col-diff"></td>
+            <td id="modeling-after-cost-visible" class="modeling-col-cost" style="display:none"></td>
+            <td id="modeling-cost-diff-visible" class="modeling-col-cost" style="display:none"></td>
           </tr>
         </tbody>
       </table>
@@ -129,6 +247,18 @@
   /** YAML filename for the panel being modeled — must match /modeling-data ?config= */
   var modelingConfigFile = '';
 
+  // -- Rate plan state --
+  var currentRateLabel = null;
+  var proposedRateLabel = null;
+  var rateDialogTarget = 'current';
+
+  // -- Opower state --
+  var opowerSectionEl = document.getElementById('modeling-opower-section');
+  var opowerDisplayEl = document.getElementById('opower-account-display');
+  var opowerChangeBtn = document.getElementById('btn-opower-change');
+  var opowerPickerOverlay = document.getElementById('opower-picker-overlay');
+  var opowerAccounts = [];
+
   var OVERLAY_COLORS = ['#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#e879f9'];
 
   // DOM refs
@@ -150,6 +280,20 @@
   var diffHorizonEl = document.getElementById('modeling-diff-horizon');
   var diffVisibleEl = document.getElementById('modeling-diff-visible');
 
+  // Rate plan DOM refs
+  var rateSectionEl = document.getElementById('modeling-rate-section');
+  var currentDisplayEl = document.getElementById('rate-current-display');
+  var proposedDisplayEl = document.getElementById('rate-proposed-display');
+  var attributionBtn = document.getElementById('btn-rate-attribution');
+  var refreshCurrentBtn = document.getElementById('btn-rate-current-refresh');
+  var clearProposedBtn = document.getElementById('btn-rate-proposed-clear');
+  var dialogOverlay = document.getElementById('rate-dialog-overlay');
+  var attrOverlay = document.getElementById('rate-attribution-overlay');
+  var utilitySelect = document.getElementById('rate-utility-select');
+  var planSelect = document.getElementById('rate-plan-select');
+  var dialogError = document.getElementById('rate-dialog-error');
+  var useRateBtn = document.getElementById('btn-rate-dialog-use');
+
   // ---------------------------------------------------------------
   // Entry / Exit
   // ---------------------------------------------------------------
@@ -165,6 +309,9 @@
       cb.checked = false;
       cb.closest('.entity-row').classList.remove('overlay-active');
     });
+    rateSectionEl.style.display = '';
+    loadOpowerAccounts();
+    loadCurrentRate();
     fetchModelingData(horizonSelect.value);
   }
 
@@ -175,6 +322,9 @@
     if (afterChart) { afterChart.destroy(); afterChart = null; }
     modelingData = null;
     chartsWrap.style.display = 'none';
+    rateSectionEl.style.display = 'none';
+    opowerSectionEl.style.display = 'none';
+    proposedRateLabel = null;
   }
 
   // ---------------------------------------------------------------
@@ -184,6 +334,9 @@
     var q = 'modeling-data?horizon=' + encodeURIComponent(horizon);
     if (modelingConfigFile) {
       q += '&config=' + encodeURIComponent(modelingConfigFile);
+    }
+    if (proposedRateLabel) {
+      q += '&proposed_rate_label=' + encodeURIComponent(proposedRateLabel);
     }
     return q;
   }
@@ -286,6 +439,18 @@
     populateEnergyCell(beforeHorizonEl, fullBeforeEnergy);
     populateEnergyCell(afterHorizonEl, fullAfterEnergy);
     populateDiffCell(diffHorizonEl, fullBeforeEnergy, fullAfterEnergy);
+
+    // Cost summaries — full horizon (from server response)
+    var hasCosts = !!d.before_costs;
+    showCostColumns(hasCosts);
+    if (hasCosts) {
+      populateCostCell(document.getElementById('modeling-before-cost-horizon'), d.before_costs);
+      populateCostCell(document.getElementById('modeling-after-cost-horizon'), d.after_costs);
+      populateCostDiffCell(document.getElementById('modeling-cost-diff-horizon'), d.before_costs, d.after_costs);
+      document.getElementById('modeling-before-cost-visible').textContent = '\u2014';
+      document.getElementById('modeling-after-cost-visible').textContent = '\u2014';
+      document.getElementById('modeling-cost-diff-visible').textContent = '\u2014';
+    }
 
     // Slider labels
     rangeStartEl.textContent = formatDate(ts[0], d.time_zone);
@@ -426,6 +591,42 @@
     el.className = 'modeling-col-diff ' + (diffKwh > 0 ? 'diff-positive' : diffKwh < 0 ? 'diff-negative' : '');
   }
 
+  function formatDollar(amount) {
+    return '$' + Math.abs(amount).toFixed(2);
+  }
+
+  function populateCostCell(el, costs) {
+    if (!costs) { el.textContent = ''; return; }
+    if (costs.source === 'opower') {
+      var text = 'Cost: ' + formatDollar(costs.net_cost) + ' (billed)';
+      if (costs.days_with_data && costs.horizon_days && costs.days_with_data < costs.horizon_days * 0.9) {
+        var months = Math.round(costs.days_with_data / 30);
+        var totalMonths = Math.round(costs.horizon_days / 30);
+        text += ' (' + months + ' of ' + totalMonths + ' months)';
+      }
+      el.textContent = text;
+    } else {
+      el.textContent = formatDollar(costs.import_cost) + ' imp, ' + formatDollar(costs.export_credit)
+        + ' exp \u2014 Net: ' + formatDollar(costs.net_cost);
+    }
+  }
+
+  function populateCostDiffCell(el, beforeCosts, afterCosts) {
+    if (!beforeCosts || !afterCosts) { el.textContent = ''; return; }
+    var diff = beforeCosts.net_cost - afterCosts.net_cost;
+    var pct = beforeCosts.net_cost !== 0 ? (diff / Math.abs(beforeCosts.net_cost) * 100) : 0;
+    var sign = diff > 0 ? '\u2212' : '+';
+    el.textContent = sign + formatDollar(diff) + ' (' + Math.abs(pct).toFixed(1) + '%)';
+    el.className = 'modeling-col-cost ' + (diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : '');
+  }
+
+  function showCostColumns(visible) {
+    var els = document.querySelectorAll('.modeling-col-cost');
+    for (var i = 0; i < els.length; i++) {
+      els[i].style.display = visible ? '' : 'none';
+    }
+  }
+
   function computeEnergy(powerArr, resolutionS) {
     // Split import (positive power = buying from grid) and
     // export (negative power = selling/crediting to grid).
@@ -498,6 +699,231 @@
   }
 
   // ---------------------------------------------------------------
+  // Opower helpers
+  // ---------------------------------------------------------------
+  function loadOpowerAccounts() {
+    fetch('rates/opower-accounts')
+      .then(function(r) { return r.json(); })
+      .then(function(accounts) {
+        opowerAccounts = accounts;
+        if (accounts.length === 0) {
+          opowerSectionEl.style.display = 'none';
+          return;
+        }
+        opowerSectionEl.style.display = '';
+        fetch('rates/opower-account')
+          .then(function(r) { return r.json(); })
+          .then(function(saved) {
+            if (saved.configured) {
+              showOpowerAccount(saved);
+            } else if (accounts.length === 1) {
+              selectOpowerAccount(accounts[0]);
+            } else {
+              openOpowerPicker();
+            }
+          });
+      })
+      .catch(function() {
+        opowerSectionEl.style.display = 'none';
+      });
+  }
+
+  function showOpowerAccount(account) {
+    opowerDisplayEl.textContent = account.utility_name + ' \u2014 ELEC ' + account.account_number;
+    opowerChangeBtn.style.display = opowerAccounts.length > 1 ? '' : 'none';
+  }
+
+  function selectOpowerAccount(account) {
+    fetch('rates/opower-account', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(account),
+    }).then(function() {
+      showOpowerAccount(account);
+      closeOpowerPicker();
+      fetchModelingData(horizonSelect.value);
+    });
+  }
+
+  function openOpowerPicker() {
+    var list = document.getElementById('opower-picker-list');
+    list.innerHTML = '';
+    for (var i = 0; i < opowerAccounts.length; i++) {
+      var acct = opowerAccounts[i];
+      var btn = document.createElement('button');
+      btn.className = 'btn btn-xs';
+      btn.style.cssText = 'display:block; width:100%; text-align:left; margin-bottom:0.5rem; padding:0.5rem';
+      btn.textContent = acct.utility_name + ' \u2014 ELEC ' + acct.account_number;
+      btn.dataset.index = String(i);
+      btn.addEventListener('click', function() {
+        selectOpowerAccount(opowerAccounts[parseInt(this.dataset.index)]);
+      });
+      list.appendChild(btn);
+    }
+    opowerPickerOverlay.style.display = 'flex';
+  }
+
+  function closeOpowerPicker() {
+    opowerPickerOverlay.style.display = 'none';
+  }
+
+  // ---------------------------------------------------------------
+  // Rate plan helpers
+  // ---------------------------------------------------------------
+  function loadOpenEIConfig() {
+    fetch('rates/openei-config').then(function(r) { return r.json(); }).then(function(cfg) {
+      document.getElementById('rate-api-url').value = cfg.api_url || '';
+      document.getElementById('rate-api-key').value = cfg.api_key || '';
+    });
+  }
+
+  function loadCurrentRate() {
+    fetch('rates/current').then(function(r) { return r.json(); }).then(function(data) {
+      if (data.label) {
+        currentRateLabel = data.label;
+        currentDisplayEl.textContent = (data.utility || '') + ' \u2014 ' + (data.name || data.label);
+        attributionBtn.style.display = '';
+        refreshCurrentBtn.style.display = '';
+        document.getElementById('btn-rate-current-configure').textContent = 'Change';
+      } else {
+        currentRateLabel = null;
+        currentDisplayEl.textContent = 'No rate plan selected';
+        attributionBtn.style.display = 'none';
+        refreshCurrentBtn.style.display = 'none';
+        document.getElementById('btn-rate-current-configure').textContent = 'Configure';
+      }
+    });
+  }
+
+  function openRateDialog(target) {
+    rateDialogTarget = target;
+    dialogError.style.display = 'none';
+    dialogOverlay.style.display = 'flex';
+    loadOpenEIConfig();
+    var opowerAcct = null;
+    var opowerDisplay = opowerDisplayEl.textContent;
+    if (opowerDisplay && opowerSectionEl.style.display !== 'none') {
+      var parts = opowerDisplay.split('\u2014');
+      if (parts.length > 0) opowerAcct = parts[0].trim();
+    }
+    loadUtilities(opowerAcct || null);
+  }
+
+  function closeRateDialog() {
+    dialogOverlay.style.display = 'none';
+  }
+
+  function loadUtilities(defaultUtility) {
+    var latEl = document.querySelector('[name="latitude"]');
+    var lonEl = document.querySelector('[name="longitude"]');
+    var lat = (latEl && parseFloat(latEl.value)) || 37.7;
+    var lon = (lonEl && parseFloat(lonEl.value)) || -122.4;
+    utilitySelect.innerHTML = '<option value="">Loading...</option>';
+    planSelect.innerHTML = '<option value="">Select a utility first</option>';
+    planSelect.disabled = true;
+    useRateBtn.disabled = true;
+
+    fetch('rates/utilities?lat=' + lat + '&lon=' + lon)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) {
+          utilitySelect.innerHTML = '<option value="">Error: ' + data.error + '</option>';
+          return;
+        }
+        utilitySelect.innerHTML = '<option value="">Select a utility...</option>';
+        var matchIndex = -1;
+        for (var i = 0; i < data.length; i++) {
+          var opt = document.createElement('option');
+          opt.value = data[i].utility_name;
+          opt.textContent = data[i].utility_name;
+          utilitySelect.appendChild(opt);
+          if (defaultUtility && data[i].utility_name.indexOf(defaultUtility) !== -1) {
+            matchIndex = i + 1;
+          }
+        }
+        if (matchIndex > 0) {
+          utilitySelect.selectedIndex = matchIndex;
+          loadRatePlans(utilitySelect.value);
+        }
+      })
+      .catch(function() {
+        utilitySelect.innerHTML = '<option value="">Error loading utilities</option>';
+      });
+  }
+
+  function loadRatePlans(utility) {
+    planSelect.innerHTML = '<option value="">Loading plans...</option>';
+    planSelect.disabled = true;
+    useRateBtn.disabled = true;
+
+    fetch('rates/plans?utility=' + encodeURIComponent(utility))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) {
+          planSelect.innerHTML = '<option value="">Error: ' + data.error + '</option>';
+          return;
+        }
+        planSelect.innerHTML = '<option value="">Select a rate plan...</option>';
+        planSelect.disabled = false;
+        for (var i = 0; i < data.length; i++) {
+          var opt = document.createElement('option');
+          opt.value = data[i].label;
+          var dateStr = data[i].startdate ? ' (' + new Date(data[i].startdate * 1000).getFullYear() + ')' : '';
+          opt.textContent = data[i].name + dateStr;
+          planSelect.appendChild(opt);
+        }
+      })
+      .catch(function() {
+        planSelect.innerHTML = '<option value="">Error loading plans</option>';
+      });
+  }
+
+  function useSelectedRate() {
+    var label = planSelect.value;
+    if (!label) return;
+    useRateBtn.disabled = true;
+    dialogError.style.display = 'none';
+
+    fetch('rates/fetch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({label: label}),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) {
+        dialogError.textContent = data.error;
+        dialogError.style.display = '';
+        useRateBtn.disabled = false;
+        return;
+      }
+      if (rateDialogTarget === 'current') {
+        fetch('rates/current', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({label: label}),
+        }).then(function() {
+          loadCurrentRate();
+          closeRateDialog();
+          fetchModelingData(horizonSelect.value);
+        });
+      } else {
+        proposedRateLabel = label;
+        proposedDisplayEl.textContent = (data.utility || '') + ' \u2014 ' + (data.name || label);
+        clearProposedBtn.style.display = '';
+        document.getElementById('btn-rate-proposed-set').textContent = 'Change';
+        closeRateDialog();
+        fetchModelingData(horizonSelect.value);
+      }
+    })
+    .catch(function(err) {
+      dialogError.textContent = 'Network error: ' + err.message;
+      dialogError.style.display = '';
+      useRateBtn.disabled = false;
+    });
+  }
+
+  // ---------------------------------------------------------------
   // Circuit overlay support
   // ---------------------------------------------------------------
   function toggleCircuitOverlay(circuitId, checked) {
@@ -523,6 +949,78 @@
 
   pvCheckbox.addEventListener('change', function() { renderCharts(); });
   batteryCheckbox.addEventListener('change', function() { renderCharts(); });
+
+  // ---------------------------------------------------------------
+  // Rate plan event listeners
+  // ---------------------------------------------------------------
+  document.getElementById('btn-rate-current-configure').addEventListener('click', function() {
+    openRateDialog('current');
+  });
+  document.getElementById('btn-rate-proposed-set').addEventListener('click', function() {
+    openRateDialog('proposed');
+  });
+  refreshCurrentBtn.addEventListener('click', function() {
+    if (!currentRateLabel) return;
+    refreshCurrentBtn.disabled = true;
+    fetch('rates/refresh', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({label: currentRateLabel}),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function() {
+      refreshCurrentBtn.disabled = false;
+      fetchModelingData(horizonSelect.value);
+    })
+    .catch(function() { refreshCurrentBtn.disabled = false; });
+  });
+  clearProposedBtn.addEventListener('click', function() {
+    proposedRateLabel = null;
+    proposedDisplayEl.textContent = 'Using current rate for comparison';
+    clearProposedBtn.style.display = 'none';
+    document.getElementById('btn-rate-proposed-set').textContent = 'Set Proposed Rate';
+    fetchModelingData(horizonSelect.value);
+  });
+  document.getElementById('btn-rate-dialog-cancel').addEventListener('click', closeRateDialog);
+  document.getElementById('btn-rate-save-config').addEventListener('click', function() {
+    var url = document.getElementById('rate-api-url').value.trim();
+    var key = document.getElementById('rate-api-key').value.trim();
+    fetch('rates/openei-config', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({api_url: url, api_key: key}),
+    }).then(function() { loadUtilities(null); });
+  });
+  utilitySelect.addEventListener('change', function() {
+    if (utilitySelect.value) loadRatePlans(utilitySelect.value);
+  });
+  planSelect.addEventListener('change', function() {
+    useRateBtn.disabled = !planSelect.value;
+  });
+  document.getElementById('btn-rate-dialog-use').addEventListener('click', useSelectedRate);
+
+  // Opower event listeners
+  opowerChangeBtn.addEventListener('click', openOpowerPicker);
+  document.getElementById('btn-opower-picker-cancel').addEventListener('click', closeOpowerPicker);
+
+  // Attribution popup
+  attributionBtn.addEventListener('click', function() {
+    if (!currentRateLabel) return;
+    fetch('rates/attribution/' + encodeURIComponent(currentRateLabel))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var html = '<p><strong>Provider:</strong> ' + (data.provider || 'Unknown') + '</p>'
+          + '<p><strong>License:</strong> ' + (data.license || 'Unknown') + '</p>'
+          + '<p><strong>URDB Label:</strong> ' + currentRateLabel + '</p>'
+          + '<p><strong>Retrieved:</strong> ' + (data.retrieved_at || 'Unknown') + '</p>'
+          + '<p><a href="' + (data.url || '#') + '" target="_blank" rel="noopener">View on OpenEI</a></p>';
+        document.getElementById('rate-attribution-content').innerHTML = html;
+        attrOverlay.style.display = 'flex';
+      });
+  });
+  document.getElementById('btn-attribution-close').addEventListener('click', function() {
+    attrOverlay.style.display = 'none';
+  });
 
   // ---------------------------------------------------------------
   // Auto-refresh on config changes
