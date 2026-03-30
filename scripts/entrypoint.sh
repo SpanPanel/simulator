@@ -9,11 +9,14 @@ BROKER_PASSWORD="${BROKER_PASSWORD:-sim-password}"
 ADVERTISE_ADDRESS="${ADVERTISE_ADDRESS:-}"
 
 echo "==> Generating TLS certificates..."
+export CERT_DIR
+export ADVERTISE_ADDRESS
 python -c "
+import os
 from span_panel_simulator.certs import generate_certificates
 from pathlib import Path
-addr = '${ADVERTISE_ADDRESS}' or None
-generate_certificates(Path('${CERT_DIR}'), advertise_address=addr)
+addr = os.environ.get('ADVERTISE_ADDRESS') or None
+generate_certificates(Path(os.environ['CERT_DIR']), advertise_address=addr)
 "
 
 # Mosquitto runs as the 'mosquitto' user — ensure it can read certs
