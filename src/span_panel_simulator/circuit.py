@@ -231,8 +231,7 @@ class SimulatedCircuit:
         """Derive device_type from the template.
 
         Checks for an explicit ``device_type`` field first, then falls back
-        to mode-based detection.  Bidirectional circuits with
-        ``battery_behavior.enabled`` are batteries, not EVSE.
+        to mode-based detection.
         """
         explicit = self._template.get("device_type")
         if explicit:
@@ -241,9 +240,6 @@ class SimulatedCircuit:
         if mode == "producer":
             return "pv"
         if mode == "bidirectional":
-            battery = self._template.get("battery_behavior", {})
-            if isinstance(battery, dict) and battery.get("enabled", False):
-                return "circuit"
             return "evse"
         return "circuit"
 
