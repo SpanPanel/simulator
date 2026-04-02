@@ -179,6 +179,27 @@ class ConfigStore:
                 bess[yaml_key] = float(data[form_key])
         self._dirty = True
 
+    def add_bess(self) -> None:
+        """Add a default BESS configuration."""
+        self._state["bess"] = {
+            "enabled": True,
+            "nameplate_capacity_kwh": 13.5,
+            "max_charge_w": 3500.0,
+            "max_discharge_w": 3500.0,
+            "charge_efficiency": 0.95,
+            "discharge_efficiency": 0.95,
+            "backup_reserve_pct": 20.0,
+            "charge_mode": "self-consumption",
+            "charge_hours": [],
+            "discharge_hours": [],
+        }
+        self._dirty = True
+
+    def remove_bess(self) -> None:
+        """Remove the BESS configuration."""
+        self._state.pop("bess", None)
+        self._dirty = True
+
     # -- Simulation params --
 
     def get_simulation_params(self) -> dict[str, Any]:

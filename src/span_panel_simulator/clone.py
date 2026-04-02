@@ -164,9 +164,11 @@ def translate_scraped_panel(
         },
     }
 
-    # Build top-level BESS config
+    # Build top-level BESS config (only when a battery is actually connected)
     for bess_id in bess_nodes:
-        config["bess"] = _build_bess_config(scraped.properties, prefix, bess_id)
+        bess_cfg = _build_bess_config(scraped.properties, prefix, bess_id)
+        if bess_cfg is not None:
+            config["bess"] = bess_cfg
 
     if host is not None:
         config["panel_source"] = {
@@ -579,15 +581,20 @@ def _build_bess_config(
     properties: dict[str, str],
     prefix: str,
     bess_node_id: str,
-) -> dict[str, object]:
-    """Build top-level bess config from scraped BESS node properties."""
+) -> dict[str, object] | None:
+    """Build top-level bess config from scraped BESS node properties.
+
+    Returns ``None`` when the BESS node is an empty slot (no battery
+    connected) — indicated by a missing or zero nameplate capacity.
+    """
     nameplate = _float_prop(properties, prefix, bess_node_id, "nameplate-capacity")
-    nameplate_kwh = nameplate if nameplate is not None else 13.5
+    if not nameplate:
+        return None
 
     return {
         "enabled": True,
         "charge_mode": "custom",
-        "nameplate_capacity_kwh": nameplate_kwh,
+        "nameplate_capacity_kwh": nameplate,
         "backup_reserve_pct": 20.0,
         "charge_efficiency": 0.95,
         "discharge_efficiency": 0.95,

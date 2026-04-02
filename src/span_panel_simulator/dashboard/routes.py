@@ -508,6 +508,8 @@ def setup_routes(app: web.Application) -> None:
 
     # BESS (panel-level)
     app.router.add_get("/bess", handle_get_bess)
+    app.router.add_post("/bess", handle_post_bess)
+    app.router.add_delete("/bess", handle_delete_bess)
     app.router.add_get("/bess/edit", handle_get_bess_edit)
     app.router.add_put("/bess", handle_put_bess)
     app.router.add_get("/bess/schedule", handle_get_bess_schedule)
@@ -794,6 +796,20 @@ async def handle_apply_preset(request: web.Request) -> web.Response:
 
 async def handle_get_bess(request: web.Request) -> web.Response:
     """GET /bess — return BESS card in display mode."""
+    return _render("partials/bess_card.html", request, _bess_card_context(request))
+
+
+async def handle_post_bess(request: web.Request) -> web.Response:
+    """POST /bess — add a default BESS configuration."""
+    _store(request).add_bess()
+    _persist_config(request)
+    return _render("partials/bess_card.html", request, _bess_card_context(request))
+
+
+async def handle_delete_bess(request: web.Request) -> web.Response:
+    """DELETE /bess — remove BESS configuration."""
+    _store(request).remove_bess()
+    _persist_config(request)
     return _render("partials/bess_card.html", request, _bess_card_context(request))
 
 

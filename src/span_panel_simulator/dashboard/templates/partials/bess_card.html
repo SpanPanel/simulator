@@ -2,6 +2,11 @@
 <div class="card bess-card" id="bess-card-section">
   <div class="card-header">
     <h2>Battery (GFE) <span class="badge badge-battery">UPSTREAM LUGS</span></h2>
+    {% if not readonly %}
+    <button class="btn btn-sm btn-danger"
+            hx-delete="bess" hx-target="#bess-card-section" hx-swap="innerHTML"
+            hx-confirm="Remove battery configuration?">Remove</button>
+    {% endif %}
   </div>
 
   {% if bess_editing is defined and bess_editing %}
@@ -64,4 +69,17 @@
   </div>
   {% endif %}
 </div>
+
+{% else %}
+{# No BESS configured — show add button when editable #}
+{% if not readonly %}
+<div class="card" id="bess-card-section">
+  <div class="card-header">
+    <h2>Battery (GFE)</h2>
+    <button class="btn btn-sm btn-primary"
+            hx-post="bess" hx-target="#bess-card-section" hx-swap="innerHTML">+ Add Battery</button>
+  </div>
+  <p class="hint" style="padding: 0.5rem 1rem;">No battery configured. Add one to model BESS on upstream lugs.</p>
+</div>
+{% endif %}
 {% endif %}
