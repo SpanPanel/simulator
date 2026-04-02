@@ -17,7 +17,7 @@ import threading
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 import yaml
@@ -1610,51 +1610,37 @@ class DynamicSimulationEngine:
                 break
 
         bess_config: BESSConfig | None = None
-        for circuit in included.values():
-            battery_cfg = circuit.template.get("battery_behavior", {})
-            if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
-                nameplate = float(cast("float", battery_cfg.get("nameplate_capacity_kwh", 13.5)))
-                # Hybrid status is a PV inverter property — derive from
-                # the PV config already resolved above.
-                hybrid = pv_config is not None and pv_config.inverter_type == "hybrid"
-                charge_hours_raw = cast("list[int]", battery_cfg.get("charge_hours", []))
-                discharge_hours_raw = cast("list[int]", battery_cfg.get("discharge_hours", []))
-                panel_tz = (
-                    str(self._behavior_engine.panel_timezone)
-                    if self._behavior_engine is not None
-                    else RealisticBehaviorEngine._DEFAULT_TZ
-                )
-                charge_mode = str(cast("str", battery_cfg.get("charge_mode", "self-consumption")))
-                bess_config = BESSConfig(
-                    nameplate_kwh=nameplate,
-                    max_charge_w=abs(
-                        float(cast("float", battery_cfg.get("max_charge_power", 3500.0)))
-                    ),
-                    max_discharge_w=abs(
-                        float(cast("float", battery_cfg.get("max_discharge_power", 3500.0)))
-                    ),
-                    charge_efficiency=float(
-                        cast("float", battery_cfg.get("charge_efficiency", 0.95))
-                    ),
-                    discharge_efficiency=float(
-                        cast("float", battery_cfg.get("discharge_efficiency", 0.95))
-                    ),
-                    backup_reserve_pct=float(
-                        cast("float", battery_cfg.get("backup_reserve_pct", 20.0))
-                    ),
-                    hybrid=hybrid,
-                    initial_soe_kwh=(
-                        self._energy_system.bess.soe_kwh
-                        if self._energy_system is not None and self._energy_system.bess is not None
-                        else None
-                    ),
-                    panel_serial=self._config["panel_config"]["serial_number"],
-                    charge_hours=tuple(charge_hours_raw),
-                    discharge_hours=tuple(discharge_hours_raw),
-                    panel_timezone=panel_tz,
-                    charge_mode=charge_mode,
-                )
-                break
+        bess_yaml = self._config.get("bess", {})
+        if isinstance(bess_yaml, dict) and bess_yaml.get("enabled", False):
+            nameplate = float(bess_yaml.get("nameplate_capacity_kwh", 13.5))
+            hybrid = pv_config is not None and pv_config.inverter_type == "hybrid"
+            charge_hours_raw: list[int] = bess_yaml.get("charge_hours", [])
+            discharge_hours_raw: list[int] = bess_yaml.get("discharge_hours", [])
+            panel_tz = (
+                str(self._behavior_engine.panel_timezone)
+                if self._behavior_engine is not None
+                else RealisticBehaviorEngine._DEFAULT_TZ
+            )
+            charge_mode = str(bess_yaml.get("charge_mode", "self-consumption"))
+            bess_config = BESSConfig(
+                nameplate_kwh=nameplate,
+                max_charge_w=abs(float(bess_yaml.get("max_charge_w", 3500.0))),
+                max_discharge_w=abs(float(bess_yaml.get("max_discharge_w", 3500.0))),
+                charge_efficiency=float(bess_yaml.get("charge_efficiency", 0.95)),
+                discharge_efficiency=float(bess_yaml.get("discharge_efficiency", 0.95)),
+                backup_reserve_pct=float(bess_yaml.get("backup_reserve_pct", 20.0)),
+                hybrid=hybrid,
+                initial_soe_kwh=(
+                    self._energy_system.bess.soe_kwh
+                    if self._energy_system is not None and self._energy_system.bess is not None
+                    else None
+                ),
+                panel_serial=self._config["panel_config"]["serial_number"],
+                charge_hours=tuple(charge_hours_raw),
+                discharge_hours=tuple(discharge_hours_raw),
+                panel_timezone=panel_tz,
+                charge_mode=charge_mode,
+            )
 
         loads = [LoadConfig() for c in included.values() if c.energy_mode == "consumer"]
 
