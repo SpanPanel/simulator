@@ -217,9 +217,9 @@ def _entity_list_context(request: web.Request, editing_id: str | None = None) ->
         ctx["active_days"] = store.get_active_days(editing_id)
         if entity.entity_type == "battery":
             ctx["battery_preset_labels"] = _presets(request).battery_labels
-            battery_profile = store.get_battery_profile(editing_id)
+            battery_profile = store.get_battery_profile()
             ctx["battery_profile"] = battery_profile
-            ctx["battery_charge_mode"] = store.get_battery_charge_mode(editing_id)
+            ctx["battery_charge_mode"] = store.get_battery_charge_mode()
             ctx["battery_active_preset"] = match_battery_preset(battery_profile)
         if entity.entity_type == "pv":
             panel = store.get_panel_config()
@@ -254,18 +254,16 @@ def _profile_context(request: web.Request, entity_id: str) -> dict[str, Any]:
     }
 
 
-def _battery_profile_context(request: web.Request, entity_id: str) -> dict[str, Any]:
+def _battery_profile_context(request: web.Request) -> dict[str, Any]:
     """Build the battery profile editor template context."""
     store = _store(request)
-    entity = store.get_entity(entity_id)
-    battery_profile = store.get_battery_profile(entity_id)
+    battery_profile = store.get_battery_profile()
     return {
-        "entity": entity,
         "battery_profile": battery_profile,
         "battery_preset_labels": _presets(request).battery_labels,
-        "battery_charge_mode": store.get_battery_charge_mode(entity_id),
+        "battery_charge_mode": store.get_battery_charge_mode(),
         "battery_active_preset": match_battery_preset(battery_profile),
-        "active_days": store.get_active_days(entity_id),
+        "active_days": store.get_bess_active_days(),
     }
 
 
@@ -786,16 +784,14 @@ async def handle_apply_preset(request: web.Request) -> web.Response:
 
 
 async def handle_get_battery_profile(request: web.Request) -> web.Response:
-    entity_id = request.match_info["id"]
     return _render(
         "partials/battery_profile_editor.html",
         request,
-        _battery_profile_context(request, entity_id),
+        _battery_profile_context(request),
     )
 
 
 async def handle_put_battery_profile(request: web.Request) -> web.Response:
-    entity_id = request.match_info["id"]
     data = await request.post()
     hour_modes: dict[int, str] = {}
     for h in range(24):
@@ -809,38 +805,36 @@ async def handle_put_battery_profile(request: web.Request) -> web.Response:
         else:
             hour_modes[h] = "idle"
     store = _store(request)
-    store.update_battery_profile(entity_id, hour_modes)
+    store.update_battery_profile(hour_modes)
     active = _parse_active_days(data)
     if active is not None:
-        store.update_active_days(entity_id, active)
+        store.update_bess_active_days(active)
     return _render(
         "partials/battery_profile_editor.html",
         request,
-        _battery_profile_context(request, entity_id),
+        _battery_profile_context(request),
     )
 
 
 async def handle_apply_battery_preset(request: web.Request) -> web.Response:
-    entity_id = request.match_info["id"]
     data = await request.post()
     preset_name = str(data.get("preset", "custom"))
-    _store(request).apply_battery_preset(entity_id, preset_name)
+    _store(request).apply_battery_preset(preset_name)
     return _render(
         "partials/battery_profile_editor.html",
         request,
-        _battery_profile_context(request, entity_id),
+        _battery_profile_context(request),
     )
 
 
 async def handle_put_battery_charge_mode(request: web.Request) -> web.Response:
-    entity_id = request.match_info["id"]
     data = await request.post()
     mode = str(data.get("charge_mode", "custom"))
-    _store(request).update_battery_charge_mode(entity_id, mode)
+    _store(request).update_battery_charge_mode(mode)
     return _render(
         "partials/battery_profile_editor.html",
         request,
-        _battery_profile_context(request, entity_id),
+        _battery_profile_context(request),
     )
 
 
