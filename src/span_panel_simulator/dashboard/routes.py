@@ -252,18 +252,20 @@ def _profile_context(request: web.Request, entity_id: str) -> dict[str, Any]:
 def _bess_card_context(
     request: web.Request,
     editing: bool = False,
-    schedule: bool = False,
 ) -> dict[str, Any]:
-    """Build the BESS card template context."""
+    """Build the BESS card template context.
+
+    The edit view includes both settings and schedule, so schedule
+    context is always included when editing.
+    """
     store = _store(request)
     ctx: dict[str, Any] = {
         "bess_config": store.get_bess_config(),
         "bess_editing": editing,
         "readonly": _is_readonly(_ctx(request)),
     }
-    if schedule:
+    if editing:
         battery_profile = store.get_battery_profile()
-        ctx["bess_schedule"] = True
         ctx["battery_profile"] = battery_profile
         ctx["battery_preset_labels"] = _presets(request).battery_labels
         ctx["battery_charge_mode"] = store.get_battery_charge_mode()
@@ -800,10 +802,10 @@ async def handle_get_bess(request: web.Request) -> web.Response:
 
 
 async def handle_post_bess(request: web.Request) -> web.Response:
-    """POST /bess — add a default BESS configuration and show schedule."""
+    """POST /bess — add a default BESS configuration and show edit view."""
     _store(request).add_bess()
     _persist_config(request)
-    return _render("partials/bess_card.html", request, _bess_card_context(request, schedule=True))
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
 
 
 async def handle_delete_bess(request: web.Request) -> web.Response:
@@ -828,7 +830,7 @@ async def handle_put_bess(request: web.Request) -> web.Response:
 
 async def handle_get_bess_schedule(request: web.Request) -> web.Response:
     """GET /bess/schedule — return BESS card with schedule editor."""
-    return _render("partials/bess_card.html", request, _bess_card_context(request, schedule=True))
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
 
 
 async def handle_put_bess_schedule(request: web.Request) -> web.Response:
@@ -845,7 +847,7 @@ async def handle_put_bess_schedule(request: web.Request) -> web.Response:
     if active is not None:
         store.update_bess_active_days(active)
     _persist_config(request)
-    return _render("partials/bess_card.html", request, _bess_card_context(request, schedule=True))
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
 
 
 async def handle_post_bess_schedule_preset(request: web.Request) -> web.Response:
@@ -854,7 +856,7 @@ async def handle_post_bess_schedule_preset(request: web.Request) -> web.Response
     preset_name = str(data.get("preset", "custom"))
     _store(request).apply_battery_preset(preset_name)
     _persist_config(request)
-    return _render("partials/bess_card.html", request, _bess_card_context(request, schedule=True))
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
 
 
 async def handle_put_bess_charge_mode(request: web.Request) -> web.Response:
@@ -863,7 +865,7 @@ async def handle_put_bess_charge_mode(request: web.Request) -> web.Response:
     mode = str(data.get("charge_mode", "custom"))
     _store(request).update_battery_charge_mode(mode)
     _persist_config(request)
-    return _render("partials/bess_card.html", request, _bess_card_context(request, schedule=True))
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
 
 
 async def handle_put_bess_active_days(request: web.Request) -> web.Response:
@@ -873,7 +875,7 @@ async def handle_put_bess_active_days(request: web.Request) -> web.Response:
     if active is not None:
         _store(request).update_bess_active_days(active)
     _persist_config(request)
-    return _render("partials/bess_card.html", request, _bess_card_context(request, schedule=True))
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
 
 
 # -- EVSE schedule --

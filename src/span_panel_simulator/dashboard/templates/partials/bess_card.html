@@ -3,50 +3,53 @@
   <div class="card-header">
     <h2>Battery (GFE) <span class="badge badge-battery">UPSTREAM LUGS</span></h2>
     {% if not readonly %}
-    <button class="btn btn-sm btn-danger"
-            hx-delete="bess" hx-target="#bess-card-section" hx-swap="innerHTML"
-            hx-confirm="Remove battery configuration?">Remove</button>
+    <div>
+      {% if not bess_editing %}
+      <button class="btn btn-sm"
+              hx-get="bess/edit" hx-target="#bess-card-section" hx-swap="innerHTML">Edit</button>
+      {% endif %}
+      <button class="btn btn-sm btn-danger"
+              hx-delete="bess" hx-target="#bess-card-section" hx-swap="innerHTML"
+              hx-confirm="Remove battery configuration?">Remove</button>
+    </div>
     {% endif %}
   </div>
 
   {% if bess_editing is defined and bess_editing %}
-  <form hx-put="bess" hx-target="#bess-card-section" hx-swap="innerHTML" hx-disabled-elt="find button">
-    <div class="form-grid" style="padding: 0.75rem 1rem;">
-      <label>Nameplate Capacity (kWh):
-        <input type="number" name="nameplate_capacity_kwh"
-               value="{{ bess_config.nameplate_capacity_kwh | default(13.5) }}"
-               min="0.1" max="500" step="0.1">
-      </label>
-      <label>Backup Reserve (%):
-        <input type="number" name="backup_reserve_pct"
-               value="{{ bess_config.backup_reserve_pct | default(20) }}"
-               min="5" max="80" step="5">
-      </label>
-      <label>Charge Power (W):
-        <input type="number" name="max_charge_power"
-               value="{{ bess_config.max_charge_w | default(3500) }}"
-               min="0" max="20000" step="100">
-      </label>
-      <label>Discharge Power (W):
-        <input type="number" name="max_discharge_power"
-               value="{{ bess_config.max_discharge_w | default(3500) }}"
-               min="0" max="20000" step="100">
-      </label>
-    </div>
-    <div class="form-actions" style="padding: 0.5rem 1rem;">
-      <button type="submit" class="btn btn-sm btn-primary">Save</button>
-      <button type="button" class="btn btn-sm"
-              hx-get="bess" hx-target="#bess-card-section" hx-swap="innerHTML">Cancel</button>
-    </div>
-  </form>
-
-  {% elif bess_schedule is defined and bess_schedule %}
   <div style="padding: 0.75rem 1rem;">
+    <form id="bess-settings-form" hx-put="bess" hx-target="#bess-card-section" hx-swap="innerHTML" hx-disabled-elt="find button">
+      <div class="form-grid">
+        <label>Nameplate Capacity (kWh):
+          <input type="number" name="nameplate_capacity_kwh"
+                 value="{{ bess_config.nameplate_capacity_kwh | default(13.5) }}"
+                 min="0.1" max="500" step="0.1">
+        </label>
+        <label>Backup Reserve (%):
+          <input type="number" name="backup_reserve_pct"
+                 value="{{ bess_config.backup_reserve_pct | default(20) }}"
+                 min="5" max="80" step="5">
+        </label>
+        <label>Charge Power (W):
+          <input type="number" name="max_charge_power"
+                 value="{{ bess_config.max_charge_w | default(3500) }}"
+                 min="0" max="20000" step="100">
+        </label>
+        <label>Discharge Power (W):
+          <input type="number" name="max_discharge_power"
+                 value="{{ bess_config.max_discharge_w | default(3500) }}"
+                 min="0" max="20000" step="100">
+        </label>
+      </div>
+      <div class="form-actions" style="margin-top: 0.5rem;">
+        <button type="submit" class="btn btn-sm btn-primary">Save &amp; Reload</button>
+        <button type="button" class="btn btn-sm"
+                hx-get="bess" hx-target="#bess-card-section" hx-swap="innerHTML">Cancel</button>
+      </div>
+    </form>
+
+    <hr style="border-color: #334; margin: 1rem 0;">
+
     {% include "partials/battery_profile_editor.html" %}
-    <div style="margin-top: 0.5rem;">
-      <button class="btn btn-sm"
-              hx-get="bess" hx-target="#bess-card-section" hx-swap="innerHTML">Back</button>
-    </div>
   </div>
 
   {% else %}
@@ -58,14 +61,6 @@
       <span>Discharge: <strong>{{ bess_config.max_discharge_w | default(3500) }}W</strong></span>
       <span>Mode: <strong>{{ bess_config.charge_mode | default('self-consumption') }}</strong></span>
     </div>
-    {% if not readonly %}
-    <div style="margin-top: 0.5rem;">
-      <button class="btn btn-sm"
-              hx-get="bess/edit" hx-target="#bess-card-section" hx-swap="innerHTML">Edit Settings</button>
-      <button class="btn btn-sm"
-              hx-get="bess/schedule" hx-target="#bess-card-section" hx-swap="innerHTML">Schedule</button>
-    </div>
-    {% endif %}
   </div>
   {% endif %}
 </div>
