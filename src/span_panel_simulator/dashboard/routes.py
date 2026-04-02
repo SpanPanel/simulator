@@ -860,10 +860,27 @@ async def handle_post_bess_schedule_preset(request: web.Request) -> web.Response
 
 
 async def handle_put_bess_charge_mode(request: web.Request) -> web.Response:
-    """PUT /bess/charge-mode — change BESS charge mode."""
+    """PUT /bess/charge-mode — change BESS charge mode.
+
+    When switching to TOU, derives charge/discharge hours from the
+    active electricity rate schedule if one is configured.
+    """
     data = await request.post()
     mode = str(data.get("charge_mode", "custom"))
-    _store(request).update_battery_charge_mode(mode)
+
+    # Derive TOU schedule from the active rate when switching to custom
+    tou_schedule: dict[int, str] | None = None
+    if mode == "custom":
+        cache = _rate_cache(request)
+        label = cache.get_current_rate_label()
+        if label:
+            entry = cache.get_cached_rate(label)
+            if entry:
+                from span_panel_simulator.rates.resolver import derive_bess_tou_schedule
+
+                tou_schedule = derive_bess_tou_schedule(entry.record)
+
+    _store(request).update_battery_charge_mode(mode, tou_schedule=tou_schedule)
     _persist_config(request)
     return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
 
