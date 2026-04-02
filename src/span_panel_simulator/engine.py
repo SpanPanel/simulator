@@ -1291,8 +1291,15 @@ class DynamicSimulationEngine:
         }
         all_circuit_ids = set(self._circuits.keys())
 
-        # Build energy systems for each pass
-        before_energy_system = self._build_energy_system(circuit_ids=baseline_circuit_ids)
+        # Build baseline config from panel_source snapshots so the Before
+        # pass reflects the original clone state, not user edits.
+        baseline_config = self._build_baseline_config()
+
+        # Build energy systems for each pass.
+        before_energy_system = self._build_energy_system(
+            circuit_ids=baseline_circuit_ids,
+            baseline_config=baseline_config,
+        )
         after_energy_system = self._build_energy_system()
 
         if cloned_behavior is None or after_energy_system is None:
@@ -1529,10 +1536,42 @@ class DynamicSimulationEngine:
             grid_connected=not self._forced_grid_offline,
         )
 
+    def _build_baseline_config(self) -> dict[str, Any] | None:
+        """Reconstruct the original config state from panel_source snapshots.
+
+        Returns a dict with ``circuit_templates`` (from recorder_snapshots)
+        and ``bess`` (from the original clone's bess snapshot) that
+        ``_build_energy_system`` can use as the baseline for the Before
+        modeling pass.  Returns ``None`` if no panel_source exists
+        (non-cloned configs have no baseline).
+        """
+        if not self._config:
+            return None
+        ps = self._config.get("panel_source")
+        if not isinstance(ps, dict):
+            return None
+
+        baseline: dict[str, Any] = {}
+
+        # Original circuit templates (snapshotted at clone/profile-import time)
+        snapshots = ps.get("recorder_snapshots", {})
+        if isinstance(snapshots, dict):
+            baseline["circuit_templates"] = snapshots
+
+        # Original BESS config (snapshotted at clone time)
+        original_bess = ps.get("original_bess")
+        if isinstance(original_bess, dict):
+            baseline["bess"] = original_bess
+        # If no original_bess key exists, BESS was not part of the original
+        # clone — baseline has no bess, which is correct.
+
+        return baseline
+
     def _build_energy_system(
         self,
         *,
         circuit_ids: set[str] | None = None,
+        baseline_config: dict[str, Any] | None = None,
     ) -> EnergySystem | None:
         """Construct an EnergySystem from circuit configuration.
 
@@ -1540,6 +1579,11 @@ class DynamicSimulationEngine:
         in the energy system.  This is used for the modeling baseline
         pass where only recorder-backed circuits existed.  When ``None``
         (the default), all current circuits are included.
+
+        When *baseline_config* is provided, PV and BESS configuration
+        are read from this dict instead of the live config.  This lets
+        the modeling Before pass reconstruct the original energy system
+        as it existed at clone time (before user edits).
         """
         if not self._config:
             return None
@@ -1553,19 +1597,28 @@ class DynamicSimulationEngine:
         grid_config = GridConfig(connected=not self._forced_grid_offline)
 
         pv_config: PVConfig | None = None
+        baseline_templates = (
+            baseline_config.get("circuit_templates", {}) if baseline_config is not None else {}
+        )
         for circuit in included.values():
             if circuit.energy_mode == "producer":
-                nameplate = float(circuit.template["energy_profile"]["typical_power"])
-                # Dashboard stores inverter type as template priority
-                # (MUST_HAVE = hybrid, anything else = ac_coupled)
-                inverter_type = (
-                    "hybrid" if circuit.template.get("priority") == "MUST_HAVE" else "ac_coupled"
+                # Use snapshot template if available (Before pass), else live
+                tpl = (
+                    baseline_templates.get(
+                        circuit.template_name,
+                        circuit.template,
+                    )
+                    if baseline_config is not None
+                    else circuit.template
                 )
+                nameplate = float(tpl["energy_profile"]["typical_power"])
+                inverter_type = "hybrid" if tpl.get("priority") == "MUST_HAVE" else "ac_coupled"
                 pv_config = PVConfig(nameplate_w=abs(nameplate), inverter_type=inverter_type)
                 break
 
         bess_config: BESSConfig | None = None
-        bess_yaml = self._config.get("bess", {})
+        config_source = baseline_config if baseline_config is not None else self._config
+        bess_yaml = config_source.get("bess", {})
         if isinstance(bess_yaml, dict) and bess_yaml.get("enabled", False):
             nameplate = float(bess_yaml.get("nameplate_capacity_kwh", 13.5))
             hybrid = pv_config is not None and pv_config.inverter_type == "hybrid"

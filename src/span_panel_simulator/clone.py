@@ -171,12 +171,19 @@ def translate_scraped_panel(
             config["bess"] = bess_cfg
 
     if host is not None:
-        config["panel_source"] = {
+        panel_source: dict[str, object] = {
             "origin_serial": scraped.serial_number,
             "host": host,
             "passphrase": passphrase,
             "last_synced": datetime.now(UTC).isoformat(),
         }
+        # Snapshot the original BESS config so the modeling Before pass
+        # can reconstruct the clone-time energy system accurately.
+        if "bess" in config:
+            import copy
+
+            panel_source["original_bess"] = copy.deepcopy(config["bess"])
+        config["panel_source"] = panel_source
 
     _LOGGER.info(
         "Translated panel %s: %d circuits, %d templates, bess=%s, pv=%s, evse=%s",
