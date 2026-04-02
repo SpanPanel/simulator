@@ -17,7 +17,7 @@ import threading
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
 
 import yaml
@@ -40,7 +40,6 @@ from span_panel_simulator.exceptions import SimulationConfigurationError
 
 if TYPE_CHECKING:
     from span_panel_simulator.config_types import (
-        BatteryBehavior,
         CircuitTemplateExtended,
         SimulationConfig,
         TabSynchronization,
@@ -477,13 +476,13 @@ class RealisticBehaviorEngine:
         current_hour = self.local_hour(current_time)
 
         # Skip inactive days — return idle power
-        active_days: list[int] = battery_config.get("active_days", [])
+        active_days = cast("list[int]", battery_config.get("active_days", []))
         if active_days and self.local_weekday(current_time) not in active_days:
             self._last_battery_direction = "idle"
             return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
-        discharge_hours: list[int] = battery_config.get("discharge_hours", [])
-        idle_hours: list[int] = battery_config.get("idle_hours", [])
+        discharge_hours = cast("list[int]", battery_config.get("discharge_hours", []))
+        idle_hours = cast("list[int]", battery_config.get("idle_hours", []))
 
         # Discharge hours always take precedence regardless of charge mode
         if current_hour in discharge_hours:
@@ -494,7 +493,7 @@ class RealisticBehaviorEngine:
             self._last_battery_direction = "idle"
             return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
-        charge_mode: str = battery_config.get("charge_mode", "self-consumption")
+        charge_mode = cast("str", battery_config.get("charge_mode", "self-consumption"))
 
         if charge_mode in ("self-consumption", "backup-only"):
             # Energy system drives BESS power for these modes; behavior
@@ -503,7 +502,7 @@ class RealisticBehaviorEngine:
             return self._get_idle_power(battery_config, stochastic_noise=stochastic_noise)
 
         # "custom" (TOU) — original schedule-based logic
-        custom_charge_hours: list[int] = battery_config.get("charge_hours", [])
+        custom_charge_hours = cast("list[int]", battery_config.get("charge_hours", []))
         if current_hour in custom_charge_hours:
             self._last_battery_direction = "charging"
             return self._get_charge_power(battery_config, current_hour)
@@ -511,26 +510,26 @@ class RealisticBehaviorEngine:
         self._last_battery_direction = "idle"
         return base_power * 0.1
 
-    def _get_charge_power(self, battery_config: BatteryBehavior, current_hour: int) -> float:
+    def _get_charge_power(self, battery_config: dict[str, object], current_hour: int) -> float:
         """Get charging power for the current hour."""
-        max_charge_power: float = battery_config.get("max_charge_power", -3000.0)
+        max_charge_power = cast("float", battery_config.get("max_charge_power", -3000.0))
         solar_intensity = self._get_solar_intensity_from_config(current_hour, battery_config)
         return abs(max_charge_power) * solar_intensity
 
-    def _get_discharge_power(self, battery_config: BatteryBehavior, current_hour: int) -> float:
+    def _get_discharge_power(self, battery_config: dict[str, object], current_hour: int) -> float:
         """Get discharging power for the current hour."""
-        max_discharge_power: float = battery_config.get("max_discharge_power", 2500.0)
+        max_discharge_power = cast("float", battery_config.get("max_discharge_power", 2500.0))
         demand_factor = self._get_demand_factor_from_config(current_hour, battery_config)
         return abs(max_discharge_power) * demand_factor
 
     def _get_idle_power(
         self,
-        battery_config: BatteryBehavior,
+        battery_config: dict[str, object],
         *,
         stochastic_noise: bool = True,
     ) -> float:
         """Get idle power (minimal power flow during low activity hours)."""
-        idle_range: list[float] = battery_config.get("idle_power_range", [-100.0, 100.0])
+        idle_range = cast("list[float]", battery_config.get("idle_power_range", [-100.0, 100.0]))
         min_val, max_val = idle_range[0], idle_range[1]
         if min_val < 0 and max_val < 0:
             min_idle, max_idle = abs(max_val), abs(min_val)
@@ -544,15 +543,17 @@ class RealisticBehaviorEngine:
         return random.uniform(min_idle, max_idle)  # nosec B311
 
     def _get_solar_intensity_from_config(
-        self, hour: int, battery_config: BatteryBehavior
+        self, hour: int, battery_config: dict[str, object]
     ) -> float:
         """Get solar intensity from YAML configuration."""
-        solar_profile: dict[int, float] = battery_config.get("solar_intensity_profile", {})
+        solar_profile = cast("dict[int, float]", battery_config.get("solar_intensity_profile", {}))
         return solar_profile.get(hour, 0.1)
 
-    def _get_demand_factor_from_config(self, hour: int, battery_config: BatteryBehavior) -> float:
+    def _get_demand_factor_from_config(
+        self, hour: int, battery_config: dict[str, object]
+    ) -> float:
         """Get demand factor from YAML configuration."""
-        demand_profile: dict[int, float] = battery_config.get("demand_factor_profile", {})
+        demand_profile = cast("dict[int, float]", battery_config.get("demand_factor_profile", {}))
         return demand_profile.get(hour, 0.3)
 
     # ------------------------------------------------------------------
@@ -720,10 +721,12 @@ class RealisticBehaviorEngine:
         if not isinstance(battery_config, dict) or not battery_config.get("enabled", False):
             return (0.0, 0.0)
 
-        charge_mode: str = battery_config.get("charge_mode", "custom")
-        max_charge = abs(float(battery_config.get("max_charge_power", 3000.0)))
-        max_discharge = abs(float(battery_config.get("max_discharge_power", 2500.0)))
-        discharge_hours: list[int] = battery_config.get("discharge_hours", [])
+        charge_mode = cast("str", battery_config.get("charge_mode", "custom"))
+        max_charge = abs(float(cast("float", battery_config.get("max_charge_power", 3000.0))))
+        max_discharge = abs(
+            float(cast("float", battery_config.get("max_discharge_power", 2500.0)))
+        )
+        discharge_hours = cast("list[int]", battery_config.get("discharge_hours", []))
 
         # Discharge -> production (common to all charge modes)
         produced_wh = 0.0
@@ -736,7 +739,7 @@ class RealisticBehaviorEngine:
 
         consumed_wh = 0.0
         if charge_mode == "custom":
-            charge_hours: list[int] = battery_config.get("charge_hours", [])
+            charge_hours = cast("list[int]", battery_config.get("charge_hours", []))
             if charge_hours:
                 avg_charge = sum(
                     max_charge * self._get_solar_intensity_from_config(h, battery_config)
@@ -1777,25 +1780,35 @@ class DynamicSimulationEngine:
         for circuit in included.values():
             battery_cfg = circuit.template.get("battery_behavior", {})
             if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
-                nameplate = float(battery_cfg.get("nameplate_capacity_kwh", 13.5))
+                nameplate = float(cast("float", battery_cfg.get("nameplate_capacity_kwh", 13.5)))
                 # Hybrid status is a PV inverter property — derive from
                 # the PV config already resolved above.
                 hybrid = pv_config is not None and pv_config.inverter_type == "hybrid"
-                charge_hours_raw: list[int] = battery_cfg.get("charge_hours", [])
-                discharge_hours_raw: list[int] = battery_cfg.get("discharge_hours", [])
+                charge_hours_raw = cast("list[int]", battery_cfg.get("charge_hours", []))
+                discharge_hours_raw = cast("list[int]", battery_cfg.get("discharge_hours", []))
                 panel_tz = (
                     str(self._behavior_engine.panel_timezone)
                     if self._behavior_engine is not None
                     else RealisticBehaviorEngine._DEFAULT_TZ
                 )
-                charge_mode = str(battery_cfg.get("charge_mode", "self-consumption"))
+                charge_mode = str(cast("str", battery_cfg.get("charge_mode", "self-consumption")))
                 bess_config = BESSConfig(
                     nameplate_kwh=nameplate,
-                    max_charge_w=abs(float(battery_cfg.get("max_charge_power", 3500.0))),
-                    max_discharge_w=abs(float(battery_cfg.get("max_discharge_power", 3500.0))),
-                    charge_efficiency=float(battery_cfg.get("charge_efficiency", 0.95)),
-                    discharge_efficiency=float(battery_cfg.get("discharge_efficiency", 0.95)),
-                    backup_reserve_pct=float(battery_cfg.get("backup_reserve_pct", 20.0)),
+                    max_charge_w=abs(
+                        float(cast("float", battery_cfg.get("max_charge_power", 3500.0)))
+                    ),
+                    max_discharge_w=abs(
+                        float(cast("float", battery_cfg.get("max_discharge_power", 3500.0)))
+                    ),
+                    charge_efficiency=float(
+                        cast("float", battery_cfg.get("charge_efficiency", 0.95))
+                    ),
+                    discharge_efficiency=float(
+                        cast("float", battery_cfg.get("discharge_efficiency", 0.95))
+                    ),
+                    backup_reserve_pct=float(
+                        cast("float", battery_cfg.get("backup_reserve_pct", 20.0))
+                    ),
                     hybrid=hybrid,
                     initial_soe_kwh=(
                         self._energy_system.bess.soe_kwh

@@ -96,27 +96,19 @@ class CircuitTemplate(TypedDict):
     priority: str  # "MUST_HAVE", "NON_ESSENTIAL"
 
 
-class BatteryBehavior(TypedDict, total=False):
-    """Battery behavior configuration."""
+class BESSConfigYAML(TypedDict, total=False):
+    """Top-level BESS configuration in the simulator YAML."""
 
     enabled: bool
-    charge_mode: Literal["self-consumption", "custom", "backup-only"]
-    charge_power: float
-    discharge_power: float
-    idle_power: float
+    nameplate_capacity_kwh: float
+    max_charge_w: float
+    max_discharge_w: float
     charge_efficiency: float
     discharge_efficiency: float
-    nameplate_capacity_kwh: float  # Total battery capacity in kWh
-    backup_reserve_pct: float  # SOE % reserved for outages (default 20)
+    backup_reserve_pct: float
+    charge_mode: Literal["self-consumption", "custom", "backup-only"]
     charge_hours: list[int]
     discharge_hours: list[int]
-    max_charge_power: float
-    max_discharge_power: float
-    idle_hours: list[int]
-    idle_power_range: list[float]
-    solar_intensity_profile: dict[int, float]
-    demand_factor_profile: dict[int, float]
-    active_days: list[int]  # Days of week active (0=Mon..6=Sun); empty = all
 
 
 class CircuitTemplateExtended(CircuitTemplate, total=False):
@@ -125,7 +117,7 @@ class CircuitTemplateExtended(CircuitTemplate, total=False):
     cycling_pattern: CyclingPattern
     time_of_day_profile: TimeOfDayProfile
     smart_behavior: SmartBehavior
-    battery_behavior: BatteryBehavior
+    battery_behavior: dict[str, object]
     device_type: str  # Explicit override: "circuit", "evse", "pv"
     hvac_type: str  # "central_ac", "heat_pump", "heat_pump_aux"
     monthly_factors: dict[int, float]  # month (1-12) -> multiplier (1.0 = peak month)
