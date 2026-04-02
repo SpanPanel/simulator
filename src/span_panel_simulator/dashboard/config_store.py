@@ -58,8 +58,6 @@ def _detect_entity_type(template: dict[str, Any]) -> str:
         return "pv"
     if device_type == "evse":
         return "evse"
-    if template.get("battery_behavior", {}).get("enabled"):
-        return "battery"
     return "circuit"
 
 
@@ -293,8 +291,8 @@ class ConfigStore:
         )
 
     def list_entities(self) -> list[EntityView]:
-        """Return entities with infrastructure (pv, battery, evse) first, then circuits."""
-        _type_order = {"pv": 0, "battery": 1, "evse": 2, "circuit": 3}
+        """Return entities with infrastructure (pv, evse) first, then circuits."""
+        _type_order = {"pv": 0, "evse": 1, "circuit": 2}
         entities = [self._merge_entity(c) for c in self._circuits()]
         entities.sort(key=lambda e: (_type_order.get(e.entity_type, 9), e.name.lower()))
         return entities
@@ -324,7 +322,7 @@ class ConfigStore:
         if "name" in data:
             circuit["name"] = data["name"]
 
-        if "tabs" in data and _detect_entity_type(template) != "battery":
+        if "tabs" in data:
             tabs_raw = data["tabs"]
             if isinstance(tabs_raw, str):
                 tabs_raw = [int(t.strip()) for t in tabs_raw.split(",") if t.strip()]
@@ -422,17 +420,11 @@ class ConfigStore:
         return self._merge_entity(circuit_dict)
 
     def get_unmapped_tabs(self) -> list[int]:
-        """Return tab numbers not assigned to any circuit, sorted ascending.
-
-        Battery entities are excluded — they sit between the panel lugs
-        and the grid, not on breaker tabs.
-        """
+        """Return tab numbers not assigned to any circuit, sorted ascending."""
         total_tabs = self._state.get("panel_config", {}).get("total_tabs", 32)
         used: set[int] = set()
         for circ in self._circuits():
-            tpl = self._templates().get(circ.get("template", ""), {})
-            if _detect_entity_type(tpl) != "battery":
-                used.update(circ.get("tabs", []))
+            used.update(circ.get("tabs", []))
         return sorted(t for t in range(1, total_tabs + 1) if t not in used)
 
     def add_entity_from_tabs(self, tabs: list[int]) -> EntityView:

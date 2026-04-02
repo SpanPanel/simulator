@@ -74,15 +74,15 @@ PRIORITIES = [
     "OFF_GRID",
 ]
 RELAY_BEHAVIORS = ["controllable", "non_controllable"]
-ENTITY_TYPES = ["circuit", "pv", "evse", "battery"]
+ENTITY_TYPES = ["circuit", "pv", "evse"]
 # Infrastructure types that should only appear once in a panel config.
-_SINGLETON_TYPES = {"pv", "battery"}
+_SINGLETON_TYPES = {"pv"}
 
 
 def _available_entity_types(store: ConfigStore) -> list[str]:
     """Return entity types available for adding.
 
-    Singleton types (pv, battery) are excluded when one already exists.
+    Singleton types (pv) are excluded when one already exists.
     """
     existing = {e.entity_type for e in store.list_entities()}
     return [t for t in ENTITY_TYPES if t not in _SINGLETON_TYPES or t not in existing]
