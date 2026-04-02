@@ -198,20 +198,12 @@ class TestTranslateScrapedPanel:
         assert t.get("device_type") == "pv"
 
     def test_bess_mode(self) -> None:
-        """Circuit fed by BESS node gets bidirectional mode and battery_behavior."""
+        """Cloned panel with BESS node gets top-level bess config."""
         config = translate_scraped_panel(_make_scraped())
-        templates = config["circuit_templates"]
-        assert isinstance(templates, dict)
-        t = templates["clone_11"]
-        assert isinstance(t, dict)
-        ep = t["energy_profile"]
-        assert isinstance(ep, dict)
-        assert ep["mode"] == "bidirectional"
-        assert "battery_behavior" in t
-        bb = t["battery_behavior"]
-        assert isinstance(bb, dict)
-        assert bb["enabled"] is True
-        assert bb["nameplate_capacity_kwh"] == 13.5
+        bess = config.get("bess")
+        assert isinstance(bess, dict)
+        assert bess["enabled"] is True
+        assert bess["nameplate_capacity_kwh"] == 13.5
 
     def test_evse_mode(self) -> None:
         """Circuit fed by EVSE node gets bidirectional mode and evse device type."""
