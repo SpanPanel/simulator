@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.0.10 — 2026-04-02
+
+### Features
+
+- Dedicated BESS card in dashboard replaces entity-based battery editing — add, configure, and remove battery storage from a single panel-level view
+- Consolidated BESS settings and schedule into a single edit view with immediate schedule display on add
+- Rate-aware TOU dispatch: BESS charge/discharge schedule derived automatically from the active URDB electricity rate plan
+- Default post-solar discharge schedule applied when switching to TOU mode with an empty schedule
+- Modeling Before pass now built from original clone-time config snapshot for accurate baseline comparison
+- 32-tab EV charger template renamed to SPAN Drive for consistency with 40-tab panel naming
+
+### Fixes
+
+- Savings display shows absolute value without sign prefix; negative savings labeled "more expensive"
+- Savings sign convention corrected in modeling cost comparison
+- Empty BESS slots skipped during clone instead of creating phantom battery entries
+- Modeling chart refreshes automatically when BESS card settings change
+- Duplicate HTML IDs eliminated across dashboard views
+
+## 1.0.9 — 2026-03-30
+
+### Features
+
+- Rate plan selection UI in modeling view with URDB utility and plan discovery
+- Cost comparison columns in modeling summary cards (Before vs After estimated cost)
+- Opower billing integration: actual billed cost from utility account used for Before baseline when available
+- Opower account discovery and selection with utility-filtered URDB rate list
+- URDB rate plans filtered to latest version per plan name
+
+### Fixes
+
+- Cost engine units corrected (power arrays are Watts, not kW)
+
+## 1.0.8 — 2026-03-30
+
+### Features
+
+- Time-of-Use rate engine: hourly power-to-cost calculation using URDB schedule matrix lookup
+- Per-chart energy summary tables in modeling view
+
+### Fixes
+
+- Modeling energy difference uses imported energy instead of net
+- Only BESS circuit excluded from load power calculation (was incorrectly excluding all bidirectional circuits)
+- Sanitize address input in TLS cert generation to prevent syntax errors
+
 ## 1.0.7 — 2026-03-28
 
 ### Features
