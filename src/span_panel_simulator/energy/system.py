@@ -82,7 +82,6 @@ class EnergySystem:
                 pv_source=pv,
                 soe_kwh=initial_soe,
                 panel_serial=bc.panel_serial,
-                feed_circuit_id=bc.feed_circuit_id,
                 charge_hours=bc.charge_hours,
                 discharge_hours=bc.discharge_hours,
                 panel_timezone=ZoneInfo(bc.panel_timezone),

@@ -106,7 +106,6 @@ class BESSUnit(Component):
         scheduled_state: str = "idle",
         requested_power_w: float = 0.0,
         panel_serial: str = "",
-        feed_circuit_id: str = "",
         charge_hours: tuple[int, ...] = (),
         discharge_hours: tuple[int, ...] = (),
         panel_timezone: ZoneInfo | None = None,
@@ -129,7 +128,6 @@ class BESSUnit(Component):
 
         # Identity / schedule
         self.panel_serial = panel_serial
-        self.feed_circuit_id = feed_circuit_id
         self._charge_hours = charge_hours
         self._discharge_hours = discharge_hours
         self._panel_timezone: ZoneInfo = panel_timezone or ZoneInfo("America/Los_Angeles")

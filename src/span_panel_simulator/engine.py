@@ -1195,7 +1195,6 @@ class DynamicSimulationEngine:
                 software_version=bess.software_version,
                 nameplate_capacity_kwh=bess.nameplate_capacity_kwh,
                 connected=bess.connected,
-                feed_circuit_id=bess.feed_circuit_id,
             )
             dominant_power_source = self._energy_system.dominant_power_source
             grid_state = self._energy_system.grid_state
@@ -1816,7 +1815,6 @@ class DynamicSimulationEngine:
                         else None
                     ),
                     panel_serial=self._config["panel_config"]["serial_number"],
-                    feed_circuit_id=circuit.circuit_id,
                     charge_hours=tuple(charge_hours_raw),
                     discharge_hours=tuple(discharge_hours_raw),
                     panel_timezone=panel_tz,

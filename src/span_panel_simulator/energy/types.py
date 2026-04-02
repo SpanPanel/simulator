@@ -104,7 +104,6 @@ class BESSConfig:
     hybrid: bool = False
     initial_soe_kwh: float | None = None
     panel_serial: str = ""
-    feed_circuit_id: str = ""
     charge_hours: tuple[int, ...] = ()
     discharge_hours: tuple[int, ...] = ()
     panel_timezone: str = "America/Los_Angeles"
