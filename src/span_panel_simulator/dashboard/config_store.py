@@ -678,12 +678,19 @@ class ConfigStore:
         return str(bess.get("charge_mode", "self-consumption"))
 
     def update_battery_charge_mode(self, mode: str) -> None:
-        """Set the BESS charge mode."""
+        """Set the BESS charge mode.
+
+        When switching to TOU (``custom``) mode with an empty schedule,
+        applies the ``post_solar_discharge`` preset as a sensible default.
+        """
         valid_modes = ("self-consumption", "custom", "backup-only")
         if mode not in valid_modes:
             raise ValueError(f"Invalid charge mode: {mode!r}")
         bess = self._state.setdefault("bess", {"enabled": True})
         bess["charge_mode"] = mode
+        # Apply default schedule when switching to TOU with no schedule
+        if mode == "custom" and not bess.get("charge_hours") and not bess.get("discharge_hours"):
+            self.apply_battery_preset("post_solar_discharge")
         self._dirty = True
 
     # -- Battery profile --
