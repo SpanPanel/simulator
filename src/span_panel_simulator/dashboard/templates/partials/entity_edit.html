@@ -132,35 +132,6 @@
     </fieldset>
     {% endif %}
 
-    {% if e.battery_behavior %}
-    <fieldset>
-      <legend>Battery Behavior</legend>
-      <div class="form-grid">
-        <label>Nameplate Capacity (kWh):
-          <input type="number" name="nameplate_capacity_kwh"
-                 value="{{ e.battery_behavior.nameplate_capacity_kwh | default(13.5) }}"
-                 min="0.1" max="500" step="0.1">
-        </label>
-        <label>Backup Reserve (%):
-          <input type="number" name="backup_reserve_pct"
-                 value="{{ e.battery_behavior.backup_reserve_pct | default(20) }}"
-                 min="5" max="80" step="5"
-                 title="Normal discharge stops here; grid outages can draw deeper">
-        </label>
-        <label>Charge Power (W):
-          <input type="number" name="max_charge_power"
-                 value="{{ e.battery_behavior.max_charge_power | default(3500) }}"
-                 min="0" max="20000" step="100">
-        </label>
-        <label>Discharge Power (W):
-          <input type="number" name="max_discharge_power"
-                 value="{{ e.battery_behavior.max_discharge_power | default(3500) }}"
-                 min="0" max="20000" step="100">
-        </label>
-      </div>
-    </fieldset>
-    {% endif %}
-
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">Save</button>
       <button type="button" class="btn btn-secondary"
@@ -173,10 +144,6 @@
   {% include "partials/pv_profile.html" %}
   {% elif e.entity_type == 'evse' and evse_preset_labels is defined %}
   {% include "partials/evse_schedule.html" %}
-  {% elif battery_preset_labels is defined and battery_preset_labels %}
-  <div id="battery-profile-{{ e.id }}" hx-target="this" hx-swap="innerHTML">
-    {% include "partials/battery_profile_editor.html" %}
-  </div>
   {% elif preset_labels %}
   <div id="profile-{{ e.id }}" hx-target="this" hx-swap="innerHTML">
     {% include "partials/profile_editor.html" %}

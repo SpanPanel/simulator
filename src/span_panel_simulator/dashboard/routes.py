@@ -182,6 +182,7 @@ def _dashboard_context(request: web.Request) -> dict[str, Any]:
         "clone_host": panel_source.get("host", "") if panel_source else "",
         "panels": _all_panels(request),
         "readonly": _is_readonly(ctx),
+        "bess_config": store.get_bess_config(),
     }
 
 
@@ -215,12 +216,6 @@ def _entity_list_context(request: web.Request, editing_id: str | None = None) ->
         ctx["relay_behaviors"] = RELAY_BEHAVIORS
         ctx["preset_labels"] = _presets_for_type(request, entity.entity_type)
         ctx["active_days"] = store.get_active_days(editing_id)
-        if entity.entity_type == "battery":
-            ctx["battery_preset_labels"] = _presets(request).battery_labels
-            battery_profile = store.get_battery_profile()
-            ctx["battery_profile"] = battery_profile
-            ctx["battery_charge_mode"] = store.get_battery_charge_mode()
-            ctx["battery_active_preset"] = match_battery_preset(battery_profile)
         if entity.entity_type == "pv":
             panel = store.get_panel_config()
             lat = panel.get("latitude", 37.7)
@@ -254,17 +249,27 @@ def _profile_context(request: web.Request, entity_id: str) -> dict[str, Any]:
     }
 
 
-def _battery_profile_context(request: web.Request) -> dict[str, Any]:
-    """Build the battery profile editor template context."""
+def _bess_card_context(
+    request: web.Request,
+    editing: bool = False,
+    schedule: bool = False,
+) -> dict[str, Any]:
+    """Build the BESS card template context."""
     store = _store(request)
-    battery_profile = store.get_battery_profile()
-    return {
-        "battery_profile": battery_profile,
-        "battery_preset_labels": _presets(request).battery_labels,
-        "battery_charge_mode": store.get_battery_charge_mode(),
-        "battery_active_preset": match_battery_preset(battery_profile),
-        "active_days": store.get_bess_active_days(),
+    ctx: dict[str, Any] = {
+        "bess_config": store.get_bess_config(),
+        "bess_editing": editing,
+        "readonly": _is_readonly(_ctx(request)),
     }
+    if schedule:
+        battery_profile = store.get_battery_profile()
+        ctx["bess_schedule"] = True
+        ctx["battery_profile"] = battery_profile
+        ctx["battery_preset_labels"] = _presets(request).battery_labels
+        ctx["battery_charge_mode"] = store.get_battery_charge_mode()
+        ctx["battery_active_preset"] = match_battery_preset(battery_profile)
+        ctx["active_days"] = store.get_bess_active_days()
+    return ctx
 
 
 async def handle_get_openei_config(request: web.Request) -> web.Response:
@@ -501,11 +506,15 @@ def setup_routes(app: web.Application) -> None:
     # Active days (auto-save on toggle)
     app.router.add_put("/entities/{id}/active-days", handle_put_active_days)
 
-    # Battery profile
-    app.router.add_get("/entities/{id}/battery-profile", handle_get_battery_profile)
-    app.router.add_put("/entities/{id}/battery-profile", handle_put_battery_profile)
-    app.router.add_post("/entities/{id}/battery-profile/preset", handle_apply_battery_preset)
-    app.router.add_put("/entities/{id}/battery-charge-mode", handle_put_battery_charge_mode)
+    # BESS (panel-level)
+    app.router.add_get("/bess", handle_get_bess)
+    app.router.add_get("/bess/edit", handle_get_bess_edit)
+    app.router.add_put("/bess", handle_put_bess)
+    app.router.add_get("/bess/schedule", handle_get_bess_schedule)
+    app.router.add_put("/bess/schedule", handle_put_bess_schedule)
+    app.router.add_post("/bess/schedule/preset", handle_post_bess_schedule_preset)
+    app.router.add_put("/bess/charge-mode", handle_put_bess_charge_mode)
+    app.router.add_put("/bess/active-days", handle_put_bess_active_days)
 
     # EVSE schedule
     app.router.add_get("/entities/{id}/evse-schedule", handle_get_evse_schedule)
@@ -780,62 +789,75 @@ async def handle_apply_preset(request: web.Request) -> web.Response:
     return _render("partials/profile_editor.html", request, _profile_context(request, entity_id))
 
 
-# -- Battery profile --
+# -- BESS (panel-level) --
 
 
-async def handle_get_battery_profile(request: web.Request) -> web.Response:
-    return _render(
-        "partials/battery_profile_editor.html",
-        request,
-        _battery_profile_context(request),
-    )
+async def handle_get_bess(request: web.Request) -> web.Response:
+    """GET /bess — return BESS card in display mode."""
+    return _render("partials/bess_card.html", request, _bess_card_context(request))
 
 
-async def handle_put_battery_profile(request: web.Request) -> web.Response:
+async def handle_get_bess_edit(request: web.Request) -> web.Response:
+    """GET /bess/edit — return BESS card in edit mode."""
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
+
+
+async def handle_put_bess(request: web.Request) -> web.Response:
+    """PUT /bess — save BESS settings."""
+    data = await request.post()
+    _store(request).update_bess_config(dict(data))
+    _persist_config(request)
+    return _render("partials/bess_card.html", request, _bess_card_context(request))
+
+
+async def handle_get_bess_schedule(request: web.Request) -> web.Response:
+    """GET /bess/schedule — return BESS card with schedule editor."""
+    return _render("partials/bess_card.html", request, _bess_card_context(request, schedule=True))
+
+
+async def handle_put_bess_schedule(request: web.Request) -> web.Response:
+    """PUT /bess/schedule — save BESS charge/discharge schedule."""
     data = await request.post()
     hour_modes: dict[int, str] = {}
     for h in range(24):
         key = f"hour_{h}"
-        if key in data:
-            mode = str(data[key])
-            if mode in ("charge", "discharge", "idle"):
-                hour_modes[h] = mode
-            else:
-                hour_modes[h] = "idle"
-        else:
-            hour_modes[h] = "idle"
+        mode = str(data.get(key, "idle"))
+        hour_modes[h] = mode if mode in ("charge", "discharge", "idle") else "idle"
     store = _store(request)
     store.update_battery_profile(hour_modes)
     active = _parse_active_days(data)
     if active is not None:
         store.update_bess_active_days(active)
-    return _render(
-        "partials/battery_profile_editor.html",
-        request,
-        _battery_profile_context(request),
-    )
+    _persist_config(request)
+    return _render("partials/bess_card.html", request, _bess_card_context(request, schedule=True))
 
 
-async def handle_apply_battery_preset(request: web.Request) -> web.Response:
+async def handle_post_bess_schedule_preset(request: web.Request) -> web.Response:
+    """POST /bess/schedule/preset — apply a schedule preset."""
     data = await request.post()
     preset_name = str(data.get("preset", "custom"))
     _store(request).apply_battery_preset(preset_name)
-    return _render(
-        "partials/battery_profile_editor.html",
-        request,
-        _battery_profile_context(request),
-    )
+    _persist_config(request)
+    return _render("partials/bess_card.html", request, _bess_card_context(request, schedule=True))
 
 
-async def handle_put_battery_charge_mode(request: web.Request) -> web.Response:
+async def handle_put_bess_charge_mode(request: web.Request) -> web.Response:
+    """PUT /bess/charge-mode — change BESS charge mode."""
     data = await request.post()
     mode = str(data.get("charge_mode", "custom"))
     _store(request).update_battery_charge_mode(mode)
-    return _render(
-        "partials/battery_profile_editor.html",
-        request,
-        _battery_profile_context(request),
-    )
+    _persist_config(request)
+    return _render("partials/bess_card.html", request, _bess_card_context(request, schedule=True))
+
+
+async def handle_put_bess_active_days(request: web.Request) -> web.Response:
+    """PUT /bess/active-days — update BESS active days."""
+    data = await request.post()
+    active = _parse_active_days(data)
+    if active is not None:
+        _store(request).update_bess_active_days(active)
+    _persist_config(request)
+    return _render("partials/bess_card.html", request, _bess_card_context(request, schedule=True))
 
 
 # -- EVSE schedule --
