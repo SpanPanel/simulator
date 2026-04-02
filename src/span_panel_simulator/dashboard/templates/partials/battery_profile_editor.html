@@ -65,6 +65,13 @@
     {% endfor %}
   </div>
 
+  {% if tou_rate_driven and tou_rate_month is defined %}
+  <p class="charge-mode-hint" style="margin-top:0.5em">
+    Schedule derived from rate plan — {{ tou_rate_month }}.
+    Dispatch adapts automatically each month.
+  </p>
+  {% endif %}
+
   <form hx-put="bess/schedule"
         hx-target="#bess-card-section" hx-swap="innerHTML"
         hx-disabled-elt="find button">
@@ -75,7 +82,8 @@
         <select name="hour_{{ h }}" class="battery-mode-select
           {%- if battery_profile.get(h, 'idle') == 'charge' %} mode-charge
           {%- elif battery_profile.get(h, 'idle') == 'discharge' %} mode-discharge
-          {%- else %} mode-idle{% endif %}">
+          {%- else %} mode-idle{% endif %}"
+          {%- if tou_rate_driven %} disabled{% endif %}>
           <option value="idle" {{ 'selected' if battery_profile.get(h, 'idle') == 'idle' }}>Idle</option>
           <option value="charge" {{ 'selected' if battery_profile.get(h, 'idle') == 'charge' }}>Chg</option>
           <option value="discharge" {{ 'selected' if battery_profile.get(h, 'idle') == 'discharge' }}>Dis</option>
@@ -88,7 +96,9 @@
       </div>
       {% endfor %}
     </div>
+    {% if not tou_rate_driven %}
     <button type="submit" class="btn btn-sm">Save Schedule</button>
+    {% endif %}
   </form>
   {% endif %}
 </fieldset>

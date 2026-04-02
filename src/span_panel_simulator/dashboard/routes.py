@@ -21,7 +21,8 @@ if TYPE_CHECKING:
 
     from span_panel_simulator.dashboard.context import DashboardContext
 
-from datetime import UTC
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from span_panel_simulator.dashboard.keys import (
     APP_KEY_DASHBOARD_CONTEXT,
@@ -265,13 +266,78 @@ def _bess_card_context(
         "readonly": _is_readonly(_ctx(request)),
     }
     if editing:
-        battery_profile = store.get_battery_profile()
-        ctx["battery_profile"] = battery_profile
+        charge_mode = store.get_battery_charge_mode()
+        ctx["battery_charge_mode"] = charge_mode
+
+        # When TOU mode has a rate record, derive the display schedule
+        # from the URDB record for the current month instead of the
+        # static charge_hours/discharge_hours lists.
+        rate_profile = _rate_derived_profile(request, store) if charge_mode == "custom" else None
+        if rate_profile is not None:
+            battery_profile, month_label = rate_profile
+            ctx["battery_profile"] = battery_profile
+            ctx["tou_rate_month"] = month_label
+            ctx["tou_rate_driven"] = True
+        else:
+            battery_profile = store.get_battery_profile()
+            ctx["battery_profile"] = battery_profile
+            ctx["tou_rate_driven"] = False
+
         ctx["battery_preset_labels"] = _presets(request).battery_labels
-        ctx["battery_charge_mode"] = store.get_battery_charge_mode()
         ctx["battery_active_preset"] = match_battery_preset(battery_profile)
         ctx["active_days"] = store.get_bess_active_days()
     return ctx
+
+
+def _rate_derived_profile(
+    request: web.Request,
+    store: ConfigStore,
+) -> tuple[dict[int, str], str] | None:
+    """Derive a display schedule from the URDB rate record for today.
+
+    Returns ``(profile, month_label)`` or ``None`` when no rate record
+    is available.
+    """
+    bess = store.get_bess_config()
+    rate_label = bess.get("rate_label")
+    if not rate_label:
+        return None
+
+    cache = _rate_cache(request)
+    entry = cache.get_cached_rate(rate_label)
+    if entry is None:
+        return None
+
+    record = entry.record
+    panel_cfg = store.get_panel_config()
+    tz_name = panel_cfg.get("time_zone", "America/Los_Angeles")
+    tz = ZoneInfo(tz_name)
+    now = datetime.now(tz)
+
+    from span_panel_simulator.energy.tou import _all_rates_for_day
+
+    day_rates = _all_rates_for_day(now, record)
+    if not day_rates:
+        return None
+
+    min_rate = min(day_rates.values())
+    max_rate = max(day_rates.values())
+
+    profile: dict[int, str] = {}
+    for h in range(24):
+        rate = day_rates.get(h, 0.0)
+        if min_rate == max_rate:
+            profile[h] = "idle"
+        elif rate <= min_rate:
+            profile[h] = "charge"
+        elif rate >= max_rate:
+            profile[h] = "discharge"
+        else:
+            profile[h] = "idle"
+    month_label = now.strftime("%B") + (
+        " — Summer rates" if now.month in (6, 7, 8, 9) else " — Winter rates"
+    )
+    return profile, month_label
 
 
 async def handle_get_openei_config(request: web.Request) -> web.Response:
@@ -402,12 +468,23 @@ async def handle_get_current_rate(request: web.Request) -> web.Response:
 
 
 async def handle_put_current_rate(request: web.Request) -> web.Response:
-    """PUT /rates/current {label}"""
+    """PUT /rates/current {label}
+
+    When the BESS is already in TOU mode, propagates the new rate label
+    into the BESS config and reloads the engine so dispatch and the
+    modeling projection reflect the newly selected rate immediately.
+    """
     body = await request.json()
     label = body.get("label", "").strip()
     if not label:
         return web.json_response({"error": "label is required"}, status=400)
     _rate_cache(request).set_current_rate_label(label)
+
+    store = _store(request)
+    if store.get_battery_charge_mode() == "custom":
+        store.update_battery_charge_mode("custom", rate_label=label)
+        _persist_config(request)
+
     return web.json_response({"ok": True})
 
 
@@ -862,25 +939,17 @@ async def handle_post_bess_schedule_preset(request: web.Request) -> web.Response
 async def handle_put_bess_charge_mode(request: web.Request) -> web.Response:
     """PUT /bess/charge-mode — change BESS charge mode.
 
-    When switching to TOU, derives charge/discharge hours from the
-    active electricity rate schedule if one is configured.
+    When switching to TOU with an active rate, stores the rate label so
+    the energy system resolves dispatch from the URDB record at each tick.
     """
     data = await request.post()
     mode = str(data.get("charge_mode", "custom"))
 
-    # Derive TOU schedule from the active rate when switching to custom
-    tou_schedule: dict[int, str] | None = None
+    rate_label: str | None = None
     if mode == "custom":
-        cache = _rate_cache(request)
-        label = cache.get_current_rate_label()
-        if label:
-            entry = cache.get_cached_rate(label)
-            if entry:
-                from span_panel_simulator.rates.resolver import derive_bess_tou_schedule
+        rate_label = _rate_cache(request).get_current_rate_label()
 
-                tou_schedule = derive_bess_tou_schedule(entry.record)
-
-    _store(request).update_battery_charge_mode(mode, tou_schedule=tou_schedule)
+    _store(request).update_battery_charge_mode(mode, rate_label=rate_label)
     _persist_config(request)
     return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
 

@@ -680,25 +680,26 @@ class ConfigStore:
     def update_battery_charge_mode(
         self,
         mode: str,
-        tou_schedule: dict[int, str] | None = None,
+        rate_label: str | None = None,
     ) -> None:
         """Set the BESS charge mode.
 
-        When switching to TOU (``custom``) mode with an empty schedule,
-        applies *tou_schedule* if provided (derived from the active rate),
-        otherwise falls back to the ``post_solar_discharge`` preset.
+        When *rate_label* is provided and mode is ``custom``, the label
+        is stored so the energy system resolves the full URDB record for
+        rate-aware dispatch.  Static charge/discharge hour lists are
+        cleared since the rate record supersedes them.
         """
         valid_modes = ("self-consumption", "custom", "backup-only")
         if mode not in valid_modes:
             raise ValueError(f"Invalid charge mode: {mode!r}")
         bess = self._state.setdefault("bess", {"enabled": True})
         bess["charge_mode"] = mode
-        # Apply default schedule when switching to TOU with no schedule
-        if mode == "custom" and not bess.get("charge_hours") and not bess.get("discharge_hours"):
-            if tou_schedule:
-                self.update_battery_profile(tou_schedule)
-            else:
-                self.apply_battery_preset("post_solar_discharge")
+        if mode == "custom" and rate_label:
+            bess["rate_label"] = rate_label
+            bess.pop("charge_hours", None)
+            bess.pop("discharge_hours", None)
+        elif mode != "custom":
+            bess.pop("rate_label", None)
         self._dirty = True
 
     # -- Battery profile --

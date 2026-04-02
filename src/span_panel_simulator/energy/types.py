@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntEnum
+from typing import Any
 
 
 class ComponentRole(IntEnum):
@@ -108,6 +109,7 @@ class BESSConfig:
     discharge_hours: tuple[int, ...] = ()
     panel_timezone: str = "America/Los_Angeles"
     charge_mode: str = "self-consumption"
+    rate_record: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

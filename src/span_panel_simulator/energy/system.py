@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from span_panel_simulator.energy.bus import PanelBus
 from span_panel_simulator.energy.components import BESSUnit, GridMeter, LoadGroup, PVSource
+from span_panel_simulator.energy.tou import resolve_tou_dispatch
 from span_panel_simulator.energy.types import (
     EnergySystemConfig,
     PowerInputs,
@@ -86,6 +87,7 @@ class EnergySystem:
                 discharge_hours=bc.discharge_hours,
                 panel_timezone=ZoneInfo(bc.panel_timezone),
                 charge_mode=bc.charge_mode,
+                rate_record=bc.rate_record,
             )
 
         total_demand = sum(lc.demand_w for lc in config.loads)
@@ -151,19 +153,37 @@ class EnergySystem:
                     self.bess.requested_power_w = 0.0
 
             else:  # custom (TOU): resolve from BESS schedule config + timestamp
-                # Only force discharge for non-hybrid off-grid — hybrid systems
-                # can follow their TOU schedule while islanded.  The non-hybrid
-                # islanding override below (line ~165) handles the non-hybrid case.
-                self.bess.scheduled_state = self.bess.resolve_scheduled_state(
-                    ts,
-                    forced_offline=not inputs.grid_connected and not self.bess.hybrid,
-                )
-                if self.bess.scheduled_state == "discharging":
-                    self.bess.requested_power_w = self.bess.max_discharge_w
-                elif self.bess.scheduled_state == "charging":
-                    self.bess.requested_power_w = self.bess.max_charge_w
+                if self.bess._rate_record is not None:
+                    # Rate-aware dispatch — consult URDB record directly
+                    preliminary_deficit = inputs.load_demand_w - inputs.pv_available_w
+                    pv_excess = max(0.0, -preliminary_deficit)
+                    load_deficit = max(0.0, preliminary_deficit)
+
+                    dispatch = resolve_tou_dispatch(
+                        ts=ts,
+                        tz=self.bess._panel_timezone,
+                        rate_record=self.bess._rate_record,
+                        soe_pct=self.bess.soe_percentage,
+                        backup_reserve_pct=self.bess.backup_reserve_pct,
+                        max_charge_w=self.bess.max_charge_w,
+                        max_discharge_w=self.bess.max_discharge_w,
+                        pv_excess_w=pv_excess,
+                        load_deficit_w=load_deficit,
+                    )
+                    self.bess.scheduled_state = dispatch.state
+                    self.bess.requested_power_w = dispatch.requested_power_w
                 else:
-                    self.bess.requested_power_w = 0.0
+                    # Fallback: static hour-list schedule (no rate record)
+                    self.bess.scheduled_state = self.bess.resolve_scheduled_state(
+                        ts,
+                        forced_offline=not inputs.grid_connected and not self.bess.hybrid,
+                    )
+                    if self.bess.scheduled_state == "discharging":
+                        self.bess.requested_power_w = self.bess.max_discharge_w
+                    elif self.bess.scheduled_state == "charging":
+                        self.bess.requested_power_w = self.bess.max_charge_w
+                    else:
+                        self.bess.requested_power_w = 0.0
 
             # Non-hybrid islanding override (applies to ALL modes):
             # if grid disconnected and PV is offline, BESS must discharge

@@ -37,6 +37,7 @@ from span_panel_simulator.energy import (
     SystemState,
 )
 from span_panel_simulator.exceptions import SimulationConfigurationError
+from span_panel_simulator.rates.cache import RateCache
 
 if TYPE_CHECKING:
     from span_panel_simulator.config_types import (
@@ -1567,6 +1568,23 @@ class DynamicSimulationEngine:
 
         return baseline
 
+    def _resolve_rate_record(self, rate_label: str) -> dict[str, Any] | None:
+        """Load a URDB rate record from the simulator rate cache.
+
+        Returns the raw URDB dict if the label exists in the cache,
+        or ``None`` if the cache file is missing or the label is absent.
+        """
+        if self._config_path is None:
+            return None
+        cache_path = self._config_path.parent / "rates" / "rates_cache.yaml"
+        if not cache_path.exists():
+            return None
+        cache = RateCache(cache_path)
+        entry = cache.get_cached_rate(rate_label)
+        if entry is None:
+            return None
+        return dict(entry.record)
+
     def _build_energy_system(
         self,
         *,
@@ -1630,6 +1648,10 @@ class DynamicSimulationEngine:
                 else RealisticBehaviorEngine._DEFAULT_TZ
             )
             charge_mode = str(bess_yaml.get("charge_mode", "self-consumption"))
+            rate_label = bess_yaml.get("rate_label")
+            rate_record: dict[str, Any] | None = None
+            if isinstance(rate_label, str) and rate_label:
+                rate_record = self._resolve_rate_record(rate_label)
             bess_config = BESSConfig(
                 nameplate_kwh=nameplate,
                 max_charge_w=abs(float(bess_yaml.get("max_charge_w", 3500.0))),
@@ -1648,6 +1670,7 @@ class DynamicSimulationEngine:
                 discharge_hours=tuple(discharge_hours_raw),
                 panel_timezone=panel_tz,
                 charge_mode=charge_mode,
+                rate_record=rate_record,
             )
 
         loads = [LoadConfig() for c in included.values() if c.energy_mode == "consumer"]
