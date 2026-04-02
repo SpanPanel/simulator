@@ -369,8 +369,8 @@ circuit_templates:
       on_duration: 600    # 10 minutes
       off_duration: 1800  # 30 minutes
 
-  # EV charger (SPAN Drive) with smart grid response
-  ev_charger:
+  # SPAN Drive EV charger with smart grid response
+  span_drive:
     energy_profile:
       mode: "consumer"
       power_range: [0.0, 11500.0]
@@ -379,7 +379,7 @@ circuit_templates:
     relay_behavior: "controllable"
     priority: "OFF_GRID"
     breaker_rating: 50
-    device_type: "evse"  # Generates EVSE (SPAN Drive) snapshot
+    device_type: "evse"
     smart_behavior:
       responds_to_grid: true
       max_power_reduction: 0.6  # Can reduce to 40% during grid stress
@@ -641,9 +641,9 @@ circuits:
     tabs: [24, 26]  # 240V system
 
   # EV charging (tabs 27-29)
-  - id: "ev_charger_garage"
-    name: "Garage EV Charger"
-    template: "ev_charger"
+  - id: "span_drive_garage"
+    name: "SPAN Drive - Garage"
+    template: "span_drive"
     tabs: [27, 29]  # 240V Level 2 charger
 
   # Solar (tabs 28-30)
