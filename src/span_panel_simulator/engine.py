@@ -991,7 +991,6 @@ class DynamicSimulationEngine:
             total_consumed_energy += circuit.consumed_energy_wh
 
         # 5b. Resolve power flows via EnergySystem (single source of truth)
-        battery_circuit = self._find_battery_circuit()
         if self._energy_system is None:
             raise SimulationConfigurationError("Energy system not initialized")
 
@@ -1000,10 +999,6 @@ class DynamicSimulationEngine:
         self._last_system_state = system_state
         site_power = system_state.load_power_w - system_state.pv_power_w
         grid_power = system_state.grid_power_w
-
-        # Reflect effective battery power back to circuit
-        if battery_circuit is not None and self._energy_system.bess is not None:
-            battery_circuit._instant_power_w = self._energy_system.bess.effective_power_w
 
         # Reflect PV curtailment back to producer circuits so snapshots
         # are consistent with the resolved system state.
@@ -1044,22 +1039,6 @@ class DynamicSimulationEngine:
                 power_flow_battery = -system_state.bess_power_w
             else:
                 power_flow_battery = system_state.bess_power_w
-
-            # Rebuild battery circuit snapshot — the original was captured
-            # before the BSEE update and off-grid deficit calculation, so it
-            # has stale power.  Sync the circuit object then re-snapshot.
-            if battery_circuit is not None:
-                battery_circuit._instant_power_w = abs(power_flow_battery)
-                cid = battery_circuit.circuit_id
-                snap = battery_circuit.to_snapshot()
-                if cid in shed_ids:
-                    snap = replace(
-                        snap,
-                        relay_state="OPEN",
-                        relay_requester="BACKUP",
-                        instant_power_w=0.0,
-                    )
-                circuit_snapshots[cid] = snap
 
             # Rebuild PV circuit snapshots when curtailment reduced output
             if (
@@ -1224,22 +1203,13 @@ class DynamicSimulationEngine:
 
         return circuit_powers
 
-    @staticmethod
-    def _is_battery_circuit(circuit: SimulatedCircuit) -> bool:
-        """True when the circuit is the configured BESS (not EVSE or other bidirectional)."""
-        battery_cfg = circuit.template.get("battery_behavior", {})
-        return isinstance(battery_cfg, dict) and bool(battery_cfg.get("enabled", False))
-
     def _powers_to_energy_inputs(
         self,
         circuit_powers: dict[str, float],
     ) -> PowerInputs:
         """Convert per-circuit power dict into PowerInputs for the energy system.
 
-        Only the BESS circuit is excluded from the power summation — the
-        energy system determines BESS power from the inverter rate and
-        bus state.  Other bidirectional circuits (e.g. EVSE with V2G)
-        are treated as load.
+        Other bidirectional circuits (e.g. EVSE with V2G) are treated as load.
         """
         pv_power = 0.0
         load_power = 0.0
@@ -1248,8 +1218,6 @@ class DynamicSimulationEngine:
             circuit = self._circuits[cid]
             if circuit.energy_mode == "producer":
                 pv_power += power
-            elif self._is_battery_circuit(circuit):
-                continue
             else:
                 load_power += power
 
@@ -1544,9 +1512,6 @@ class DynamicSimulationEngine:
         This method gathers raw measurements from circuits — it does NOT
         resolve energy scheduling.  Schedule resolution is the energy
         module's responsibility (inside ``EnergySystem.tick``).
-
-        Only the BESS circuit is excluded from load; other bidirectional
-        circuits (e.g. EVSE with V2G) are treated as load.
         """
         pv_power = 0.0
         load_power = 0.0
@@ -1555,8 +1520,6 @@ class DynamicSimulationEngine:
             power = circuit.instant_power_w
             if circuit.energy_mode == "producer":
                 pv_power += power
-            elif self._is_battery_circuit(circuit):
-                continue
             else:
                 load_power += power
 
@@ -1565,14 +1528,6 @@ class DynamicSimulationEngine:
             load_demand_w=load_power,
             grid_connected=not self._forced_grid_offline,
         )
-
-    def _find_battery_circuit(self) -> SimulatedCircuit | None:
-        """Find the battery circuit instance, if any."""
-        for circuit in self._circuits.values():
-            battery_cfg = circuit.template.get("battery_behavior", {})
-            if isinstance(battery_cfg, dict) and battery_cfg.get("enabled", False):
-                return circuit
-        return None
 
     def _build_energy_system(
         self,
