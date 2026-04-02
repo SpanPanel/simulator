@@ -36,9 +36,9 @@ No circuit proxy, no writeback, no exclusion workarounds.
 
 ### 1. Configuration Schema
 
-**Remove:**
-- `battery` template from `circuit_templates` in all config YAMLs
-- `battery_storage` circuit from `circuits` list in all config YAMLs
+**Remove from each config YAML that defines them:**
+- `battery_storage` circuit entry from the `circuits` list
+- `battery` template from `circuit_templates` (only consumer was the circuit entry above)
 - `BatteryBehavior` TypedDict from `config_types.py`
 
 **Add:**
@@ -119,3 +119,4 @@ No new tests needed — structural refactor, not behavioral change.
 - Enforcing "never charge from grid" constraint at the `BESSUnit._resolve_charge()` level
   (currently enforced by the scheduler in `EnergySystem.tick()`; works correctly today).
 - AC-coupled BESS behind a breaker (different product configuration, design when needed).
+- EVSE two-tab allocation (each EVSE needs two tabs; follow-on task).
