@@ -1037,6 +1037,7 @@
     var tgt = evt.detail.target;
     if (!tgt) return;
     var inEntitySection = tgt.id === 'entity-list-section'
+      || tgt.id === 'bess-card-section'
       || (tgt.closest && tgt.closest('#entity-list-section'));
     if (!inEntitySection) return;
 
