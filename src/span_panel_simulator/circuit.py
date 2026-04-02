@@ -304,7 +304,9 @@ class SimulatedCircuit:
 
         charge_mode = cast("str", battery_config.get("charge_mode", "custom"))
         if charge_mode != "custom":
-            return self._behavior_engine.last_battery_direction
+            # Energy system drives BESS power for self-consumption/backup-only;
+            # direction tracking is not needed for the circuit energy counter.
+            return "idle"
 
         current_hour = self._behavior_engine.local_hour(current_time)
         charge_hours = cast("list[int]", battery_config.get("charge_hours", []))
