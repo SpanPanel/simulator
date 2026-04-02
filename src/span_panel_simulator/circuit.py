@@ -9,7 +9,7 @@ or calls ``to_snapshot()`` to produce the transport-agnostic dataclass.
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from span_panel_simulator.models import SpanCircuitSnapshot
 
@@ -294,29 +294,11 @@ class SimulatedCircuit:
             # consumer
             self._consumed_energy_wh += energy_increment
 
-    def _resolve_battery_direction(self, current_time: float) -> str:
-        """Determine battery direction from template config or engine state."""
-        battery_config = self._template.get("battery_behavior", {})
-        if not isinstance(battery_config, dict):
-            return "unknown"
-        if not battery_config.get("enabled", True):
-            return "unknown"
+    def _resolve_battery_direction(self, _current_time: float) -> str:
+        """Determine bidirectional circuit energy direction.
 
-        charge_mode = cast("str", battery_config.get("charge_mode", "custom"))
-        if charge_mode != "custom":
-            # Energy system drives BESS power for self-consumption/backup-only;
-            # direction tracking is not needed for the circuit energy counter.
-            return "idle"
-
-        current_hour = self._behavior_engine.local_hour(current_time)
-        charge_hours = cast("list[int]", battery_config.get("charge_hours", []))
-        discharge_hours = cast("list[int]", battery_config.get("discharge_hours", []))
-        idle_hours = cast("list[int]", battery_config.get("idle_hours", []))
-
-        if current_hour in charge_hours:
-            return "charging"
-        if current_hour in discharge_hours:
-            return "discharging"
-        if current_hour in idle_hours:
-            return "idle"
+        With the battery circuit removed (BESS is GFE on upstream lugs),
+        bidirectional circuits are EVSE/V2G — direction is unknown at the
+        circuit level so energy is conservatively counted as consumption.
+        """
         return "unknown"

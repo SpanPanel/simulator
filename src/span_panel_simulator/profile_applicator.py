@@ -92,7 +92,7 @@ def apply_usage_profiles(
                 }
                 changed = True
 
-        # active_days → time_of_day_profile or battery_behavior
+        # active_days → time_of_day_profile
         if "active_days" in profile:
             raw_days = profile["active_days"]
             if isinstance(raw_days, list) and raw_days:
@@ -101,9 +101,6 @@ def apply_usage_profiles(
                     tod = template.get("time_of_day_profile")
                     if isinstance(tod, dict):
                         tod["active_days"] = days
-                    bb = template.get("battery_behavior")
-                    if isinstance(bb, dict) and bb.get("enabled"):
-                        bb["active_days"] = days
                     changed = True
 
         # duty_cycle → cycling_pattern

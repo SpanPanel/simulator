@@ -117,7 +117,6 @@ class CircuitTemplateExtended(CircuitTemplate, total=False):
     cycling_pattern: CyclingPattern
     time_of_day_profile: TimeOfDayProfile
     smart_behavior: SmartBehavior
-    battery_behavior: dict[str, object]
     device_type: str  # Explicit override: "circuit", "evse", "pv"
     hvac_type: str  # "central_ac", "heat_pump", "heat_pump_aux"
     monthly_factors: dict[int, float]  # month (1-12) -> multiplier (1.0 = peak month)
