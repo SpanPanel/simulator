@@ -800,10 +800,10 @@ async def handle_get_bess(request: web.Request) -> web.Response:
 
 
 async def handle_post_bess(request: web.Request) -> web.Response:
-    """POST /bess — add a default BESS configuration."""
+    """POST /bess — add a default BESS configuration and show schedule."""
     _store(request).add_bess()
     _persist_config(request)
-    return _render("partials/bess_card.html", request, _bess_card_context(request))
+    return _render("partials/bess_card.html", request, _bess_card_context(request, schedule=True))
 
 
 async def handle_delete_bess(request: web.Request) -> web.Response:
