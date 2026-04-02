@@ -615,8 +615,11 @@
     if (!beforeCosts || !afterCosts) { el.textContent = ''; return; }
     var savings = beforeCosts.net_cost - afterCosts.net_cost;
     var pct = beforeCosts.net_cost !== 0 ? (savings / Math.abs(beforeCosts.net_cost) * 100) : 0;
-    var sign = savings >= 0 ? '+' : '\u2212';
-    el.textContent = sign + formatDollar(savings) + ' (' + Math.abs(pct).toFixed(1) + '%)';
+    if (savings >= 0) {
+      el.textContent = formatDollar(savings) + ' (' + pct.toFixed(1) + '%)';
+    } else {
+      el.textContent = formatDollar(savings) + ' more expensive';
+    }
     el.className = 'modeling-col-cost ' + (savings > 0 ? 'diff-positive' : savings < 0 ? 'diff-negative' : '');
   }
 
