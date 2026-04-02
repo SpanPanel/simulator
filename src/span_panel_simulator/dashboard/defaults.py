@@ -103,30 +103,6 @@ ENTITY_TYPE_DEFAULTS: dict[str, dict[str, Any]] = {
             "tabs": [],
         },
     },
-    "battery": {
-        "template": {
-            "energy_profile": {
-                "mode": "bidirectional",
-                "power_range": [-5000.0, 5000.0],
-                "typical_power": 0.0,
-                "power_variation": 0.02,
-                "efficiency": 0.95,
-            },
-            "relay_behavior": "controllable",
-            "priority": "NEVER",
-            "battery_behavior": {
-                "enabled": True,
-                "charge_mode": "self-consumption",
-                "nameplate_capacity_kwh": 13.5,
-                "backup_reserve_pct": 20.0,
-                "max_charge_power": 5000.0,
-                "max_discharge_power": 5000.0,
-                "charge_hours": [],
-                "discharge_hours": [],
-            },
-        },
-        "circuit": {},
-    },
 }
 
 
@@ -136,7 +112,6 @@ def default_name_for_type(entity_type: str) -> str:
         "circuit": "New Circuit",
         "pv": "Solar Inverter",
         "evse": "SPAN Drive",
-        "battery": "Battery Storage",
     }.get(entity_type, "New Entity")
 
 

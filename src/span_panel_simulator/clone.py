@@ -101,7 +101,7 @@ def translate_scraped_panel(
     evse_nodes = _nodes_of_type(nodes, TYPE_EVSE)
 
     # Build feed cross-reference: circuit_uuid → device_type
-    feed_map = _build_feed_map(scraped.properties, prefix, bess_nodes, pv_nodes, evse_nodes)
+    feed_map = _build_feed_map(scraped.properties, prefix, pv_nodes, evse_nodes)
 
     # Extract panel-level values
     main_breaker = _int_prop(scraped.properties, prefix, "core", "breaker-rating") or 200
@@ -139,10 +139,6 @@ def translate_scraped_panel(
         circuits.append(circuit_def)
         used_tabs.update(tabs)
 
-    # Enrich BESS circuit template
-    for bess_id in bess_nodes:
-        _enrich_bess_template(scraped.properties, prefix, bess_id, feed_map, templates)
-
     # Enrich PV circuit template
     for pv_id in pv_nodes:
         _enrich_pv_template(scraped.properties, prefix, pv_id, feed_map, templates)
@@ -150,16 +146,6 @@ def translate_scraped_panel(
     # Enrich EVSE circuit templates
     for evse_id in evse_nodes:
         _enrich_evse_template(scraped.properties, prefix, evse_id, feed_map, templates)
-
-    # Battery entities sit between panel lugs and grid — strip their tabs.
-    for circ in circuits:
-        tpl_name = circ.get("template")
-        tpl = templates.get(str(tpl_name), {}) if tpl_name else {}
-        bb = tpl.get("battery_behavior")
-        if isinstance(bb, dict) and bb.get("enabled"):
-            freed = circ.pop("tabs", [])
-            if isinstance(freed, list):
-                used_tabs -= set(freed)
 
     # Unmapped tabs
     all_tabs = set(range(1, total_tabs + 1))
@@ -178,13 +164,26 @@ def translate_scraped_panel(
         },
     }
 
+    # Build top-level BESS config (only when a battery is actually connected)
+    for bess_id in bess_nodes:
+        bess_cfg = _build_bess_config(scraped.properties, prefix, bess_id)
+        if bess_cfg is not None:
+            config["bess"] = bess_cfg
+
     if host is not None:
-        config["panel_source"] = {
+        panel_source: dict[str, object] = {
             "origin_serial": scraped.serial_number,
             "host": host,
             "passphrase": passphrase,
             "last_synced": datetime.now(UTC).isoformat(),
         }
+        # Snapshot the original BESS config so the modeling Before pass
+        # can reconstruct the clone-time energy system accurately.
+        if "bess" in config:
+            import copy
+
+            panel_source["original_bess"] = copy.deepcopy(config["bess"])
+        config["panel_source"] = panel_source
 
     _LOGGER.info(
         "Translated panel %s: %d circuits, %d templates, bess=%s, pv=%s, evse=%s",
@@ -432,21 +431,16 @@ def _nodes_of_type(
 def _build_feed_map(
     properties: dict[str, str],
     prefix: str,
-    bess_nodes: list[str],
     pv_nodes: list[str],
     evse_nodes: list[str],
 ) -> dict[str, str]:
     """Build a mapping from circuit UUID to device type based on feed properties.
 
-    Device nodes (BESS, PV, EVSE) have a ``feed`` property whose value is the
-    UUID of the circuit they're associated with.
+    PV and EVSE nodes have a ``feed`` property whose value is the UUID of the
+    circuit they're associated with.  BESS nodes no longer use a feed circuit —
+    their config goes to the top-level ``bess`` section.
     """
     feed_map: dict[str, str] = {}
-
-    for node_id in bess_nodes:
-        circuit_uuid = _get_prop(properties, prefix, node_id, "feed")
-        if circuit_uuid:
-            feed_map[circuit_uuid] = "bess"
 
     for node_id in pv_nodes:
         circuit_uuid = _get_prop(properties, prefix, node_id, "feed")
@@ -585,51 +579,36 @@ def _device_role_to_mode(device_role: str | None) -> str:
     """Map a device role from the feed map to an energy profile mode."""
     if device_role == "pv":
         return "producer"
-    if device_role in ("bess", "evse"):
+    if device_role == "evse":
         return "bidirectional"
     return "consumer"
 
 
-def _enrich_bess_template(
+def _build_bess_config(
     properties: dict[str, str],
     prefix: str,
     bess_node_id: str,
-    feed_map: dict[str, str],
-    templates: dict[str, dict[str, object]],
-) -> None:
-    """Add battery_behavior to the circuit template fed by this BESS node."""
-    circuit_uuid = _get_prop(properties, prefix, bess_node_id, "feed")
-    template = _find_template_for_feed(circuit_uuid, feed_map, templates, properties, prefix)
-    if template is None:
-        return
+) -> dict[str, object] | None:
+    """Build top-level bess config from scraped BESS node properties.
 
+    Returns ``None`` when the BESS node is an empty slot (no battery
+    connected) — indicated by a missing or zero nameplate capacity.
+    """
     nameplate = _float_prop(properties, prefix, bess_node_id, "nameplate-capacity")
-    nameplate_kwh = nameplate if nameplate is not None else 13.5
+    if not nameplate:
+        return None
 
-    # Derive max charge/discharge from breaker rating
-    breaker = template.get("breaker_rating", 40)
-    breaker_val = float(breaker) if isinstance(breaker, int | float) else 40.0
-    ep = template.get("energy_profile")
-    is_240v = False
-    if isinstance(ep, dict):
-        pr = ep.get("power_range")
-        if isinstance(pr, list) and len(pr) == 2:
-            is_240v = abs(pr[0]) > 120 * breaker_val
-    voltage = 240.0 if is_240v else 120.0
-    max_power = breaker_val * voltage * 0.8
-
-    template["battery_behavior"] = {
+    return {
         "enabled": True,
         "charge_mode": "custom",
-        "nameplate_capacity_kwh": nameplate_kwh,
+        "nameplate_capacity_kwh": nameplate,
         "backup_reserve_pct": 20.0,
         "charge_efficiency": 0.95,
         "discharge_efficiency": 0.95,
-        "max_charge_power": max_power,
-        "max_discharge_power": max_power,
+        "max_charge_w": 3500.0,
+        "max_discharge_w": 3500.0,
         "charge_hours": [0, 1, 2, 3, 4, 5],
         "discharge_hours": [16, 17, 18, 19, 20, 21],
-        "idle_hours": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 22, 23],
     }
 
 

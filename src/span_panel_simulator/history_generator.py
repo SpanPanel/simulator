@@ -326,14 +326,6 @@ class SyntheticHistoryGenerator:
                     if total > 0:
                         duty_cycle = int(on_dur) / total
 
-        # Battery behavior (BESS schedule)
-        battery_behavior_raw = template.get("battery_behavior")
-        battery_behavior: dict[str, object] | None = None
-        if isinstance(battery_behavior_raw, dict) and bool(
-            battery_behavior_raw.get("enabled", False)
-        ):
-            battery_behavior = battery_behavior_raw
-
         # Active days from time_of_day_profile
         active_days: list[int] = []
         if isinstance(tod_profile, dict):
@@ -379,7 +371,6 @@ class SyntheticHistoryGenerator:
                 duty_cycle=duty_cycle,
                 active_days=active_days,
                 weather_monthly=weather_monthly,
-                battery_behavior=battery_behavior,
             )
 
             # Apply deterministic noise
@@ -437,7 +428,6 @@ class SyntheticHistoryGenerator:
         duty_cycle: float | None,
         active_days: list[int],
         weather_monthly: dict[int, float] | None,
-        battery_behavior: dict[str, object] | None = None,
     ) -> float:
         """Compute synthetic power for one time step."""
         dt = datetime.fromtimestamp(ts, tz=tz)
@@ -447,35 +437,6 @@ class SyntheticHistoryGenerator:
 
         if active_days and weekday not in active_days:
             return 0.0
-
-        # BESS schedule takes priority over consumer/producer logic
-        if battery_behavior is not None:
-            charge_hours_raw = battery_behavior.get("charge_hours", [])
-            discharge_hours_raw = battery_behavior.get("discharge_hours", [])
-            idle_hours_raw = battery_behavior.get("idle_hours", [])
-            charge_hours = list(charge_hours_raw) if isinstance(charge_hours_raw, list) else []
-            discharge_hours = (
-                list(discharge_hours_raw) if isinstance(discharge_hours_raw, list) else []
-            )
-            idle_hours = list(idle_hours_raw) if isinstance(idle_hours_raw, list) else []
-
-            if hour in charge_hours:
-                max_charge = battery_behavior.get("max_charge_power")
-                if isinstance(max_charge, int | float):
-                    return -float(max_charge)
-                return -typical_power
-
-            if hour in discharge_hours:
-                max_discharge = battery_behavior.get("max_discharge_power")
-                if isinstance(max_discharge, int | float):
-                    return float(max_discharge)
-                return typical_power
-
-            if hour in idle_hours:
-                idle_range = battery_behavior.get("idle_power_range")
-                if isinstance(idle_range, list) and len(idle_range) == 2:
-                    return float(idle_range[0])
-                return 0.0
 
         base = typical_power
 

@@ -21,7 +21,8 @@ if TYPE_CHECKING:
 
     from span_panel_simulator.dashboard.context import DashboardContext
 
-from datetime import UTC
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from span_panel_simulator.dashboard.keys import (
     APP_KEY_DASHBOARD_CONTEXT,
@@ -74,15 +75,15 @@ PRIORITIES = [
     "OFF_GRID",
 ]
 RELAY_BEHAVIORS = ["controllable", "non_controllable"]
-ENTITY_TYPES = ["circuit", "pv", "evse", "battery"]
+ENTITY_TYPES = ["circuit", "pv", "evse"]
 # Infrastructure types that should only appear once in a panel config.
-_SINGLETON_TYPES = {"pv", "battery"}
+_SINGLETON_TYPES = {"pv"}
 
 
 def _available_entity_types(store: ConfigStore) -> list[str]:
     """Return entity types available for adding.
 
-    Singleton types (pv, battery) are excluded when one already exists.
+    Singleton types (pv) are excluded when one already exists.
     """
     existing = {e.entity_type for e in store.list_entities()}
     return [t for t in ENTITY_TYPES if t not in _SINGLETON_TYPES or t not in existing]
@@ -182,6 +183,7 @@ def _dashboard_context(request: web.Request) -> dict[str, Any]:
         "clone_host": panel_source.get("host", "") if panel_source else "",
         "panels": _all_panels(request),
         "readonly": _is_readonly(ctx),
+        "bess_config": store.get_bess_config(),
     }
 
 
@@ -215,12 +217,6 @@ def _entity_list_context(request: web.Request, editing_id: str | None = None) ->
         ctx["relay_behaviors"] = RELAY_BEHAVIORS
         ctx["preset_labels"] = _presets_for_type(request, entity.entity_type)
         ctx["active_days"] = store.get_active_days(editing_id)
-        if entity.entity_type == "battery":
-            ctx["battery_preset_labels"] = _presets(request).battery_labels
-            battery_profile = store.get_battery_profile(editing_id)
-            ctx["battery_profile"] = battery_profile
-            ctx["battery_charge_mode"] = store.get_battery_charge_mode(editing_id)
-            ctx["battery_active_preset"] = match_battery_preset(battery_profile)
         if entity.entity_type == "pv":
             panel = store.get_panel_config()
             lat = panel.get("latitude", 37.7)
@@ -254,19 +250,94 @@ def _profile_context(request: web.Request, entity_id: str) -> dict[str, Any]:
     }
 
 
-def _battery_profile_context(request: web.Request, entity_id: str) -> dict[str, Any]:
-    """Build the battery profile editor template context."""
+def _bess_card_context(
+    request: web.Request,
+    editing: bool = False,
+) -> dict[str, Any]:
+    """Build the BESS card template context.
+
+    The edit view includes both settings and schedule, so schedule
+    context is always included when editing.
+    """
     store = _store(request)
-    entity = store.get_entity(entity_id)
-    battery_profile = store.get_battery_profile(entity_id)
-    return {
-        "entity": entity,
-        "battery_profile": battery_profile,
-        "battery_preset_labels": _presets(request).battery_labels,
-        "battery_charge_mode": store.get_battery_charge_mode(entity_id),
-        "battery_active_preset": match_battery_preset(battery_profile),
-        "active_days": store.get_active_days(entity_id),
+    ctx: dict[str, Any] = {
+        "bess_config": store.get_bess_config(),
+        "bess_editing": editing,
+        "readonly": _is_readonly(_ctx(request)),
     }
+    if editing:
+        charge_mode = store.get_battery_charge_mode()
+        ctx["battery_charge_mode"] = charge_mode
+
+        # When TOU mode has a rate record, derive the display schedule
+        # from the URDB record for the current month instead of the
+        # static charge_hours/discharge_hours lists.
+        rate_profile = _rate_derived_profile(request, store) if charge_mode == "custom" else None
+        if rate_profile is not None:
+            battery_profile, month_label = rate_profile
+            ctx["battery_profile"] = battery_profile
+            ctx["tou_rate_month"] = month_label
+            ctx["tou_rate_driven"] = True
+        else:
+            battery_profile = store.get_battery_profile()
+            ctx["battery_profile"] = battery_profile
+            ctx["tou_rate_driven"] = False
+
+        ctx["battery_preset_labels"] = _presets(request).battery_labels
+        ctx["battery_active_preset"] = match_battery_preset(battery_profile)
+        ctx["active_days"] = store.get_bess_active_days()
+    return ctx
+
+
+def _rate_derived_profile(
+    request: web.Request,
+    store: ConfigStore,
+) -> tuple[dict[int, str], str] | None:
+    """Derive a display schedule from the URDB rate record for today.
+
+    Returns ``(profile, month_label)`` or ``None`` when no rate record
+    is available.
+    """
+    bess = store.get_bess_config()
+    rate_label = bess.get("rate_label")
+    if not rate_label:
+        return None
+
+    cache = _rate_cache(request)
+    entry = cache.get_cached_rate(rate_label)
+    if entry is None:
+        return None
+
+    record = entry.record
+    panel_cfg = store.get_panel_config()
+    tz_name = panel_cfg.get("time_zone", "America/Los_Angeles")
+    tz = ZoneInfo(tz_name)
+    now = datetime.now(tz)
+
+    from span_panel_simulator.energy.tou import all_rates_for_day
+
+    day_rates = all_rates_for_day(now, record)
+    if not day_rates:
+        return None
+
+    min_rate = min(day_rates.values())
+    max_rate = max(day_rates.values())
+
+    profile: dict[int, str] = {}
+    for h in range(24):
+        rate = day_rates.get(h, 0.0)
+        if min_rate == max_rate:
+            profile[h] = "idle"
+        elif rate <= min_rate:
+            profile[h] = "charge"
+        elif rate >= max_rate:
+            profile[h] = "discharge"
+        else:
+            profile[h] = "idle"
+    month_label = now.strftime("%B") + (
+        " — Summer rates" if now.month in (6, 7, 8, 9) else " — Winter rates"
+    )
+    return profile, month_label
 
 
 async def handle_get_openei_config(request: web.Request) -> web.Response:
@@ -397,12 +468,23 @@ async def handle_get_current_rate(request: web.Request) -> web.Response:
 
 
 async def handle_put_current_rate(request: web.Request) -> web.Response:
-    """PUT /rates/current {label}"""
+    """PUT /rates/current {label}
+
+    When the BESS is already in TOU mode, propagates the new rate label
+    into the BESS config and reloads the engine so dispatch and the
+    modeling projection reflect the newly selected rate immediately.
+    """
     body = await request.json()
     label = body.get("label", "").strip()
     if not label:
         return web.json_response({"error": "label is required"}, status=400)
     _rate_cache(request).set_current_rate_label(label)
+
+    store = _store(request)
+    if store.get_battery_charge_mode() == "custom":
+        store.update_battery_charge_mode("custom", rate_label=label)
+        _persist_config(request)
+
     return web.json_response({"ok": True})
 
 
@@ -503,11 +585,17 @@ def setup_routes(app: web.Application) -> None:
     # Active days (auto-save on toggle)
     app.router.add_put("/entities/{id}/active-days", handle_put_active_days)
 
-    # Battery profile
-    app.router.add_get("/entities/{id}/battery-profile", handle_get_battery_profile)
-    app.router.add_put("/entities/{id}/battery-profile", handle_put_battery_profile)
-    app.router.add_post("/entities/{id}/battery-profile/preset", handle_apply_battery_preset)
-    app.router.add_put("/entities/{id}/battery-charge-mode", handle_put_battery_charge_mode)
+    # BESS (panel-level)
+    app.router.add_get("/bess", handle_get_bess)
+    app.router.add_post("/bess", handle_post_bess)
+    app.router.add_delete("/bess", handle_delete_bess)
+    app.router.add_get("/bess/edit", handle_get_bess_edit)
+    app.router.add_put("/bess", handle_put_bess)
+    app.router.add_get("/bess/schedule", handle_get_bess_schedule)
+    app.router.add_put("/bess/schedule", handle_put_bess_schedule)
+    app.router.add_post("/bess/schedule/preset", handle_post_bess_schedule_preset)
+    app.router.add_put("/bess/charge-mode", handle_put_bess_charge_mode)
+    app.router.add_put("/bess/active-days", handle_put_bess_active_days)
 
     # EVSE schedule
     app.router.add_get("/entities/{id}/evse-schedule", handle_get_evse_schedule)
@@ -782,66 +870,98 @@ async def handle_apply_preset(request: web.Request) -> web.Response:
     return _render("partials/profile_editor.html", request, _profile_context(request, entity_id))
 
 
-# -- Battery profile --
+# -- BESS (panel-level) --
 
 
-async def handle_get_battery_profile(request: web.Request) -> web.Response:
-    entity_id = request.match_info["id"]
-    return _render(
-        "partials/battery_profile_editor.html",
-        request,
-        _battery_profile_context(request, entity_id),
-    )
+async def handle_get_bess(request: web.Request) -> web.Response:
+    """GET /bess — return BESS card in display mode."""
+    return _render("partials/bess_card.html", request, _bess_card_context(request))
 
 
-async def handle_put_battery_profile(request: web.Request) -> web.Response:
-    entity_id = request.match_info["id"]
+async def handle_post_bess(request: web.Request) -> web.Response:
+    """POST /bess — add a default BESS configuration and show edit view."""
+    _store(request).add_bess()
+    _persist_config(request)
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
+
+
+async def handle_delete_bess(request: web.Request) -> web.Response:
+    """DELETE /bess — remove BESS configuration."""
+    _store(request).remove_bess()
+    _persist_config(request)
+    return _render("partials/bess_card.html", request, _bess_card_context(request))
+
+
+async def handle_get_bess_edit(request: web.Request) -> web.Response:
+    """GET /bess/edit — return BESS card in edit mode."""
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
+
+
+async def handle_put_bess(request: web.Request) -> web.Response:
+    """PUT /bess — save BESS settings."""
+    data = await request.post()
+    _store(request).update_bess_config(dict(data))
+    _persist_config(request)
+    return _render("partials/bess_card.html", request, _bess_card_context(request))
+
+
+async def handle_get_bess_schedule(request: web.Request) -> web.Response:
+    """GET /bess/schedule — return BESS card with schedule editor."""
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
+
+
+async def handle_put_bess_schedule(request: web.Request) -> web.Response:
+    """PUT /bess/schedule — save BESS charge/discharge schedule."""
     data = await request.post()
     hour_modes: dict[int, str] = {}
     for h in range(24):
         key = f"hour_{h}"
-        if key in data:
-            mode = str(data[key])
-            if mode in ("charge", "discharge", "idle"):
-                hour_modes[h] = mode
-            else:
-                hour_modes[h] = "idle"
-        else:
-            hour_modes[h] = "idle"
+        mode = str(data.get(key, "idle"))
+        hour_modes[h] = mode if mode in ("charge", "discharge", "idle") else "idle"
     store = _store(request)
-    store.update_battery_profile(entity_id, hour_modes)
+    store.update_battery_profile(hour_modes)
     active = _parse_active_days(data)
     if active is not None:
-        store.update_active_days(entity_id, active)
-    return _render(
-        "partials/battery_profile_editor.html",
-        request,
-        _battery_profile_context(request, entity_id),
-    )
+        store.update_bess_active_days(active)
+    _persist_config(request)
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
 
 
-async def handle_apply_battery_preset(request: web.Request) -> web.Response:
-    entity_id = request.match_info["id"]
+async def handle_post_bess_schedule_preset(request: web.Request) -> web.Response:
+    """POST /bess/schedule/preset — apply a schedule preset."""
     data = await request.post()
     preset_name = str(data.get("preset", "custom"))
-    _store(request).apply_battery_preset(entity_id, preset_name)
-    return _render(
-        "partials/battery_profile_editor.html",
-        request,
-        _battery_profile_context(request, entity_id),
-    )
+    _store(request).apply_battery_preset(preset_name)
+    _persist_config(request)
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
 
 
-async def handle_put_battery_charge_mode(request: web.Request) -> web.Response:
-    entity_id = request.match_info["id"]
+async def handle_put_bess_charge_mode(request: web.Request) -> web.Response:
+    """PUT /bess/charge-mode — change BESS charge mode.
+
+    When switching to TOU with an active rate, stores the rate label so
+    the energy system resolves dispatch from the URDB record at each tick.
+    """
     data = await request.post()
     mode = str(data.get("charge_mode", "custom"))
-    _store(request).update_battery_charge_mode(entity_id, mode)
-    return _render(
-        "partials/battery_profile_editor.html",
-        request,
-        _battery_profile_context(request, entity_id),
-    )
+
+    rate_label: str | None = None
+    if mode == "custom":
+        rate_label = _rate_cache(request).get_current_rate_label()
+
+    _store(request).update_battery_charge_mode(mode, rate_label=rate_label)
+    _persist_config(request)
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
+
+
+async def handle_put_bess_active_days(request: web.Request) -> web.Response:
+    """PUT /bess/active-days — update BESS active days."""
+    data = await request.post()
+    active = _parse_active_days(data)
+    if active is not None:
+        _store(request).update_bess_active_days(active)
+    _persist_config(request)
+    return _render("partials/bess_card.html", request, _bess_card_context(request, editing=True))
 
 
 # -- EVSE schedule --

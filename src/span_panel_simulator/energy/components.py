@@ -9,6 +9,7 @@ is expressed by which field (``demand_w`` vs ``supply_w``) is populated.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from span_panel_simulator.const import DEFAULT_FIRMWARE_VERSION
@@ -106,11 +107,11 @@ class BESSUnit(Component):
         scheduled_state: str = "idle",
         requested_power_w: float = 0.0,
         panel_serial: str = "",
-        feed_circuit_id: str = "",
         charge_hours: tuple[int, ...] = (),
         discharge_hours: tuple[int, ...] = (),
         panel_timezone: ZoneInfo | None = None,
         charge_mode: str = "self-consumption",
+        rate_record: dict[str, Any] | None = None,
     ) -> None:
         self.nameplate_capacity_kwh = nameplate_capacity_kwh
         self.max_charge_w = max_charge_w
@@ -129,10 +130,10 @@ class BESSUnit(Component):
 
         # Identity / schedule
         self.panel_serial = panel_serial
-        self.feed_circuit_id = feed_circuit_id
         self._charge_hours = charge_hours
         self._discharge_hours = discharge_hours
         self._panel_timezone: ZoneInfo = panel_timezone or ZoneInfo("America/Los_Angeles")
+        self._rate_record: dict[str, Any] | None = rate_record
 
         # Output — set by resolve()
         self.effective_power_w: float = 0.0
@@ -140,6 +141,16 @@ class BESSUnit(Component):
 
         # Timestamp tracking for energy integration
         self._last_ts: float | None = None
+
+    @property
+    def panel_timezone(self) -> ZoneInfo:
+        """Timezone used for schedule resolution."""
+        return self._panel_timezone
+
+    @property
+    def rate_record(self) -> dict[str, Any] | None:
+        """URDB rate record for TOU dispatch, if configured."""
+        return self._rate_record
 
     @property
     def soe_percentage(self) -> float:

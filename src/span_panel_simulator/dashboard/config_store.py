@@ -34,7 +34,7 @@ class EntityView:
 
     id: str
     name: str
-    entity_type: str  # "circuit" | "pv" | "evse" | "battery"
+    entity_type: str  # "circuit" | "pv" | "evse"
     template_name: str
     tabs: list[int]
     energy_profile: dict[str, Any]
@@ -43,7 +43,6 @@ class EntityView:
     cycling_pattern: dict[str, Any] | None = None
     time_of_day_profile: dict[str, Any] | None = None
     smart_behavior: dict[str, Any] | None = None
-    battery_behavior: dict[str, Any] | None = None
     hvac_type: str | None = None
     breaker_rating: int | None = None
     overrides: dict[str, Any] = field(default_factory=dict)
@@ -58,8 +57,6 @@ def _detect_entity_type(template: dict[str, Any]) -> str:
         return "pv"
     if device_type == "evse":
         return "evse"
-    if template.get("battery_behavior", {}).get("enabled"):
-        return "battery"
     return "circuit"
 
 
@@ -150,6 +147,58 @@ class ConfigStore:
             origin: object = ps.get("origin_serial")
             return str(origin) if isinstance(origin, str) else None
         return None
+
+    # -- BESS config --
+
+    def get_bess_config(self) -> dict[str, Any]:
+        """Return the top-level BESS configuration, or empty dict if absent."""
+        bess = self._state.get("bess")
+        return dict(bess) if isinstance(bess, dict) else {}
+
+    def has_bess(self) -> bool:
+        """Whether a BESS is configured and enabled."""
+        bess = self._state.get("bess")
+        return isinstance(bess, dict) and bool(bess.get("enabled"))
+
+    def update_bess_config(self, data: dict[str, Any]) -> None:
+        """Update top-level BESS settings from form data.
+
+        Translates form field names to YAML field names:
+        ``max_charge_power`` -> ``max_charge_w``,
+        ``max_discharge_power`` -> ``max_discharge_w``.
+        """
+        bess = self._state.setdefault("bess", {"enabled": True})
+        field_map = {
+            "nameplate_capacity_kwh": "nameplate_capacity_kwh",
+            "backup_reserve_pct": "backup_reserve_pct",
+            "max_charge_power": "max_charge_w",
+            "max_discharge_power": "max_discharge_w",
+        }
+        for form_key, yaml_key in field_map.items():
+            if form_key in data:
+                bess[yaml_key] = float(data[form_key])
+        self._dirty = True
+
+    def add_bess(self) -> None:
+        """Add a default BESS configuration."""
+        self._state["bess"] = {
+            "enabled": True,
+            "nameplate_capacity_kwh": 13.5,
+            "max_charge_w": 3500.0,
+            "max_discharge_w": 3500.0,
+            "charge_efficiency": 0.95,
+            "discharge_efficiency": 0.95,
+            "backup_reserve_pct": 20.0,
+            "charge_mode": "self-consumption",
+            "charge_hours": [],
+            "discharge_hours": [],
+        }
+        self._dirty = True
+
+    def remove_bess(self) -> None:
+        """Remove the BESS configuration."""
+        self._state.pop("bess", None)
+        self._dirty = True
 
     # -- Simulation params --
 
@@ -284,7 +333,6 @@ class ConfigStore:
             cycling_pattern=template.get("cycling_pattern"),
             time_of_day_profile=template.get("time_of_day_profile"),
             smart_behavior=template.get("smart_behavior"),
-            battery_behavior=template.get("battery_behavior"),
             hvac_type=template.get("hvac_type"),
             breaker_rating=circuit.get("breaker_rating") or template.get("breaker_rating"),
             overrides=dict(overrides),
@@ -293,8 +341,8 @@ class ConfigStore:
         )
 
     def list_entities(self) -> list[EntityView]:
-        """Return entities with infrastructure (pv, battery, evse) first, then circuits."""
-        _type_order = {"pv": 0, "battery": 1, "evse": 2, "circuit": 3}
+        """Return entities with infrastructure (pv, evse) first, then circuits."""
+        _type_order = {"pv": 0, "evse": 1, "circuit": 2}
         entities = [self._merge_entity(c) for c in self._circuits()]
         entities.sort(key=lambda e: (_type_order.get(e.entity_type, 9), e.name.lower()))
         return entities
@@ -324,7 +372,7 @@ class ConfigStore:
         if "name" in data:
             circuit["name"] = data["name"]
 
-        if "tabs" in data and _detect_entity_type(template) != "battery":
+        if "tabs" in data:
             tabs_raw = data["tabs"]
             if isinstance(tabs_raw, str):
                 tabs_raw = [int(t.strip()) for t in tabs_raw.split(",") if t.strip()]
@@ -369,18 +417,6 @@ class ConfigStore:
                 else:
                     overrides.pop("power_range", None)
 
-        battery_keys = (
-            "nameplate_capacity_kwh",
-            "backup_reserve_pct",
-            "max_charge_power",
-            "max_discharge_power",
-        )
-        if any(k in data for k in battery_keys):
-            bb: dict[str, Any] = template.setdefault("battery_behavior", {})
-            for k in battery_keys:
-                if k in data:
-                    bb[k] = float(data[k])
-
         if "breaker_rating" in data:
             br_val = str(data["breaker_rating"]).strip()
             if br_val:
@@ -422,17 +458,11 @@ class ConfigStore:
         return self._merge_entity(circuit_dict)
 
     def get_unmapped_tabs(self) -> list[int]:
-        """Return tab numbers not assigned to any circuit, sorted ascending.
-
-        Battery entities are excluded — they sit between the panel lugs
-        and the grid, not on breaker tabs.
-        """
+        """Return tab numbers not assigned to any circuit, sorted ascending."""
         total_tabs = self._state.get("panel_config", {}).get("total_tabs", 32)
         used: set[int] = set()
         for circ in self._circuits():
-            tpl = self._templates().get(circ.get("template", ""), {})
-            if _detect_entity_type(tpl) != "battery":
-                used.update(circ.get("tabs", []))
+            used.update(circ.get("tabs", []))
         return sorted(t for t in range(1, total_tabs + 1) if t not in used)
 
     def add_entity_from_tabs(self, tabs: list[int]) -> EntityView:
@@ -498,48 +528,48 @@ class ConfigStore:
     def get_active_days(self, entity_id: str) -> list[int]:
         """Return active weekdays (0=Mon..6=Sun) for an entity.
 
-        Reads from ``time_of_day_profile`` for circuits/EVSE or
-        ``battery_behavior`` for battery entities.  Empty list = all days.
+        Reads from ``time_of_day_profile``.  Empty list = all days.
         """
         entity = self.get_entity(entity_id)
-        if entity.entity_type == "battery":
-            bb = entity.battery_behavior or {}
-            days: list[int] = bb.get("active_days", [])
-        else:
-            tod = entity.time_of_day_profile or {}
-            days = tod.get("active_days", [])
+        tod = entity.time_of_day_profile or {}
+        days: list[int] = tod.get("active_days", [])
         return [d for d in days if isinstance(d, int) and 0 <= d <= 6]
 
     def update_active_days(self, entity_id: str, days: list[int]) -> None:
-        """Write active weekdays into the entity's template.
-
-        Omits the key entirely when all 7 days are selected (backward compat).
-        """
+        """Write active weekdays into the entity's template."""
         circuit = self._find_circuit(entity_id)
         if circuit is None:
             raise KeyError(f"Entity not found: {entity_id}")
 
         template_name = circuit["template"]
         template = self._templates().get(template_name, {})
-        entity = self._merge_entity(circuit)
 
         clean = sorted(set(d for d in days if 0 <= d <= 6))
         store_value = clean if len(clean) < 7 else []
 
-        if entity.entity_type == "battery":
-            bb: dict[str, Any] = template.setdefault("battery_behavior", {"enabled": True})
-            if store_value:
-                bb["active_days"] = store_value
-            else:
-                bb.pop("active_days", None)
+        tod: dict[str, Any] = template.setdefault("time_of_day_profile", {"enabled": True})
+        if store_value:
+            tod["active_days"] = store_value
         else:
-            tod: dict[str, Any] = template.setdefault("time_of_day_profile", {"enabled": True})
-            if store_value:
-                tod["active_days"] = store_value
-            else:
-                tod.pop("active_days", None)
+            tod.pop("active_days", None)
 
         self._mark_user_modified(template_name)
+        self._dirty = True
+
+    def get_bess_active_days(self) -> list[int]:
+        """Return active weekdays for BESS (empty = all days)."""
+        bess = self.get_bess_config()
+        days: list[int] = bess.get("active_days", [])
+        return [d for d in days if isinstance(d, int) and 0 <= d <= 6]
+
+    def update_bess_active_days(self, days: list[int]) -> None:
+        """Write active weekdays into BESS config."""
+        bess = self._state.setdefault("bess", {"enabled": True})
+        clean = sorted(set(d for d in days if 0 <= d <= 6))
+        if clean and len(clean) < 7:
+            bess["active_days"] = clean
+        else:
+            bess.pop("active_days", None)
         self._dirty = True
 
     # -- Profile --
@@ -642,41 +672,43 @@ class ConfigStore:
 
     # -- Battery charge mode --
 
-    def get_battery_charge_mode(self, entity_id: str) -> str:
-        """Return the charge mode for a battery entity (default ``"self-consumption"``)."""
-        entity = self.get_entity(entity_id)
-        bb = entity.battery_behavior or {}
-        return str(bb.get("charge_mode", "self-consumption"))
+    def get_battery_charge_mode(self) -> str:
+        """Return the BESS charge mode (default ``"self-consumption"``)."""
+        bess = self.get_bess_config()
+        return str(bess.get("charge_mode", "self-consumption"))
 
-    def update_battery_charge_mode(self, entity_id: str, mode: str) -> None:
-        """Set the charge mode on a battery entity's template."""
+    def update_battery_charge_mode(
+        self,
+        mode: str,
+        rate_label: str | None = None,
+    ) -> None:
+        """Set the BESS charge mode.
+
+        When *rate_label* is provided and mode is ``custom``, the label
+        is stored so the energy system resolves the full URDB record for
+        rate-aware dispatch.  Static charge/discharge hour lists are
+        cleared since the rate record supersedes them.
+        """
         valid_modes = ("self-consumption", "custom", "backup-only")
         if mode not in valid_modes:
             raise ValueError(f"Invalid charge mode: {mode!r}")
-
-        circuit = self._find_circuit(entity_id)
-        if circuit is None:
-            raise KeyError(f"Entity not found: {entity_id}")
-
-        template_name = circuit["template"]
-        template = self._templates().get(template_name, {})
-        bb: dict[str, Any] = template.setdefault("battery_behavior", {"enabled": True})
-        bb["charge_mode"] = mode
-
-        self._mark_user_modified(template_name)
+        bess = self._state.setdefault("bess", {"enabled": True})
+        bess["charge_mode"] = mode
+        if mode == "custom" and rate_label:
+            bess["rate_label"] = rate_label
+            bess.pop("charge_hours", None)
+            bess.pop("discharge_hours", None)
+        elif mode != "custom":
+            bess.pop("rate_label", None)
         self._dirty = True
 
     # -- Battery profile --
 
-    def get_battery_profile(self, entity_id: str) -> dict[int, str]:
-        """Return the 24-hour battery schedule as hour → mode mapping.
-
-        Mode is one of ``"charge"``, ``"discharge"``, or ``"idle"``.
-        """
-        entity = self.get_entity(entity_id)
-        bb = entity.battery_behavior or {}
-        charge_hours = set(bb.get("charge_hours", []))
-        discharge_hours = set(bb.get("discharge_hours", []))
+    def get_battery_profile(self) -> dict[int, str]:
+        """Return the 24-hour BESS schedule as hour -> mode mapping."""
+        bess = self.get_bess_config()
+        charge_hours = set(bess.get("charge_hours", []))
+        discharge_hours = set(bess.get("discharge_hours", []))
 
         profile: dict[int, str] = {}
         for h in range(24):
@@ -688,27 +720,17 @@ class ConfigStore:
                 profile[h] = "idle"
         return profile
 
-    def update_battery_profile(self, entity_id: str, hour_modes: dict[int, str]) -> None:
-        """Write per-hour charge/discharge/idle schedule into battery_behavior."""
-        circuit = self._find_circuit(entity_id)
-        if circuit is None:
-            raise KeyError(f"Entity not found: {entity_id}")
-
-        template_name = circuit["template"]
-        template = self._templates().get(template_name, {})
-        bb = template.setdefault("battery_behavior", {"enabled": True})
-
-        bb["charge_hours"] = sorted(h for h, m in hour_modes.items() if m == "charge")
-        bb["discharge_hours"] = sorted(h for h, m in hour_modes.items() if m == "discharge")
-        bb["idle_hours"] = sorted(h for h, m in hour_modes.items() if m == "idle")
-
-        self._mark_user_modified(template_name)
+    def update_battery_profile(self, hour_modes: dict[int, str]) -> None:
+        """Write per-hour charge/discharge/idle schedule into BESS config."""
+        bess = self._state.setdefault("bess", {"enabled": True})
+        bess["charge_hours"] = sorted(h for h, m in hour_modes.items() if m == "charge")
+        bess["discharge_hours"] = sorted(h for h, m in hour_modes.items() if m == "discharge")
         self._dirty = True
 
-    def apply_battery_preset(self, entity_id: str, preset_name: str) -> dict[int, str]:
+    def apply_battery_preset(self, preset_name: str) -> dict[int, str]:
         """Apply a named battery preset and return the schedule."""
         hour_modes = get_battery_preset(preset_name)
-        self.update_battery_profile(entity_id, hour_modes)
+        self.update_battery_profile(hour_modes)
         self._dirty = True
         return hour_modes
 
@@ -831,6 +853,15 @@ class ConfigStore:
         pv_specs: list[tuple[float, float]] = []  # (nameplate, efficiency)
         battery_specs: list[tuple[float, float, list[int], list[int]]] = []
 
+        # Battery from top-level bess config (not an entity)
+        bess = self.get_bess_config()
+        if bess.get("enabled"):
+            charge_p = abs(float(bess.get("max_charge_w") or 3500))
+            discharge_p = abs(float(bess.get("max_discharge_w") or 3500))
+            charge_hrs: list[int] = bess.get("charge_hours") or []
+            discharge_hrs: list[int] = bess.get("discharge_hours") or []
+            battery_specs.append((charge_p, discharge_p, charge_hrs, discharge_hrs))
+
         for entity in entities:
             ep = entity.energy_profile
             if entity.entity_type == "pv":
@@ -841,13 +872,6 @@ class ConfigStore:
                 raw_eff = ep.get("efficiency")
                 efficiency = float(raw_eff) if raw_eff is not None else 0.85
                 pv_specs.append((nameplate, efficiency))
-            elif entity.entity_type == "battery":
-                bb: dict[str, Any] = entity.battery_behavior or {}
-                charge_p = abs(float(bb.get("max_charge_power") or 3500))
-                discharge_p = abs(float(bb.get("max_discharge_power") or 3500))
-                charge_hrs: list[int] = bb.get("charge_hours") or []
-                discharge_hrs: list[int] = bb.get("discharge_hours") or []
-                battery_specs.append((charge_p, discharge_p, charge_hrs, discharge_hrs))
             else:
                 profile = self.get_entity_profile(entity.id)
                 typical = float(ep["typical_power"])

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntEnum
+from typing import Any
 
 
 class ComponentRole(IntEnum):
@@ -104,11 +105,11 @@ class BESSConfig:
     hybrid: bool = False
     initial_soe_kwh: float | None = None
     panel_serial: str = ""
-    feed_circuit_id: str = ""
     charge_hours: tuple[int, ...] = ()
     discharge_hours: tuple[int, ...] = ()
     panel_timezone: str = "America/Los_Angeles"
     charge_mode: str = "self-consumption"
+    rate_record: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

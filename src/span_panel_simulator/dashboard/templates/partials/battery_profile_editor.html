@@ -4,15 +4,15 @@
   <div class="battery-section">
     <h4 class="battery-section-heading">Charge Mode</h4>
     <div class="charge-mode-selector"
-         id="charge-mode-{{ entity.id }}">
+         id="bess-charge-mode">
       {% for mode, label, hint in [
         ("self-consumption", "Self-Consumption", "Discharge to offset grid import, charge from solar excess — always active"),
         ("custom", "Time-of-Use", "Charge and discharge on a manual hourly schedule"),
         ("backup-only", "Backup Only", "Holds battery at full charge, discharges only during grid outages"),
       ] %}
       <label class="charge-mode-option{% if battery_charge_mode == mode %} active{% endif %}"
-             hx-put="entities/{{ entity.id }}/battery-charge-mode"
-             hx-target="#battery-profile-{{ entity.id }}"
+             hx-put="bess/charge-mode"
+             hx-target="#bess-card-section"
              hx-swap="innerHTML"
              hx-vals='{"charge_mode": "{{ mode }}"}'
              hx-disabled-elt="this">
@@ -39,8 +39,8 @@
     <div class="charge-mode-selector">
       {% for key, label in battery_preset_labels.items() %}
       <label class="charge-mode-option{% if battery_active_preset == key %} active{% endif %}"
-             hx-post="entities/{{ entity.id }}/battery-profile/preset"
-             hx-target="#battery-profile-{{ entity.id }}"
+             hx-post="bess/schedule/preset"
+             hx-target="#bess-card-section"
              hx-swap="innerHTML"
              hx-vals='{"preset": "{{ key }}"}'
              hx-disabled-elt="this">
@@ -50,23 +50,30 @@
     </div>
   </div>
 
-  <div class="day-picker" id="days-{{ entity.id }}">
+  <div class="day-picker" id="bess-days">
     <span class="day-picker-label">Active Days</span>
     <input type="hidden" name="days_submitted" value="1">
     {% for d, label in [(0,'Mo'),(1,'Tu'),(2,'We'),(3,'Th'),(4,'Fr'),(5,'Sa'),(6,'Su')] %}
     <label class="day-toggle">
       <input type="checkbox" name="day_{{ d }}" value="1"
              {% if d in active_days or not active_days %}checked{% endif %}
-             hx-put="entities/{{ entity.id }}/active-days"
-             hx-include="#days-{{ entity.id }}"
+             hx-put="bess/active-days"
+             hx-include="#bess-days"
              hx-swap="none">
       {{ label }}
     </label>
     {% endfor %}
   </div>
 
-  <form hx-put="entities/{{ entity.id }}/battery-profile"
-        hx-target="#battery-profile-{{ entity.id }}" hx-swap="innerHTML"
+  {% if tou_rate_driven and tou_rate_month is defined %}
+  <p class="charge-mode-hint" style="margin-top:0.5em">
+    Schedule derived from rate plan — {{ tou_rate_month }}.
+    Dispatch adapts automatically each month.
+  </p>
+  {% endif %}
+
+  <form hx-put="bess/schedule"
+        hx-target="#bess-card-section" hx-swap="innerHTML"
         hx-disabled-elt="find button">
     <div class="profile-grid">
       {% for h in range(24) %}
@@ -75,7 +82,8 @@
         <select name="hour_{{ h }}" class="battery-mode-select
           {%- if battery_profile.get(h, 'idle') == 'charge' %} mode-charge
           {%- elif battery_profile.get(h, 'idle') == 'discharge' %} mode-discharge
-          {%- else %} mode-idle{% endif %}">
+          {%- else %} mode-idle{% endif %}"
+          {%- if tou_rate_driven %} disabled{% endif %}>
           <option value="idle" {{ 'selected' if battery_profile.get(h, 'idle') == 'idle' }}>Idle</option>
           <option value="charge" {{ 'selected' if battery_profile.get(h, 'idle') == 'charge' }}>Chg</option>
           <option value="discharge" {{ 'selected' if battery_profile.get(h, 'idle') == 'discharge' }}>Dis</option>
@@ -88,7 +96,9 @@
       </div>
       {% endfor %}
     </div>
+    {% if not tou_rate_driven %}
     <button type="submit" class="btn btn-sm">Save Schedule</button>
+    {% endif %}
   </form>
   {% endif %}
 </fieldset>

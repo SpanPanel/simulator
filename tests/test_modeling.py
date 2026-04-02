@@ -137,21 +137,16 @@ circuit_templates:
       power_variation: 0.05
     relay_behavior: "non_controllable"
     priority: "MUST_HAVE"
-  battery:
-    energy_profile:
-      mode: "bidirectional"
-      power_range: [0.0, 5000.0]
-      typical_power: 3000.0
-      power_variation: 0.0
-    relay_behavior: "non_controllable"
-    priority: "MUST_HAVE"
-    battery_behavior:
-      enabled: true
-      charge_mode: "custom"
-      charge_hours: [10, 11, 12, 13, 14]
-      discharge_hours: [17, 18, 19, 20, 21]
-      nameplate_capacity_kwh: 13.5
-      backup_reserve_pct: 20
+
+bess:
+  enabled: true
+  charge_mode: "custom"
+  charge_hours: [10, 11, 12, 13, 14]
+  discharge_hours: [17, 18, 19, 20, 21]
+  nameplate_capacity_kwh: 13.5
+  backup_reserve_pct: 20
+  max_charge_w: 3500.0
+  max_discharge_w: 3500.0
 
 circuits:
   - id: "lights"
@@ -164,9 +159,6 @@ circuits:
     template: "solar"
     tabs: [3, 5]
     recorder_entity: "sensor.pv_power"
-  - id: "batt"
-    name: "Battery"
-    template: "battery"
 
 unmapped_tabs: [2, 4]
 

@@ -8,6 +8,18 @@ panel_config:
   latitude: 37.7
   longitude: -122.4
 
+bess:
+  enabled: true
+  nameplate_capacity_kwh: 13.5
+  max_charge_w: 3500.0
+  max_discharge_w: 3500.0
+  charge_efficiency: 0.95
+  discharge_efficiency: 0.95
+  backup_reserve_pct: 20.0
+  charge_mode: solar-gen
+  charge_hours: [8, 9, 10, 11, 12, 13, 14, 15]
+  discharge_hours: [16, 17, 18, 19, 20, 21, 22]
+
 circuit_templates:
   lighting:
     energy_profile:
@@ -52,27 +64,6 @@ circuit_templates:
     device_type: "pv"
     breaker_rating: 30
 
-  battery:
-    energy_profile:
-      mode: "bidirectional"
-      power_range: [-5000.0, 5000.0]
-      typical_power: 0.0
-      power_variation: 0.02
-      efficiency: 0.95
-    relay_behavior: "controllable"
-    priority: "NEVER"
-    breaker_rating: 40
-    battery_behavior:
-      enabled: true
-      nameplate_capacity_kwh: 13.5
-      backup_reserve_pct: 20.0
-      charge_mode: "solar-gen"
-      max_charge_power: 3500.0
-      max_discharge_power: 3500.0
-      charge_hours: [8, 9, 10, 11, 12, 13, 14, 15]
-      discharge_hours: [16, 17, 18, 19, 20, 21, 22]
-      idle_hours: [0, 1, 2, 3, 4, 5, 6, 7, 23]
-
 circuits:
   - id: "living_room_lights"
     name: "Living Room Lights"
@@ -103,10 +94,6 @@ circuits:
     name: "Solar Inverter"
     template: "solar"
     tabs: [6, 8]
-
-  - id: "battery_storage"
-    name: "Battery Storage"
-    template: "battery"
 
 unmapped_tabs: [9, 10, 11, 12, 13, 14, 15, 16]
 

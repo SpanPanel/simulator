@@ -420,8 +420,6 @@ class HomiePublisher:
             return
         n = NODE_BESS
         self._apply_extractors(n, _BESS_EXTRACTORS, bat, p)
-        if bat.feed_circuit_id:
-            p[self._prop_topic(n, "feed")] = self._ensure_circuit_uuid(bat.feed_circuit_id)
         p[self._prop_topic(n, "grid-state")] = s.grid_state or "ON_GRID"
         p[self._prop_topic(n, "relative-position")] = "DOWNSTREAM"
 

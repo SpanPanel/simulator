@@ -613,11 +613,14 @@
 
   function populateCostDiffCell(el, beforeCosts, afterCosts) {
     if (!beforeCosts || !afterCosts) { el.textContent = ''; return; }
-    var diff = beforeCosts.net_cost - afterCosts.net_cost;
-    var pct = beforeCosts.net_cost !== 0 ? (diff / Math.abs(beforeCosts.net_cost) * 100) : 0;
-    var sign = diff > 0 ? '\u2212' : '+';
-    el.textContent = sign + formatDollar(diff) + ' (' + Math.abs(pct).toFixed(1) + '%)';
-    el.className = 'modeling-col-cost ' + (diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : '');
+    var savings = beforeCosts.net_cost - afterCosts.net_cost;
+    var pct = beforeCosts.net_cost !== 0 ? (savings / Math.abs(beforeCosts.net_cost) * 100) : 0;
+    if (savings >= 0) {
+      el.textContent = formatDollar(savings) + ' (' + pct.toFixed(1) + '%)';
+    } else {
+      el.textContent = formatDollar(savings) + ' more expensive';
+    }
+    el.className = 'modeling-col-cost ' + (savings > 0 ? 'diff-positive' : savings < 0 ? 'diff-negative' : '');
   }
 
   function showCostColumns(visible) {
@@ -1037,6 +1040,7 @@
     var tgt = evt.detail.target;
     if (!tgt) return;
     var inEntitySection = tgt.id === 'entity-list-section'
+      || tgt.id === 'bess-card-section'
       || (tgt.closest && tgt.closest('#entity-list-section'));
     if (!inEntitySection) return;
 

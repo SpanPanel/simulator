@@ -8,6 +8,18 @@ panel_config:
   latitude: 37.7
   longitude: -122.4
 
+bess:
+  enabled: true
+  nameplate_capacity_kwh: 13.5
+  max_charge_w: 3500.0
+  max_discharge_w: 3500.0
+  charge_efficiency: 0.95
+  discharge_efficiency: 0.95
+  backup_reserve_pct: 20.0
+  charge_mode: solar-gen
+  charge_hours: [8, 9, 10, 11, 12, 13, 14, 15]
+  discharge_hours: [16, 17, 18, 19, 20, 21, 22]
+
 # Circuit templates define reusable behavior patterns
 circuit_templates:
   # Always-on base load
@@ -357,8 +369,8 @@ circuit_templates:
       on_duration: 600    # 10 minutes
       off_duration: 1800  # 30 minutes
 
-  # EV charger (SPAN Drive) with smart grid response
-  ev_charger:
+  # SPAN Drive EV charger with smart grid response
+  span_drive:
     energy_profile:
       mode: "consumer"
       power_range: [0.0, 11500.0]
@@ -367,7 +379,7 @@ circuit_templates:
     relay_behavior: "controllable"
     priority: "OFF_GRID"
     breaker_rating: 50
-    device_type: "evse"  # Generates EVSE (SPAN Drive) snapshot
+    device_type: "evse"
     smart_behavior:
       responds_to_grid: true
       max_power_reduction: 0.6  # Can reduce to 40% during grid stress
@@ -438,28 +450,6 @@ circuit_templates:
     relay_behavior: "controllable"
     priority: "NEVER"
     breaker_rating: 40
-
-  # Battery storage - bidirectional
-  battery_storage:
-    energy_profile:
-      mode: "bidirectional"  # Can charge or discharge
-      power_range: [-5000.0, 5000.0]  # ±5kW battery
-      typical_power: 0.0  # Neutral when idle
-      power_variation: 0.02  # Very stable
-      efficiency: 0.95  # 95% round-trip efficiency
-    relay_behavior: "controllable"
-    priority: "NEVER"
-    breaker_rating: 40
-    battery_behavior:
-      enabled: true
-      nameplate_capacity_kwh: 13.5
-      backup_reserve_pct: 20.0
-      charge_mode: "solar-gen"
-      max_charge_power: 3500.0
-      max_discharge_power: 3500.0
-      charge_hours: [8, 9, 10, 11, 12, 13, 14, 15]
-      discharge_hours: [16, 17, 18, 19, 20, 21, 22]
-      idle_hours: [0, 1, 2, 3, 4, 5, 6, 7, 23]
 
   # Wind turbine - variable producer
   wind_production:
@@ -651,9 +641,9 @@ circuits:
     tabs: [24, 26]  # 240V system
 
   # EV charging (tabs 27-29)
-  - id: "ev_charger_garage"
-    name: "Garage EV Charger"
-    template: "ev_charger"
+  - id: "span_drive_garage"
+    name: "SPAN Drive - Garage"
+    template: "span_drive"
     tabs: [27, 29]  # 240V Level 2 charger
 
   # Solar (tabs 28-30)
@@ -664,10 +654,6 @@ circuits:
     device_type: "pv"
     overrides:
       nameplate_capacity_w: 8000.0
-
-  - id: "battery_storage_1"
-    name: "Battery Storage"
-    template: "battery_storage"
 
 unmapped_tabs: [31, 32]
 

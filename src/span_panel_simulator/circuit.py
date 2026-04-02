@@ -231,8 +231,7 @@ class SimulatedCircuit:
         """Derive device_type from the template.
 
         Checks for an explicit ``device_type`` field first, then falls back
-        to mode-based detection.  Bidirectional circuits with
-        ``battery_behavior.enabled`` are batteries, not EVSE.
+        to mode-based detection.
         """
         explicit = self._template.get("device_type")
         if explicit:
@@ -241,9 +240,6 @@ class SimulatedCircuit:
         if mode == "producer":
             return "pv"
         if mode == "bidirectional":
-            battery = self._template.get("battery_behavior", {})
-            if isinstance(battery, dict) and battery.get("enabled", False):
-                return "circuit"
             return "evse"
         return "circuit"
 
@@ -294,27 +290,11 @@ class SimulatedCircuit:
             # consumer
             self._consumed_energy_wh += energy_increment
 
-    def _resolve_battery_direction(self, current_time: float) -> str:
-        """Determine battery direction from template config or engine state."""
-        battery_config = self._template.get("battery_behavior", {})
-        if not isinstance(battery_config, dict):
-            return "unknown"
-        if not battery_config.get("enabled", True):
-            return "unknown"
+    def _resolve_battery_direction(self, _current_time: float) -> str:
+        """Determine bidirectional circuit energy direction.
 
-        charge_mode: str = battery_config.get("charge_mode", "custom")
-        if charge_mode != "custom":
-            return self._behavior_engine.last_battery_direction
-
-        current_hour = self._behavior_engine.local_hour(current_time)
-        charge_hours: list[int] = battery_config.get("charge_hours", [])
-        discharge_hours: list[int] = battery_config.get("discharge_hours", [])
-        idle_hours: list[int] = battery_config.get("idle_hours", [])
-
-        if current_hour in charge_hours:
-            return "charging"
-        if current_hour in discharge_hours:
-            return "discharging"
-        if current_hour in idle_hours:
-            return "idle"
+        With the battery circuit removed (BESS is GFE on upstream lugs),
+        bidirectional circuits are EVSE/V2G — direction is unknown at the
+        circuit level so energy is conservatively counted as consumption.
+        """
         return "unknown"
