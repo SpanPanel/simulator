@@ -153,7 +153,7 @@ class EnergySystem:
                     self.bess.requested_power_w = 0.0
 
             else:  # custom (TOU): resolve from BESS schedule config + timestamp
-                if self.bess._rate_record is not None:
+                if self.bess.rate_record is not None:
                     # Rate-aware dispatch — consult URDB record directly
                     preliminary_deficit = inputs.load_demand_w - inputs.pv_available_w
                     pv_excess = max(0.0, -preliminary_deficit)
@@ -161,8 +161,8 @@ class EnergySystem:
 
                     dispatch = resolve_tou_dispatch(
                         ts=ts,
-                        tz=self.bess._panel_timezone,
-                        rate_record=self.bess._rate_record,
+                        tz=self.bess.panel_timezone,
+                        rate_record=self.bess.rate_record,
                         soe_pct=self.bess.soe_percentage,
                         backup_reserve_pct=self.bess.backup_reserve_pct,
                         max_charge_w=self.bess.max_charge_w,

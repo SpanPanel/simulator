@@ -1,5 +1,5 @@
 {% if bess_config and bess_config.enabled is defined and bess_config.enabled %}
-<div class="card bess-card" id="bess-card-section">
+<div class="card bess-card">
   <div class="card-header">
     <h2>Battery (GFE) <span class="badge badge-battery">UPSTREAM LUGS</span></h2>
     {% if not readonly %}
@@ -68,7 +68,7 @@
 {% else %}
 {# No BESS configured — show add button when editable #}
 {% if not readonly %}
-<div class="card" id="bess-card-section">
+<div class="card">
   <div class="card-header">
     <h2>Battery (GFE)</h2>
     <button class="btn btn-sm btn-primary"

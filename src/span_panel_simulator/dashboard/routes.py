@@ -314,9 +314,9 @@ def _rate_derived_profile(
     tz = ZoneInfo(tz_name)
     now = datetime.now(tz)
 
-    from span_panel_simulator.energy.tou import _all_rates_for_day
+    from span_panel_simulator.energy.tou import all_rates_for_day
 
-    day_rates = _all_rates_for_day(now, record)
+    day_rates = all_rates_for_day(now, record)
     if not day_rates:
         return None
 

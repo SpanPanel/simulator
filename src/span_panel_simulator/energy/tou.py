@@ -44,7 +44,7 @@ def resolve_tou_dispatch(
     """Resolve BESS dispatch from the rate schedule at timestamp *ts*."""
     dt = datetime.fromtimestamp(ts, tz=tz)
     current_rate = _rate_at(dt, rate_record)
-    day_rates = _all_rates_for_day(dt, rate_record)
+    day_rates = all_rates_for_day(dt, rate_record)
 
     if not day_rates:
         return TouDispatch("idle", 0.0, "no_rate_data")
@@ -106,7 +106,7 @@ def _rate_at(dt: datetime, record: dict[str, Any]) -> float:
     return float(tiers[0].get("rate", 0.0)) if tiers else 0.0
 
 
-def _all_rates_for_day(dt: datetime, record: dict[str, Any]) -> dict[int, float]:
+def all_rates_for_day(dt: datetime, record: dict[str, Any]) -> dict[int, float]:
     """Return {hour: rate} for every hour of the given day-type and month."""
     month_idx = dt.month - 1
     is_weekend = dt.weekday() >= 5

@@ -23,7 +23,7 @@ Utility <--[grid sensor]--> BESS <--> Panel (loads + PV)
 - BESS sits between the grid sensor and the panel on the upstream lugs.
 - The grid sensor measures net power at the utility meter point.
 - `grid_sensor = load - pv - bess_discharge + bess_charge` (all positive magnitudes).
-- BESS charges only from solar excess — never from the grid.
+- In self-consumption mode, BESS charges only from solar excess. In TOU/custom mode, BESS may charge from the grid during off-peak periods.
 - Grid sensor: positive = importing, negative = exporting.
 
 ## Approach

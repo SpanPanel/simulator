@@ -143,6 +143,16 @@ class BESSUnit(Component):
         self._last_ts: float | None = None
 
     @property
+    def panel_timezone(self) -> ZoneInfo:
+        """Timezone used for schedule resolution."""
+        return self._panel_timezone
+
+    @property
+    def rate_record(self) -> dict[str, Any] | None:
+        """URDB rate record for TOU dispatch, if configured."""
+        return self._rate_record
+
+    @property
     def soe_percentage(self) -> float:
         if self.nameplate_capacity_kwh <= 0:
             return 0.0
