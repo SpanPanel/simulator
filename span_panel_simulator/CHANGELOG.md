@@ -9,6 +9,9 @@
 - `DynamicSimulationEngine.total_tabs` raises instead of silently returning 32 when accessed before `initialize_async()`
 - Panels configured with `total_tabs` outside the supported model set (16, 24, 32, 40, 48) now fail loudly at panel-add time instead of being silently labeled `MAIN_32`; validation runs before panel registration so unsupported configs no longer leave an orphan tick task
 - `PanelInstance.total_tabs` property added, mirroring the existing `serial_number` lifecycle guard
+- Config-directory reload no longer aborts when a single panel fails to start — each config is processed independently, errors are recorded per filename, and successful panels continue to start, stop, or reload as expected
+- Failed configs' file hashes are withheld so the next reload automatically retries after the user fixes the config
+- Dashboard panel list surfaces per-panel start errors as a badge next to the failing filename, with the full error message available on hover
 
 ## 1.0.10 — 2026-04-02
 
