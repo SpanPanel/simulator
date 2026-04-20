@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from aiohttp.test_utils import TestClient, TestServer
 
 from span_panel_simulator.bootstrap import BootstrapHttpServer
 from span_panel_simulator.const import DEFAULT_FIRMWARE_VERSION
+from span_panel_simulator.schema import load_schema, render_for_panel
 
 
 def _make_server() -> BootstrapHttpServer:
@@ -96,3 +100,40 @@ async def test_no_admin_endpoints() -> None:
 
         resp = await client.post("/admin/reload")
         assert resp.status == 404
+
+
+async def test_schema_endpoint_serves_40_tab_format() -> None:
+    """Bootstrap HTTP endpoint serves a rendered schema whose space.format matches panel size."""
+    template = load_schema(
+        Path(__file__).parent.parent
+        / "src"
+        / "span_panel_simulator"
+        / "data"
+        / "homie_schema.json"
+    )
+    rendered = render_for_panel(template, 40)
+
+    certs = MagicMock()
+    certs.ca_cert_pem = b"-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"
+
+    server = BootstrapHttpServer(
+        serial="sim-40t-001",
+        firmware=DEFAULT_FIRMWARE_VERSION,
+        certs=certs,
+        schema=rendered,
+        broker_username="span",
+        broker_password="sim-password",
+        broker_host="localhost",
+    )
+
+    async with TestClient(TestServer(server._app)) as client:
+        resp = await client.get("/api/v2/homie/schema")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["types"]["energy.ebus.device.circuit"]["space"]["format"] == "1:40:1"
+        # Hash is content-derived, not the stamped-in-template value
+        expected_hash = (
+            "sha256:"
+            + hashlib.sha256(json.dumps(data["types"], sort_keys=True).encode()).hexdigest()[:16]
+        )
+        assert data["typesSchemaHash"] == expected_hash
