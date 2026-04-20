@@ -37,7 +37,7 @@ from span_panel_simulator.discovery import PanelAdvertiser, PanelBrowser
 from span_panel_simulator.engine import _PANEL_SIZE_TO_MODEL
 from span_panel_simulator.panel import PanelInstance
 from span_panel_simulator.recorder import RecorderDataSource
-from span_panel_simulator.schema import HomieSchemaRegistry, load_schema
+from span_panel_simulator.schema import HomieSchemaRegistry, load_schema, render_for_panel
 
 if TYPE_CHECKING:
     from span_panel_simulator.certs import CertificateBundle
@@ -303,10 +303,13 @@ class SimulatorApp:
         self._panels[config_path] = panel
         self._serial_to_panel[serial] = panel
 
-        # Derive model from panel tab count
-        panel_model = "MAIN_32"
-        if panel.engine is not None:
-            panel_model = _PANEL_SIZE_TO_MODEL.get(panel.engine.total_tabs, "MAIN_32")
+        # Derive panel model and per-panel Homie schema from actual tab count.
+        # panel.engine is guaranteed non-None here — _start_panel awaited
+        # panel.start() which sets _engine before returning.
+        assert panel.engine is not None  # guaranteed by panel.start() above
+        total_tabs = panel.engine.total_tabs
+        panel_model = _PANEL_SIZE_TO_MODEL[total_tabs]
+        panel_schema = render_for_panel(self._schema, total_tabs)
 
         # Create per-panel bootstrap HTTP server with port allocation
         port = self._allocate_port()
@@ -314,7 +317,7 @@ class SimulatorApp:
             serial,
             self._firmware,
             self._certs,
-            self._schema,
+            panel_schema,
             broker_username=self._broker_username,
             broker_password=self._broker_password,
             broker_host=self._broker_host,
@@ -335,7 +338,7 @@ class SimulatorApp:
                     serial,
                     self._firmware,
                     self._certs,
-                    self._schema,
+                    panel_schema,
                     broker_username=self._broker_username,
                     broker_password=self._broker_password,
                     broker_host=self._broker_host,
