@@ -181,6 +181,9 @@ def render_for_panel(
         raise ValueError(msg)
 
     data = json.loads(registry.raw_json)
+    if not isinstance(data, dict):
+        msg = "Template schema root must be a JSON object"
+        raise ValueError(msg)
     types = data.get("types")
     if not isinstance(types, dict):
         msg = "Template schema missing 'types' object"

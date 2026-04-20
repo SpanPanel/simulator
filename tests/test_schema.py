@@ -278,8 +278,13 @@ class TestRenderForPanel:
         assert r32.schema_hash.startswith("sha256:")
         assert r40.schema_hash.startswith("sha256:")
 
-    def test_hash_matches_span_panel_api_algorithm(self) -> None:
-        """Hash equals sha256(json.dumps(types, sort_keys=True))[:16]."""
+    def test_hash_uses_content_derived_algorithm(self) -> None:
+        """Hash is derived from sorted-keys JSON of the ``types`` dict.
+
+        Algorithm mirrors span-panel-api/src/span_panel_api/auth.py:206-207
+        (``"sha256:" + sha256(json.dumps(data["types"], sort_keys=True)).hexdigest()[:16]``)
+        so simulator and consumer see matching hashes for identical content.
+        """
         import hashlib
 
         from span_panel_simulator.schema import render_for_panel
