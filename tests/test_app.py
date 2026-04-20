@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -121,22 +120,21 @@ class TestUnsupportedPanelSize:
 
     @pytest.mark.asyncio
     async def test_unsupported_total_tabs_raises_key_error(self, tmp_path: Path) -> None:
-        """total_tabs=20 is valid per validator but has no SPAN model — _start_panel must raise."""
+        """total_tabs=20 has no SPAN model — _start_panel must raise AND not register."""
         config = tmp_path / "bad_size.yaml"
         config.write_text(_BAD_SIZE_CONFIG)
 
         app = SimulatorApp(config_dir=tmp_path)
-        # Inject the minimum state _start_panel reads:
         app._schema = load_schema(_BUNDLED_SCHEMA)
-        fake_ca = b"-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----\n"
-        app._certs = MagicMock(ca_cert_pem=fake_ca)
-        # publish_init during panel.start() calls self._publish -> self._mqtt_client.publish(...)
+        app._certs = MagicMock(
+            ca_cert_pem=b"-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----\n"
+        )
         app._mqtt_client = AsyncMock()
 
         with pytest.raises(KeyError):
             await app._start_panel(config)
 
-        # Defensive cleanup in case the panel was partially registered
-        for panel in list(app._panels.values()):
-            with contextlib.suppress(Exception):
-                await panel.stop()
+        # Validation ran before registration — panel must not be tracked,
+        # and its tick task must not be running.
+        assert config not in app._panels
+        assert not app._serial_to_panel

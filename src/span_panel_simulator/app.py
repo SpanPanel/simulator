@@ -282,16 +282,29 @@ class SimulatorApp:
         )
         serial = await panel.start()
 
+        # Validate panel size and render schema before registering. If the
+        # panel's total_tabs is not a SPAN model size, stop the started panel
+        # cleanly so we don't leave a zombie tick task and MQTT publisher
+        # without a bootstrap HTTP server to match.
+        try:
+            total_tabs = panel.total_tabs
+            panel_model = _PANEL_SIZE_TO_MODEL[total_tabs]
+            panel_schema = render_for_panel(self._schema, total_tabs)
+        except Exception:
+            await panel.stop()
+            raise
+
         # Ensure unique serial — cloned configs may share the same serial.
         # Append a suffix to avoid MQTT topic and mDNS name collisions.
+        # Moved below validation — no point renaming a panel we are about to discard.
         if serial in self._serial_to_panel:
             base_serial = serial
             suffix = 2
             while f"{base_serial}-{suffix}" in self._serial_to_panel:
                 suffix += 1
             serial = f"{base_serial}-{suffix}"
-            if panel.engine is not None:
-                panel.engine.override_serial_number(serial)
+            assert panel.engine is not None  # narrowed by panel.total_tabs above
+            panel.engine.override_serial_number(serial)
             if panel.publisher is not None:
                 panel.publisher.override_serial(serial)
             _LOGGER.warning(
@@ -302,14 +315,6 @@ class SimulatorApp:
 
         self._panels[config_path] = panel
         self._serial_to_panel[serial] = panel
-
-        # Derive panel model and per-panel Homie schema from actual tab count.
-        # panel.engine is guaranteed non-None here — _start_panel awaited
-        # panel.start() which sets _engine before returning.
-        assert panel.engine is not None  # guaranteed by panel.start() above
-        total_tabs = panel.engine.total_tabs
-        panel_model = _PANEL_SIZE_TO_MODEL[total_tabs]
-        panel_schema = render_for_panel(self._schema, total_tabs)
 
         # Create per-panel bootstrap HTTP server with port allocation
         port = self._allocate_port()

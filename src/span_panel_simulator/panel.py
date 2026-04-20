@@ -62,6 +62,13 @@ class PanelInstance:
         return self._engine.serial_number
 
     @property
+    def total_tabs(self) -> int:
+        if self._engine is None:
+            msg = "Panel not initialised — call start() first"
+            raise RuntimeError(msg)
+        return self._engine.total_tabs
+
+    @property
     def is_running(self) -> bool:
         return self._running
 

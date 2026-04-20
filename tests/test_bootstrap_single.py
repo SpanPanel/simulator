@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import json as _json
-from pathlib import Path as _Path
+import hashlib
+import json
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from aiohttp.test_utils import TestClient, TestServer
 
 from span_panel_simulator.bootstrap import BootstrapHttpServer
 from span_panel_simulator.const import DEFAULT_FIRMWARE_VERSION
+from span_panel_simulator.schema import load_schema, render_for_panel
 
 
 def _make_server() -> BootstrapHttpServer:
@@ -102,10 +104,8 @@ async def test_no_admin_endpoints() -> None:
 
 async def test_schema_endpoint_serves_40_tab_format() -> None:
     """Bootstrap HTTP endpoint serves a rendered schema whose space.format matches panel size."""
-    from span_panel_simulator.schema import load_schema, render_for_panel
-
     template = load_schema(
-        _Path(__file__).parent.parent
+        Path(__file__).parent.parent
         / "src"
         / "span_panel_simulator"
         / "data"
@@ -132,10 +132,8 @@ async def test_schema_endpoint_serves_40_tab_format() -> None:
         data = await resp.json()
         assert data["types"]["energy.ebus.device.circuit"]["space"]["format"] == "1:40:1"
         # Hash is content-derived, not the stamped-in-template value
-        import hashlib as _hashlib
-
         expected_hash = (
             "sha256:"
-            + _hashlib.sha256(_json.dumps(data["types"], sort_keys=True).encode()).hexdigest()[:16]
+            + hashlib.sha256(json.dumps(data["types"], sort_keys=True).encode()).hexdigest()[:16]
         )
         assert data["typesSchemaHash"] == expected_hash
