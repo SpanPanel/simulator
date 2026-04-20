@@ -9,6 +9,9 @@
   <span class="panel-serial">{{ p.serial }}</span>
   {% if p.port %}<span class="panel-port" title="Bootstrap HTTP port">:{{ p.port }}</span>{% endif %}
   <span class="panel-filename">{{ p.filename }}</span>
+  {% if p.error %}
+  <span class="badge badge-error" title="{{ p.error }}">error</span>
+  {% endif %}
   {% if p.is_default %}
   <span class="badge badge-default" title="Clone this template to create an editable config">template</span>
   {% endif %}

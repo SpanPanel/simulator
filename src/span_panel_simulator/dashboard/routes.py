@@ -143,6 +143,7 @@ def _all_panels(request: web.Request) -> list[dict[str, object]]:
 
     # Port lookup: serial -> port
     port_map = ctx.get_panel_ports()
+    errors = ctx.get_panel_start_errors()
 
     return [
         {
@@ -152,6 +153,7 @@ def _all_panels(request: web.Request) -> list[dict[str, object]]:
             "active": fname == active_file,
             "is_default": fname.startswith("default_"),
             "port": port_map.get(running_map.get(fname, ""), 0),
+            "error": errors.get(fname, ""),
         }
         for fname in configs
     ]

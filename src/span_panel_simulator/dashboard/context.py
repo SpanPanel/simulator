@@ -27,6 +27,7 @@ class DashboardContext:
     get_panel_configs: Callable[[], dict[Path, str]]  # path -> serial
     get_panel_ports: Callable[[], dict[str, int]]  # serial -> port
     request_reload: Callable[[], None]
+    get_panel_start_errors: Callable[[], dict[str, str]] = lambda: {}  # filename -> error message
     set_config_filter: Callable[[str | None], None] = lambda _: None
     start_panel: Callable[[str], None] = lambda _: None
     stop_panel: Callable[[str], None] = lambda _: None
