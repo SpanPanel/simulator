@@ -236,3 +236,126 @@ class TestValidateValue:
     def test_string_always_valid(self) -> None:
         assert validate_value(self._prop("string"), "") is None
         assert validate_value(self._prop("string"), "hello world") is None
+
+
+class TestRenderForPanel:
+    """render_for_panel produces size-specific schema registries."""
+
+    def test_patches_space_format_for_40_tabs(self) -> None:
+        from span_panel_simulator.schema import render_for_panel
+
+        template = load_schema(_bundled_schema_path())
+        rendered = render_for_panel(template, 40)
+        space = rendered.get_property("energy.ebus.device.circuit", "space")
+        assert space is not None
+        assert space.format == "1:40:1"
+
+    def test_patches_space_format_for_48_tabs(self) -> None:
+        from span_panel_simulator.schema import render_for_panel
+
+        template = load_schema(_bundled_schema_path())
+        rendered = render_for_panel(template, 48)
+        space = rendered.get_property("energy.ebus.device.circuit", "space")
+        assert space is not None
+        assert space.format == "1:48:1"
+
+    def test_raw_json_reflects_patched_format(self) -> None:
+        from span_panel_simulator.schema import render_for_panel
+
+        template = load_schema(_bundled_schema_path())
+        rendered = render_for_panel(template, 40)
+        parsed = json.loads(rendered.raw_json)
+        assert parsed["types"]["energy.ebus.device.circuit"]["space"]["format"] == "1:40:1"
+
+    def test_hash_recomputed_for_size(self) -> None:
+        """Hash is derived from types content — different size → different hash."""
+        from span_panel_simulator.schema import render_for_panel
+
+        template = load_schema(_bundled_schema_path())
+        r32 = render_for_panel(template, 32)
+        r40 = render_for_panel(template, 40)
+        assert r32.schema_hash != r40.schema_hash
+        assert r32.schema_hash.startswith("sha256:")
+        assert r40.schema_hash.startswith("sha256:")
+
+    def test_hash_matches_span_panel_api_algorithm(self) -> None:
+        """Hash equals sha256(json.dumps(types, sort_keys=True))[:16]."""
+        import hashlib
+
+        from span_panel_simulator.schema import render_for_panel
+
+        template = load_schema(_bundled_schema_path())
+        rendered = render_for_panel(template, 40)
+        types = json.loads(rendered.raw_json)["types"]
+        expected = (
+            "sha256:" + hashlib.sha256(json.dumps(types, sort_keys=True).encode()).hexdigest()[:16]
+        )
+        assert rendered.schema_hash == expected
+
+    def test_stamped_hash_matches_derived(self) -> None:
+        """typesSchemaHash in raw_json agrees with schema_hash field."""
+        from span_panel_simulator.schema import render_for_panel
+
+        template = load_schema(_bundled_schema_path())
+        rendered = render_for_panel(template, 40)
+        parsed = json.loads(rendered.raw_json)
+        assert parsed["typesSchemaHash"] == rendered.schema_hash
+
+    def test_deterministic(self) -> None:
+        """Same inputs produce byte-identical raw_json."""
+        from span_panel_simulator.schema import render_for_panel
+
+        template = load_schema(_bundled_schema_path())
+        a = render_for_panel(template, 40)
+        b = render_for_panel(template, 40)
+        assert a.raw_json == b.raw_json
+        assert a.schema_hash == b.schema_hash
+
+    def test_input_registry_not_mutated(self) -> None:
+        """render_for_panel does not modify the template registry."""
+        from span_panel_simulator.schema import render_for_panel
+
+        template = load_schema(_bundled_schema_path())
+        original_json = template.raw_json
+        original_hash = template.schema_hash
+        _ = render_for_panel(template, 40)
+        assert template.raw_json == original_json
+        assert template.schema_hash == original_hash
+        space = template.get_property("energy.ebus.device.circuit", "space")
+        assert space is not None
+        assert space.format == "1:32:1"
+
+    def test_rejects_zero(self) -> None:
+        from span_panel_simulator.schema import render_for_panel
+
+        template = load_schema(_bundled_schema_path())
+        with pytest.raises(ValueError):
+            render_for_panel(template, 0)
+
+    def test_rejects_negative(self) -> None:
+        from span_panel_simulator.schema import render_for_panel
+
+        template = load_schema(_bundled_schema_path())
+        with pytest.raises(ValueError):
+            render_for_panel(template, -4)
+
+    def test_rejects_odd(self) -> None:
+        from span_panel_simulator.schema import render_for_panel
+
+        template = load_schema(_bundled_schema_path())
+        with pytest.raises(ValueError):
+            render_for_panel(template, 33)
+
+    def test_round_trip_through_build_registry(self) -> None:
+        """Rendered raw_json parses back into a valid registry."""
+        from span_panel_simulator.schema import render_for_panel
+
+        template = load_schema(_bundled_schema_path())
+        rendered = render_for_panel(template, 40)
+        # node_types must reflect the patched format
+        assert (
+            rendered.node_types["energy.ebus.device.circuit"].properties["space"].format
+            == "1:40:1"
+        )
+        # Other properties should survive the round-trip
+        assert "relay" in rendered.node_types["energy.ebus.device.circuit"].properties

@@ -7,6 +7,7 @@ and property mapping verification.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -144,6 +145,65 @@ def _build_registry(raw_json: str) -> HomieSchemaRegistry:
         schema_hash=schema_hash,
         raw_json=raw_json,
     )
+
+
+_CIRCUIT_TYPE_KEY = "energy.ebus.device.circuit"
+
+
+def render_for_panel(
+    registry: HomieSchemaRegistry,
+    total_tabs: int,
+) -> HomieSchemaRegistry:
+    """Produce a size-specific copy of a schema registry.
+
+    Patches the ``space`` property's ``format`` field to reflect the
+    actual panel size and recomputes ``typesSchemaHash`` over the
+    resulting ``types`` structure using the same algorithm span-panel-api
+    uses for drift detection.
+
+    The input ``registry`` is not mutated.
+
+    Args:
+        registry: Template registry (typically the bundled schema).
+        total_tabs: Panel size — must be a positive even integer.
+
+    Returns:
+        A new ``HomieSchemaRegistry`` whose ``raw_json`` declares
+        ``"format": "1:{total_tabs}:1"`` on the circuit ``space`` property
+        and whose ``typesSchemaHash`` is derived from the rendered ``types``.
+
+    Raises:
+        ValueError: If ``total_tabs`` is not a positive even integer, or
+            if the template is missing the expected ``space`` property.
+    """
+    if total_tabs <= 0 or total_tabs % 2 != 0:
+        msg = f"total_tabs must be a positive even integer, got {total_tabs}"
+        raise ValueError(msg)
+
+    data = json.loads(registry.raw_json)
+    types = data.get("types")
+    if not isinstance(types, dict):
+        msg = "Template schema missing 'types' object"
+        raise ValueError(msg)
+
+    circuit_type = types.get(_CIRCUIT_TYPE_KEY)
+    if not isinstance(circuit_type, dict):
+        msg = f"Template schema missing '{_CIRCUIT_TYPE_KEY}' node type"
+        raise ValueError(msg)
+
+    space_prop = circuit_type.get("space")
+    if not isinstance(space_prop, dict):
+        msg = f"Template schema missing '{_CIRCUIT_TYPE_KEY}/space' property"
+        raise ValueError(msg)
+
+    space_prop["format"] = f"1:{total_tabs}:1"
+
+    types_json = json.dumps(types, sort_keys=True)
+    new_hash = "sha256:" + hashlib.sha256(types_json.encode()).hexdigest()[:16]
+    data["typesSchemaHash"] = new_hash
+
+    raw_json = json.dumps(data, indent=4) + "\n"
+    return _build_registry(raw_json)
 
 
 def validate_value(prop: SchemaProperty, value: str) -> str | None:
