@@ -89,3 +89,24 @@ class TestPanelInstance:
         panel = PanelInstance(simple_config, AsyncMock())
         with pytest.raises(RuntimeError, match="not initialised"):
             _ = panel.serial_number
+
+
+class TestEngineTotalTabsProperty:
+    """total_tabs property behavior before and after initialization."""
+
+    def test_raises_before_initialize(self) -> None:
+        """total_tabs must raise if accessed before initialize_async()."""
+        from span_panel_simulator.engine import DynamicSimulationEngine
+
+        engine = DynamicSimulationEngine(config_path=None, recorder=None)
+        with pytest.raises(RuntimeError, match="initialize_async"):
+            _ = engine.total_tabs
+
+    @pytest.mark.asyncio
+    async def test_returns_config_value_after_initialize(self, simple_config: Path) -> None:
+        """total_tabs returns the configured value after initialization."""
+        from span_panel_simulator.engine import DynamicSimulationEngine
+
+        engine = DynamicSimulationEngine(config_path=simple_config, recorder=None)
+        await engine.initialize_async()
+        assert engine.total_tabs == 8

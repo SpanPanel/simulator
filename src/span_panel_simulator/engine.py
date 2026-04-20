@@ -809,9 +809,10 @@ class DynamicSimulationEngine:
     @property
     def total_tabs(self) -> int:
         """Total panel tab count from configuration."""
-        if self._config:
-            return int(self._config["panel_config"].get("total_tabs", 32))
-        return 32
+        if self._config is None:
+            msg = "Engine not initialised — call initialize_async() first"
+            raise RuntimeError(msg)
+        return int(self._config["panel_config"]["total_tabs"])
 
     @property
     def panel_timezone(self) -> str:
