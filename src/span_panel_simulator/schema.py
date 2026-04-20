@@ -77,7 +77,11 @@ def load_schema(path: Path) -> HomieSchemaRegistry:
         FileNotFoundError: If the schema file does not exist.
         ValueError: If the schema structure is invalid.
     """
-    raw_json = path.read_text(encoding="utf-8")
+    return _build_registry(path.read_text(encoding="utf-8"))
+
+
+def _build_registry(raw_json: str) -> HomieSchemaRegistry:
+    """Parse Homie schema JSON text into a typed registry."""
     data = json.loads(raw_json)
 
     if not isinstance(data, dict):
