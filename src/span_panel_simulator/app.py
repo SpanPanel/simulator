@@ -37,7 +37,7 @@ from span_panel_simulator.discovery import PanelAdvertiser, PanelBrowser
 from span_panel_simulator.engine import _PANEL_SIZE_TO_MODEL
 from span_panel_simulator.panel import PanelInstance
 from span_panel_simulator.recorder import RecorderDataSource
-from span_panel_simulator.schema import HomieSchemaRegistry, load_schema
+from span_panel_simulator.schema import HomieSchemaRegistry, load_schema, render_for_panel
 
 if TYPE_CHECKING:
     from span_panel_simulator.certs import CertificateBundle
@@ -136,6 +136,7 @@ class SimulatorApp:
         self._config_hashes: dict[Path, str] = {}
         self._serial_to_panel: dict[str, PanelInstance] = {}
         self._stopped_configs: set[str] = set()
+        self._panel_start_errors: dict[str, str] = {}  # filename -> last error message
         self._panel_servers: dict[str, BootstrapHttpServer] = {}
         self._panel_ports: dict[str, int] = {}
         self._used_ports: set[int] = set()
@@ -178,6 +179,10 @@ class SimulatorApp:
     def _get_panel_ports(self) -> dict[str, int]:
         """Return a mapping of serial number to HTTP port for running panels."""
         return dict(self._panel_ports)
+
+    def _get_panel_start_errors(self) -> dict[str, str]:
+        """Return the most recent per-filename start/reload errors."""
+        return dict(self._panel_start_errors)
 
     def _get_first_engine(self) -> DynamicSimulationEngine | None:
         """Return the engine of the first running panel, if any."""
@@ -282,16 +287,29 @@ class SimulatorApp:
         )
         serial = await panel.start()
 
+        # Validate panel size and render schema before registering. If the
+        # panel's total_tabs is not a SPAN model size, stop the started panel
+        # cleanly so we don't leave a zombie tick task and MQTT publisher
+        # without a bootstrap HTTP server to match.
+        try:
+            total_tabs = panel.total_tabs
+            panel_model = _PANEL_SIZE_TO_MODEL[total_tabs]
+            panel_schema = render_for_panel(self._schema, total_tabs)
+        except Exception:
+            await panel.stop()
+            raise
+
         # Ensure unique serial — cloned configs may share the same serial.
         # Append a suffix to avoid MQTT topic and mDNS name collisions.
+        # Moved below validation — no point renaming a panel we are about to discard.
         if serial in self._serial_to_panel:
             base_serial = serial
             suffix = 2
             while f"{base_serial}-{suffix}" in self._serial_to_panel:
                 suffix += 1
             serial = f"{base_serial}-{suffix}"
-            if panel.engine is not None:
-                panel.engine.override_serial_number(serial)
+            assert panel.engine is not None  # narrowed by panel.total_tabs above
+            panel.engine.override_serial_number(serial)
             if panel.publisher is not None:
                 panel.publisher.override_serial(serial)
             _LOGGER.warning(
@@ -303,18 +321,13 @@ class SimulatorApp:
         self._panels[config_path] = panel
         self._serial_to_panel[serial] = panel
 
-        # Derive model from panel tab count
-        panel_model = "MAIN_32"
-        if panel.engine is not None:
-            panel_model = _PANEL_SIZE_TO_MODEL.get(panel.engine.total_tabs, "MAIN_32")
-
         # Create per-panel bootstrap HTTP server with port allocation
         port = self._allocate_port()
         server = BootstrapHttpServer(
             serial,
             self._firmware,
             self._certs,
-            self._schema,
+            panel_schema,
             broker_username=self._broker_username,
             broker_password=self._broker_password,
             broker_host=self._broker_host,
@@ -335,7 +348,7 @@ class SimulatorApp:
                     serial,
                     self._firmware,
                     self._certs,
-                    self._schema,
+                    panel_schema,
                     broker_username=self._broker_username,
                     broker_password=self._broker_password,
                     broker_host=self._broker_host,
@@ -528,7 +541,12 @@ class SimulatorApp:
 
         Returns a summary of what changed::
 
-            {"started": [...], "stopped": [...], "reloaded": [...]}
+            {"started": [...], "stopped": [...], "reloaded": [...], "errors": [...]}
+
+        Per-path failures are captured rather than aborting the reload — a
+        broken config cannot block other panels from being started,
+        stopped, or reloaded. Errors for affected filenames are stored
+        on ``self._panel_start_errors`` so the dashboard can surface them.
         """
         current = _discover_configs(self._config_dir, self._config_filter)
 
@@ -544,38 +562,77 @@ class SimulatorApp:
         to_check = set(current) & set(prev)
         to_reload = {p for p in to_check if current[p] != prev[p]}
 
-        result: dict[str, list[str]] = {"started": [], "stopped": [], "reloaded": []}
+        result: dict[str, list[str]] = {
+            "started": [],
+            "stopped": [],
+            "reloaded": [],
+            "errors": [],
+        }
+
+        def _record_error(path: Path, exc: BaseException) -> None:
+            msg = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+            self._panel_start_errors[path.name] = msg
+            result["errors"].append(f"{path.name}: {msg}")
+            _LOGGER.exception("Panel operation failed for %s", path.name)
 
         # Stop removed panels
         for path in to_stop:
             panel = self._panels.get(path)
             serial = panel.serial_number if panel and panel.is_running else path.stem
-            await self._stop_panel(path)
+            try:
+                await self._stop_panel(path)
+            except Exception as exc:
+                _record_error(path, exc)
+                continue
             result["stopped"].append(serial)
+            self._panel_start_errors.pop(path.name, None)
 
         # Reload changed panels
         for path in to_reload:
             panel = self._panels.get(path)
-            if panel is not None:
-                await self._stop_panel(path)
-                new_panel = await self._start_panel(path)
-                result["reloaded"].append(new_panel.serial_number)
-            else:
-                new_panel = await self._start_panel(path)
-                result["started"].append(new_panel.serial_number)
+            try:
+                if panel is not None:
+                    await self._stop_panel(path)
+                    new_panel = await self._start_panel(path)
+                    result["reloaded"].append(new_panel.serial_number)
+                else:
+                    new_panel = await self._start_panel(path)
+                    result["started"].append(new_panel.serial_number)
+            except Exception as exc:
+                _record_error(path, exc)
+                # Do not record the new hash — next reload retries after fix.
+                continue
+            self._panel_start_errors.pop(path.name, None)
 
         # Start new panels
         for path in to_start:
-            panel = await self._start_panel(path)
+            try:
+                panel = await self._start_panel(path)
+            except Exception as exc:
+                _record_error(path, exc)
+                continue
             result["started"].append(panel.serial_number)
+            self._panel_start_errors.pop(path.name, None)
 
-        self._config_hashes = current
+        # Record hashes only for paths we successfully processed. Failed
+        # paths retain their previous hash (or absence) so reload retries
+        # on the next tick after the user fixes the config.
+        new_hashes = dict(self._config_hashes)
+        successful = set(current) - {
+            p for p in (to_start | to_reload) if p.name in self._panel_start_errors
+        }
+        for path in successful:
+            new_hashes[path] = current[path]
+        for path in to_stop:
+            new_hashes.pop(path, None)
+        self._config_hashes = new_hashes
 
         _LOGGER.info(
-            "Reload complete: started=%d, stopped=%d, reloaded=%d",
+            "Reload complete: started=%d, stopped=%d, reloaded=%d, errors=%d",
             len(result["started"]),
             len(result["stopped"]),
             len(result["reloaded"]),
+            len(result["errors"]),
         )
         return result
 
@@ -784,6 +841,7 @@ class SimulatorApp:
             config_filter=self._config_filter,
             get_panel_configs=self._get_panel_configs,
             get_panel_ports=self._get_panel_ports,
+            get_panel_start_errors=self._get_panel_start_errors,
             request_reload=self.request_reload,
             set_config_filter=self.set_config_filter,
             start_panel=self.request_start_panel,

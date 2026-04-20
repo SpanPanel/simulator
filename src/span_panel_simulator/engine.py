@@ -809,9 +809,10 @@ class DynamicSimulationEngine:
     @property
     def total_tabs(self) -> int:
         """Total panel tab count from configuration."""
-        if self._config:
-            return int(self._config["panel_config"].get("total_tabs", 32))
-        return 32
+        if self._config is None:
+            msg = "Engine not initialised — call initialize_async() first"
+            raise RuntimeError(msg)
+        return int(self._config["panel_config"]["total_tabs"])
 
     @property
     def panel_timezone(self) -> str:
@@ -1109,7 +1110,7 @@ class DynamicSimulationEngine:
                 )
 
         # 9. Build panel snapshot
-        total_tabs = self._config["panel_config"].get("total_tabs", 32)
+        total_tabs = self._config["panel_config"]["total_tabs"]
         main_size = self._config["panel_config"].get("main_size", 200)
         feedthrough_power = 0.0
 
@@ -1495,7 +1496,7 @@ class DynamicSimulationEngine:
         if not occupied_tabs:
             return
 
-        total_tabs = self._config["panel_config"].get("total_tabs", 32)
+        total_tabs = self._config["panel_config"]["total_tabs"]
         panel_size = max(*occupied_tabs, total_tabs)
         for tab in range(1, panel_size + 1):
             if tab not in occupied_tabs:
