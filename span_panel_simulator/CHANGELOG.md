@@ -4,12 +4,16 @@
 
 ### Fixes
 
-- Homie schema served over `GET /api/v2/homie/schema` now declares the correct panel size per panel. Previously the `space` property's `format` field was hardcoded to `"1:32:1"` regardless of the panel's configured `total_tabs`, causing span-panel-api (and downstream span-card) to render 40-tab panels as 32-tab
-- `typesSchemaHash` is now content-derived (same algorithm span-panel-api uses) and changes with panel size, replacing a hardcoded value that did not reflect schema contents
+- Homie schema served over `GET /api/v2/homie/schema` now declares the correct panel size per panel. Previously the `space` property's `format` field was
+  hardcoded to `"1:32:1"` regardless of the panel's configured `total_tabs`, causing span-panel-api (and downstream span-card) to render 40-tab panels as 32-tab
+- `typesSchemaHash` is now content-derived (same algorithm span-panel-api uses) and changes with panel size, replacing a hardcoded value that did not reflect
+  schema contents
 - `DynamicSimulationEngine.total_tabs` raises instead of silently returning 32 when accessed before `initialize_async()`
-- Panels configured with `total_tabs` outside the supported model set (16, 24, 32, 40, 48) now fail loudly at panel-add time instead of being silently labeled `MAIN_32`; validation runs before panel registration so unsupported configs no longer leave an orphan tick task
+- Panels configured with `total_tabs` outside the supported model set (16, 24, 32, 40, 48) now fail loudly at panel-add time instead of being silently labeled
+  `MAIN_32`; validation runs before panel registration so unsupported configs no longer leave an orphan tick task
 - `PanelInstance.total_tabs` property added, mirroring the existing `serial_number` lifecycle guard
-- Config-directory reload no longer aborts when a single panel fails to start — each config is processed independently, errors are recorded per filename, and successful panels continue to start, stop, or reload as expected
+- Config-directory reload no longer aborts when a single panel fails to start — each config is processed independently, errors are recorded per filename, and
+  successful panels continue to start, stop, or reload as expected
 - Failed configs' file hashes are withheld so the next reload automatically retries after the user fixes the config
 - Dashboard panel list surfaces per-panel start errors as a badge next to the failing filename, with the full error message available on hover
 
@@ -68,7 +72,8 @@
 - Backup Only mode: battery holds at full SOC and only discharges during grid outages
 - BESS operates at full inverter rate like a real system — GFE throttle limits discharge to actual load deficit
 - Hybrid inverter support: PV stays online during islanding when co-located with BESS
-- PV curtailment during islanding: hybrid inverter reduces output to match load + BESS charge capacity when grid is disconnected, matching real MPPT setpoint behavior
+- PV curtailment during islanding: hybrid inverter reduces output to match load + BESS charge capacity when grid is disconnected, matching real MPPT setpoint
+  behavior
 
 ### Improvements
 
