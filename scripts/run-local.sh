@@ -145,15 +145,42 @@ start_mosquitto() {
     fi
 }
 
+# Wait for a process to actually exit after SIGTERM, up to 10s, then force it.
+#
+# Returning as soon as the signal is sent is not the same as being stopped: the
+# simulator's graceful shutdown clears retained topics and closes the broker
+# connection before it releases the dashboard and HTTP ports. Anything that stops
+# and immediately starts on the same ports — `--restart`, or swapping one checkout
+# for another — otherwise races the old process and dies on "address already in use".
+wait_for_exit() {
+    local pid="$1"
+    local label="$2"
+    local waited=0
+    while kill -0 "${pid}" 2>/dev/null; do
+        if (( waited >= 100 )); then
+            echo "==> ${label} still running after 10s; forcing"
+            kill -9 "${pid}" 2>/dev/null || true
+            return
+        fi
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+}
+
 stop_all() {
+    local pid
     echo "==> Stopping simulator..."
     if [[ -f "${PID_DIR}/simulator.pid" ]]; then
-        kill "$(cat "${PID_DIR}/simulator.pid")" 2>/dev/null || true
+        pid="$(cat "${PID_DIR}/simulator.pid")"
+        kill "${pid}" 2>/dev/null || true
+        wait_for_exit "${pid}" "Simulator"
         rm -f "${PID_DIR}/simulator.pid"
     fi
     echo "==> Stopping Mosquitto..."
     if [[ -f "${PID_DIR}/mosquitto.pid" ]]; then
-        kill "$(cat "${PID_DIR}/mosquitto.pid")" 2>/dev/null || true
+        pid="$(cat "${PID_DIR}/mosquitto.pid")"
+        kill "${pid}" 2>/dev/null || true
+        wait_for_exit "${pid}" "Mosquitto"
         rm -f "${PID_DIR}/mosquitto.pid"
     fi
     echo "==> Stopped"
