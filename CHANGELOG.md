@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.0.15 — 2026-08-06 — the flat schema release
+
+The flat (`node-on-parent`) Homie data model, which SPAN firmware speaks today. Development
+of the parent/child (v1.0) model continues separately and will take over `main`; the flat
+lineage stays reachable at this tag and on the `flat` branch, which is where any further
+flat-only fix belongs.
+
+Nothing in the published surface changed since 1.0.14 — no new entities, no topic moves, no
+configuration changes. Both fixes below landed after 1.0.14 was cut, which is the reason to
+re-cut rather than leave that tag as the flat reference.
+
+### Fixed
+
+- **The Home Assistant long-lived token no longer appears in the process command line.** It
+  was passed to the simulator as `--ha-token`, which put it in `argv`, readable by any
+  process listing on the machine. It is now exported to the child process instead, and
+  `.env` is the documented place to set it. If you ran a previous version with a token on
+  the command line, rotate it.
+- **`--stop` waits for the process to actually exit before returning.** It sent SIGTERM and
+  returned immediately, which is not the same as being stopped: graceful shutdown clears
+  retained topics and closes the broker connection before releasing the dashboard and HTTP
+  ports. Anything stopping and immediately restarting on the same ports raced the old
+  process and failed with "address already in use", which made `--restart` intermittently
+  fail. Waits up to 10s per process, then forces.
+
 ## 1.0.14 — 2026-07-31 — vendor the flat emitter
 
 ### Fixed
