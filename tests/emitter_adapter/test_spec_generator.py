@@ -36,14 +36,19 @@ def test_build_manifest_derives_pv_and_evse_from_device_type_templates() -> None
     assert pv.metadata["feed"] == stable_circuit_uuid("solar_inverter")
     assert pv.metadata["relative-position"] == "IN_PANEL"
 
+    # The node id is the drive serial, not a positional slot. `evse` / `evse-2` were
+    # invented here and no panel publishes them; firmware names the node after the
+    # drive, which is what lets an EVSE keep its identity across a schema upgrade.
+    # Asserting the two are equal rather than asserting a literal: the literal would
+    # still pass if one of them were derived some other way that happened to match.
     evse = manifest.of_class("evse")[0]
-    assert evse.instance_id == "evse"
+    assert evse.instance_id == evse.metadata["serial-number"]
     assert evse.metadata["feed"] == stable_circuit_uuid("span_drive_garage")
     assert len(manifest.of_class("evse")) == 2
-    assert manifest.of_class("evse")[1].instance_id == "evse-2"
-    assert manifest.of_class("evse")[1].metadata["feed"] == stable_circuit_uuid(
-        "span_drive_driveway",
-    )
+    second = manifest.of_class("evse")[1]
+    assert second.instance_id == second.metadata["serial-number"]
+    assert second.instance_id != evse.instance_id, "two drives must not share a node id"
+    assert second.metadata["feed"] == stable_circuit_uuid("span_drive_driveway")
 
 
 def test_build_manifest_omits_native_devices_when_disabled() -> None:

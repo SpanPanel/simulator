@@ -12,6 +12,7 @@ on the orchestrator and a new helper — no need to touch the rest."""
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from span_panel_simulator.emitter_adapter.instance_ids import stable_circuit_uuid
@@ -31,6 +32,12 @@ if TYPE_CHECKING:
 # before the dash convention may still use underscore form, so we
 # normalise once before validating.
 _VALID_RELAY_BEHAVIORS = frozenset({"controllable", "non-controllable", "always-on"})
+
+#: Homie 5, Topic IDs: "A topic level ID MAY ONLY contain lowercase letters from `a`
+#: to `z`, numbers from `0` to `9` as well as the hyphen character (`-`)." Applied to
+#: the EVSE serial because that serial *is* the drive's node id, so it is a topic
+#: level and not merely a property value.
+_HOMIE_ID = re.compile(r"[a-z0-9-]+")
 _VALID_INVERTER_TYPES = frozenset({"hybrid", "ac-coupled"})
 
 
@@ -235,12 +242,26 @@ def _evse_instances(profile: SimulationConfig) -> list[DeviceInstance]:
         "firmware-version": str(evse_cfg.get("firmware_version", "sim/v0.1.0")),
         "max-current-a": str(evse_cfg.get("max_current_a", 32.0)),
     }
-    base_id = str(evse_cfg.get("instance_id", "evse"))
     instances: list[DeviceInstance] = []
     for idx, feed in enumerate(feeds, start=1):
-        instance_id = base_id if idx == 1 else f"{base_id}-{idx}"
+        # The node id IS the drive serial, because that is what firmware publishes.
+        #
+        # This used to be a positional slot -- `evse`, `evse-2` -- which no panel
+        # emits. `schema_0` keys its snapshot on the node id verbatim, and the
+        # integration builds the HA device identifier from that key, so against
+        # firmware the EVSE device is already serial-identified. v1.0 names the same
+        # device `<panel>-<serial>` and its parser strips that back to the serial,
+        # reproducing the flat key exactly -- which is what carries an EVSE's identity,
+        # its history and its automations across a firmware upgrade unbroken.
+        #
+        # A positional slot broke that: upgrading re-keyed every EVSE and left the old
+        # HA device stranded with its entities unavailable. The bug was only ever in
+        # this fixture, but it is the fixture the upgrade path is proved against, so
+        # it made a passing test out of a migration that does not survive.
+        serial = _evse_serial_number(evse_cfg, panel_id, idx)
+        instance_id = serial
         metadata = dict(base_metadata)
-        metadata["serial-number"] = _evse_serial_number(evse_cfg, panel_id, idx)
+        metadata["serial-number"] = serial
         if feed:
             metadata["feed"] = feed
         instances.append(
@@ -297,10 +318,32 @@ def _circuits_for_device_type(
 
 
 def _evse_serial_number(evse_cfg: object, panel_id: str, idx: int) -> str:
+    """The drive's serial, which is also its Homie node id.
+
+    Lower-case because it is a topic level, not merely a value. Homie 5 allows a
+    topic-level id to contain only ``a``-``z``, ``0``-``9`` and ``-``; the previous
+    default was ``SIM-EVSE-…``, which was legal as a *property value* and would have
+    been an illegal topic the moment it became the node id. Real drive serials are
+    already topic-safe, which is why firmware can use one as a node id at all.
+
+    A configured serial is validated rather than quietly rewritten: sanitising it
+    would publish an id that no longer matches the ``info/serial-number`` beside it,
+    and a consumer keying identity off the serial would silently stop matching across
+    a firmware upgrade -- the exact failure this whole change exists to remove.
+    """
     if isinstance(evse_cfg, dict) and "serial_number" in evse_cfg:
-        serial = str(evse_cfg["serial_number"])
-        return serial if idx == 1 else f"{serial}-{idx}"
-    return f"SIM-EVSE-{panel_id}" if idx == 1 else f"SIM-EVSE-{panel_id}-{idx}"
+        raw = str(evse_cfg["serial_number"])
+        serial = raw if idx == 1 else f"{raw}-{idx}"
+        if not _HOMIE_ID.fullmatch(serial):
+            msg = (
+                f"evse.serial_number {serial!r} is not a usable Homie topic id "
+                "(lower-case a-z, 0-9 and '-' only). It is published as the drive's "
+                "node id, so an id outside that set would put an invalid topic on the "
+                "wire."
+            )
+            raise ValueError(msg)
+        return serial
+    return f"sim-evse-{panel_id}" if idx == 1 else f"sim-evse-{panel_id}-{idx}"
 
 
 def _evse_display_name(feed_circuits: list[CircuitDefinitionExtended], idx: int) -> str:
