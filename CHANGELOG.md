@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.0.16 — 2026-08-11 — EVSE nodes carry the drive serial
+
+**An EVSE's Homie node id is now its drive serial**, where it used to be a positional
+slot — `evse`, `evse-2`. No panel publishes those. Firmware names the node after the
+drive, the flat parser keys its snapshot on the node id verbatim, and the integration
+builds the Home Assistant device identifier from that key — so against real firmware an
+EVSE is already serial-identified. v1.0 names the same device `<panel>-<serial>` and
+strips it back to the serial, reproducing the flat key exactly.
+
+That equality is what carries a drive's identity, history and automations across a
+firmware upgrade. The positional slot broke it: upgrading re-keyed every EVSE, so Home
+Assistant built new devices and stranded the old ones with their entities Unavailable —
+two devices for one drive, same serial, one live and one dead. The defect was only ever
+in this simulator, but this simulator is what the upgrade path is rehearsed against, so
+it made a passing rehearsal out of a migration that does not survive.
+
+**The default serial is lower-case** (`sim-evse-<panel>`), because it is a topic level
+now and not merely a property value: Homie 5 allows only `a`-`z`, `0`-`9` and `-` in a
+topic-level id. A configured `evse.serial_number` outside that set is refused at build
+time rather than sanitised — rewriting it would publish a node id that no longer matches
+the `info/serial-number` beside it, quietly reintroducing the mismatch this release
+removes.
+
+**Upgrade note.** Existing simulator users will see their EVSE devices re-key once, on
+first run after this version: the old positional-slot devices are stranded and can be
+deleted from the device registry. Panels running real firmware are unaffected, having
+been serial-keyed all along.
+
 ## 1.0.15 — 2026-08-06 — the flat schema release
 
 The flat (`node-on-parent`) Homie data model, which SPAN firmware speaks today. Development
