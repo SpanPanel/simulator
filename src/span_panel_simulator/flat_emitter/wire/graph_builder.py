@@ -151,16 +151,35 @@ def build_graph(
     for device_id, device in graph.devices.items():
         name = device.name() if callable(device.name) else device.name
         if device_id == root_instance.instance_id:
+            # Nodes are described by the SDK node objects that were just built,
+            # not restated here. The hand-written version published only
+            # ``{"type": ...}``, so every property this panel publishes was
+            # absent from its own ``$description`` -- 39 nodes declaring nothing,
+            # against 438 properties on a live panel's. A consumer that discovers
+            # a tree the Homie way found an empty one, and nothing failed loudly
+            # because our own accumulator reads values off the wire and only ever
+            # takes ``type`` from here.
+            #
+            # ``Device.as_dict()`` would be the obvious call and cannot be used:
+            # ebus-sdk 0.1.5 builds its node map with ``nodes.update({node_id,
+            # node.as_dict()})``, a set literal rather than a pair, which
+            # ``dict.update`` rejects. ``Node.description()`` is correct, so the
+            # nodes are asked one at a time.
             graph.description_payloads[device_id] = {
                 "homie": "5.0",
-                "version": profiles[root_class].version,
+                # Epoch-ms, as a live panel publishes it. Homie 5 uses ``version``
+                # to tell a consumer the description changed; a constant means a
+                # consumer caching on it never re-reads the tree.
+                "version": ebus_sdk.Device.now_ems(),
                 "type": profiles[root_class].type,
                 "name": name,
-                "id": device_id,
                 "nodes": {
-                    node_id: {"type": node_type}
-                    for node_id, node_type in sorted(graph.node_types.items())
+                    node_id: node.description() for node_id, node in sorted(device.nodes().items())
                 },
+                # Present and empty rather than absent: flat puts every capability
+                # on the one device, and a live panel publishes both keys.
+                "children": [],
+                "extensions": [],
             }
         else:
             graph.description_payloads[device_id] = {
