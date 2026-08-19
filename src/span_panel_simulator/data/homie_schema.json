@@ -16,7 +16,7 @@
                 "name": "Hardware version",
                 "datatype": "string"
             },
-            "firmware-version": {
+            "software-version": {
                 "name": "Firmware version",
                 "datatype": "string"
             },
@@ -67,7 +67,7 @@
                 "name": "SSID to which Wi-Fi network interface is connected",
                 "datatype": "string"
             },
-            "cloud-connection": {
+            "vendor-cloud": {
                 "name": "Device connected to vendor cloud?",
                 "datatype": "enum",
                 "format": "UNKNOWN,UNCONNECTED,CONNECTED"
@@ -211,7 +211,7 @@
                 "name": "Serial number",
                 "datatype": "string"
             },
-            "firmware-version": {
+            "software-version": {
                 "name": "Firmware version",
                 "datatype": "string"
             },
@@ -262,7 +262,7 @@
                 "name": "Serial number",
                 "datatype": "string"
             },
-            "firmware-version": {
+            "software-version": {
                 "name": "Firmware version",
                 "datatype": "string"
             },
@@ -298,7 +298,7 @@
                 "name": "Serial number",
                 "datatype": "string"
             },
-            "firmware-version": {
+            "software-version": {
                 "name": "Firmware version",
                 "datatype": "string"
             },
