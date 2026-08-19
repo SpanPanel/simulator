@@ -5,7 +5,10 @@ fields that go into ``EbusPanelSnapshot``.
 Stateless — all integration / accumulation lives in ``EnergyIntegrator``. This
 module is just arithmetic over the current tick's inputs.
 
-Sign conventions (consistent across the emitter):
+Two sign frames live on this reading, and they are not the same frame.
+
+METER frame — positive = consumption, negative = production. Every field below
+is a reading taken by one meter, about itself:
 - Per-circuit ``power_w``: positive = consume, negative = produce (PV/V2G).
 - ``battery_w``: positive = discharging (battery → panel), negative = charging.
 - ``instant_grid_power_w``: positive = importing from grid, negative = exporting.
@@ -13,6 +16,23 @@ Sign conventions (consistent across the emitter):
   before any upstream BESS contribution is removed.
 - ``feedthrough_power_w``: net power flowing through the lugs to downstream
   loads (panel-side meter perspective).
+
+NODE frame — positive = power LEAVING the panel node, negative = power ENTERING
+it. The four ``power_flow_*`` fields are not four meters; they are the four
+terms of one balance at one node, and a balance only closes if every term is
+in the same frame. So PV (injecting) is negative, loads (drawing) are positive,
+export (leaving) is positive, and a charging battery (drawing) is positive.
+
+The two frames disagree about the same instant, on purpose. A live panel
+exporting 2.5 kW publishes ``lugs-upstream/active-power`` negative and
+``power-flows/grid`` positive simultaneously; both are correct, because they
+answer different questions. Do not "make them consistent".
+
+The balance is what makes the node frame checkable: a real panel's four flows
+sum to zero to the last digit it publishes. ``test_power_flows_sum_to_zero``
+holds this emitter to the same identity, which is why ``power_flow_grid`` is
+derived from the physics below rather than back-solved from the other three —
+a residual would satisfy the test by construction and detect nothing.
 
 Off-grid: when ``grid_online`` is False, ``instant_grid_power_w`` is 0 by
 definition (grid is electrically disconnected); battery and PV cover load."""
@@ -106,8 +126,8 @@ def resolve(
 
     if grid_online:
         # Upstream lugs see the panel-side net flow. Utility grid flow is on the
-        # other side of an upstream BESS, so subtract BESS discharge. Charging is
-        # limited to PV surplus; a BESS must not turn load into extra grid import.
+        # other side of an upstream BESS, so remove the BESS contribution to get
+        # what the utility is actually supplying or absorbing.
         grid_w = _grid_power_from_lugs_and_bess(upstream_active_w, battery_w)
         grid_state: str | None = "ON_GRID"
         dsm_state = _DSM_ON
@@ -167,9 +187,12 @@ def resolve(
         current_run_config=current_run_config,
         dominant_power_source=dominant_power_source,
         grid_islandable=panel.islandable,
-        power_flow_pv=pv_available_w,
-        power_flow_battery=battery_w,
-        power_flow_grid=grid_w,
+        # Node frame — see the module docstring. Each of these is the meter-frame
+        # quantity above it, restated as "power leaving the panel node", which is
+        # what makes the four sum to zero.
+        power_flow_pv=-pv_available_w,
+        power_flow_battery=-battery_w,
+        power_flow_grid=-grid_w,
         power_flow_site=load_demand_w,
     )
 
@@ -177,15 +200,21 @@ def resolve(
 def _grid_power_from_lugs_and_bess(upstream_active_w: float, battery_w: float) -> float:
     """Return utility-side grid power from panel-side lugs and BESS power.
 
-    BESS sign convention is positive=discharging, negative=charging. Charging is
-    only credited against PV surplus visible at the lugs; it never creates extra
-    grid import.
+    BESS sign convention is positive=discharging, negative=charging. The BESS sits
+    upstream of the lugs, so whatever it supplies the utility does not have to, and
+    whatever it absorbs the utility must: one subtraction, in both directions.
+
+    Charging used to be credited only against the PV surplus visible at the lugs, so
+    that a charging BESS "never creates extra grid import". That clamp is gone. It
+    was a dispatch policy enforced in the wrong module, and it enforced it against
+    the one mode that does not want it: ``self-consumption`` already charges from
+    ``pv_surplus_w`` alone (``native_devices/bess.py``), so the clamp never bound
+    there, while ``backup-only`` deliberately charges from the utility -- and the
+    clamp silently deleted exactly that import from the reading. The energy did not
+    stop arriving; the meter stopped saying where it came from, which is the one
+    thing a meter is for. It also put the node balance out by the amount hidden.
     """
-    if battery_w >= 0:
-        return upstream_active_w - battery_w
-    pv_surplus_w = max(0.0, -upstream_active_w)
-    pv_charge_w = min(abs(battery_w), pv_surplus_w)
-    return upstream_active_w + pv_charge_w
+    return upstream_active_w - battery_w
 
 
 def _per_leg_current(

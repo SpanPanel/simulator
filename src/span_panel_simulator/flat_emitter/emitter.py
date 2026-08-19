@@ -125,6 +125,16 @@ class Emitter:
                 )
         for eid in self._physics.all_evse():
             self._energy.register(eid)
+        # Lugs are metered points, so their energy registers integrate the power
+        # THEIR OWN meter reports. They used to be handed the sum of the circuits
+        # behind them instead, which is a different quantity: with 7 kW of PV and
+        # 6 kW of load the lugs carry ~1 kW in one direction, but the gross sum
+        # advanced `imported-energy` AND `exported-energy` in the same tick. A
+        # capture of a live panel never does that -- the spec calls
+        # `imported-energy` "the energy counterpart of positive `active-power`",
+        # and a counterpart that integrates a different signal is not one.
+        for lugs_id in self._physics.all_lugs():
+            self._energy.register(lugs_id)
         # Seed any configured BESS whose manifest physics declares an initial SOE.
         for bess_id, bphys in self._physics.all_bess().items():
             if bphys.initial_soe_kwh is not None and bess_id in self._bess:
@@ -527,22 +537,18 @@ class Emitter:
                 # Upstream lugs are panel-side. With an upstream BESS, utility
                 # grid flow is computed beyond the BESS and can differ.
                 active_w = meter.upstream_active_power_w
-                imported_wh = sum(s.consumed_energy_wh for s in circuit_snaps.values())
-                exported_wh = sum(s.produced_energy_wh for s in circuit_snaps.values())
             else:  # downstream
                 l1 = meter.downstream_l1_current_a
                 l2 = meter.downstream_l2_current_a
                 active_w = meter.feedthrough_power_w
-                imported_wh = sum(
-                    s.consumed_energy_wh
-                    for cid, s in circuit_snaps.items()
-                    if circuits_phys[cid].placement == "downstream-of-lugs"
-                )
-                exported_wh = sum(
-                    s.produced_energy_wh
-                    for cid, s in circuit_snaps.items()
-                    if circuits_phys[cid].placement == "downstream-of-lugs"
-                )
+            # Integrate what this meter reads, in this meter's own frame: a lugs
+            # meter takes the default reference direction, so positive is power
+            # arriving through it and accrues `imported-energy`. One direction can
+            # accrue per tick, which is the property the gross sum broke.
+            self._energy.observe(lugs_id, active_w, tick.current_time)
+            lugs_energy = self._energy.state(lugs_id)
+            imported_wh = lugs_energy.consumed_wh
+            exported_wh = lugs_energy.produced_wh
             lugs_snaps[lugs_id] = EbusLugsSnapshot(
                 instance_id=lugs_id,
                 direction=("upstream" if lphys.direction == "upstream" else "downstream"),
