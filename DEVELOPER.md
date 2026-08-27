@@ -216,6 +216,7 @@ circuits:
     template: str # References a circuit_templates key
     tabs: [int] # Tab positions ([1] = 120V, [1, 3] = 240V)
     breaker_rating: int # Per-circuit override (optional)
+    never_backup: bool # Installer commissioning lock (default: false)
     overrides: # Override any template field
       typical_power: 500.0
 
@@ -248,6 +249,26 @@ Circuit shed priority controls backup behavior when the grid disconnects, matchi
 The `soc_shed_threshold` in `panel_config` (default 20%) sets the SOC percentage that triggers shedding for `SOC_THRESHOLD` circuits.
 
 User relay overrides (from dashboard or MQTT) take precedence over shedding — if a user closes a shed relay, shedding will not reopen it.
+
+### Never-Backup (Commissioning Lock)
+
+`never_backup` is a per-circuit flag on the circuit definition — an installer's commissioning lock, not a priority value. A locked circuit is commissioned
+permanently `OFF_GRID` and its priority is **not settable**:
+
+| Property                 | Locked circuit                          | Ordinary circuit          |
+| ------------------------ | --------------------------------------- | ------------------------- |
+| `never-backup`           | `true`                                  | `false`                   |
+| `shed-priority`          | `OFF_GRID` (whatever the template says) | the template's `priority` |
+| `shed-priority/set`      | silently dropped                        | applied                   |
+| `relay-requester` (shed) | `NEVER_BACKUP`                          | `BACKUP`                  |
+
+It is independent of the priority value: a circuit whose priority is `NEVER` ("never shed", shown in Home Assistant as "Stays on in an outage") is an ordinary,
+user-configurable circuit and publishes `never-backup: false`. The three flat booleans `never-backup`, `always-on` and `sheddable` are independent commissioning
+inputs; in the v1.0 schema `never-backup` becomes the Homie `$settable` attribute on `load-shed/priority` (`$settable = !never-backup`), which is what a
+consumer reads to decide whether to offer a priority control at all.
+
+The lock is per-circuit rather than per-template because a shared load template can be commissioned differently on two circuits, and because the priority value
+is then implied by the lock rather than stated twice.
 
 ---
 

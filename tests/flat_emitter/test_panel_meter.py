@@ -34,6 +34,7 @@ def _circuit(
     legs: tuple[Leg, ...] | None = None,
     placement: str = "downstream-of-lugs",
     always_on: bool = False,
+    never_backup: bool = False,
 ) -> CircuitPhysics:
     if legs is None:
         from span_panel_simulator.flat_emitter.conventions.tab_legs import legs_for_tabs
@@ -48,6 +49,7 @@ def _circuit(
         relay_behavior="always-on" if always_on else "controllable",
         placement=placement,
         always_on=always_on,
+        never_backup=never_backup,
         initial_consumed_wh=0.0,
         initial_produced_wh=0.0,
     )

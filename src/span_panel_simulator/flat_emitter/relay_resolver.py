@@ -18,6 +18,12 @@ Precedence (highest wins):
 - ``NEVER`` for always-on (the relay is physically incapable of opening)
 - ``USER`` for /set
 - ``BACKUP`` for load-shed
+- ``NEVER_BACKUP`` for load-shed on a circuit an installer commissioned
+  never-backup: the shed is the commissioning lock taking effect, not a
+  configurable policy, which is why the eBus schema migration guide maps this
+  flat value onto v1.0's ``CONFIGURATION`` ("the commissioning lock is now
+  expressed structurally via ``load-shed/priority = OFF_GRID`` with
+  ``$settable = false``; ``CONFIGURATION`` captures the source attribution")
 - ``UNKNOWN`` for the default-CLOSED state
 
 The producer never sees /set commands. ``Emitter`` registers internal handlers
@@ -39,6 +45,7 @@ class RelayRequester(StrEnum):
     NEVER = "NEVER"  # always-on circuit; cannot open
     USER = "USER"  # /set override active
     BACKUP = "BACKUP"  # load-shed in effect
+    NEVER_BACKUP = "NEVER_BACKUP"  # load-shed on a never-backup circuit
     UNKNOWN = "UNKNOWN"  # default-CLOSED, no decision-maker
 
 
@@ -52,15 +59,19 @@ class RelayResolver:
     def __init__(self) -> None:
         # always_on map: instance_id -> bool (manifest declaration; immutable post-register)
         self._always_on: dict[str, bool] = {}
+        # never_backup map: instance_id -> bool (manifest declaration). Does not
+        # gate the relay — it only attributes a shed to the commissioning lock.
+        self._never_backup: dict[str, bool] = {}
         # /set override map: instance_id -> RelayState | None (None = no override)
         self._user_overrides: dict[str, RelayState | None] = {}
         # load-shed decision map: instance_id -> bool (True = wants OPEN)
         self._shed: dict[str, bool] = {}
 
-    def register(self, instance_id: str, *, always_on: bool) -> None:
+    def register(self, instance_id: str, *, always_on: bool, never_backup: bool = False) -> None:
         """Idempotent — re-registering with a different always_on value updates
         the manifest declaration (typical use: emitter restart with edited manifest)."""
         self._always_on[instance_id] = always_on
+        self._never_backup[instance_id] = never_backup
         self._user_overrides.setdefault(instance_id, None)
         self._shed.setdefault(instance_id, False)
 
@@ -103,6 +114,8 @@ class RelayResolver:
         if override is not None:
             return override, RelayRequester.USER
         if self._shed.get(instance_id, False):
+            if self._never_backup.get(instance_id, False):
+                return RelayState.OPEN, RelayRequester.NEVER_BACKUP
             return RelayState.OPEN, RelayRequester.BACKUP
         return RelayState.CLOSED, RelayRequester.UNKNOWN
 

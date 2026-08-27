@@ -149,6 +149,41 @@ def test_circuit_always_on_default_from_relay_behavior() -> None:
     assert view.circuit("dryer").always_on is True
 
 
+def test_circuit_never_backup_defaults_false_even_at_never_priority() -> None:
+    """``never-backup`` is a commissioning input of its own, so nothing derives
+    it — least of all the priority value ``NEVER``, which means "never shed"."""
+    view = ManifestPhysicsView(
+        DeviceManifest(
+            instances=(
+                _panel(),
+                _circuit("lights", **{"default-priority": "NEVER"}),
+            )
+        )
+    )
+    assert view.circuit("lights").never_backup is False
+
+
+def test_circuit_never_backup_is_read_from_the_manifest() -> None:
+    view = ManifestPhysicsView(
+        DeviceManifest(
+            instances=(
+                _panel(),
+                _circuit("hot_tub", **{"never-backup": "true"}),
+            )
+        )
+    )
+    assert view.circuit("hot_tub").never_backup is True
+
+
+def test_circuit_invalid_never_backup_raises() -> None:
+    with pytest.raises(ManifestValidationError, match="never-backup"):
+        ManifestPhysicsView(
+            DeviceManifest(
+                instances=(_panel(), _circuit("hot_tub", **{"never-backup": "sometimes"})),
+            )
+        )
+
+
 def test_circuit_initial_energy_seeds() -> None:
     view = ManifestPhysicsView(
         DeviceManifest(

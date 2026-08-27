@@ -120,6 +120,32 @@ def test_register_can_change_always_on() -> None:
     assert rr.state("c1") == (RelayState.CLOSED, RelayRequester.NEVER)
 
 
+def test_never_backup_shed_is_attributed_to_the_commissioning_lock() -> None:
+    """A locked circuit sheds because an installer commissioned it not to be
+    backed up, so the actor is the configuration — ``NEVER_BACKUP`` in the flat
+    enum, which the eBus migration guide maps onto v1.0 ``CONFIGURATION``."""
+    rr = RelayResolver()
+    rr.register("hot_tub", always_on=False, never_backup=True)
+    rr.set_shed("hot_tub", open_relay=True)
+    assert rr.state("hot_tub") == (RelayState.OPEN, RelayRequester.NEVER_BACKUP)
+
+
+def test_never_backup_does_not_lock_the_relay() -> None:
+    """The lock is on the priority, not the relay: an operator can still open
+    and close a never-backup circuit."""
+    rr = RelayResolver()
+    rr.register("hot_tub", always_on=False, never_backup=True)
+    rr.set_user_override("hot_tub", RelayState.OPEN)
+    assert rr.state("hot_tub") == (RelayState.OPEN, RelayRequester.USER)
+
+
+def test_never_backup_defaults_to_backup_attribution() -> None:
+    rr = RelayResolver()
+    rr.register("c1", always_on=False)
+    rr.set_shed("c1", open_relay=True)
+    assert rr.state("c1") == (RelayState.OPEN, RelayRequester.BACKUP)
+
+
 def test_known_returns_true_after_register() -> None:
     rr = RelayResolver()
     assert rr.known("c1") is False
