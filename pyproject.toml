@@ -36,7 +36,7 @@ dependencies = [
     # this file rather than the lockfile, so the declared bound is the operative control
     # in production. Raising it is a deliberate follow-up with its own testing, not a
     # side effect of moving code.
-    "ebus-sdk==0.19.0",
+    "ebus-sdk==0.23.1",
     "paho-mqtt>=2.0.0",
 ]
 
