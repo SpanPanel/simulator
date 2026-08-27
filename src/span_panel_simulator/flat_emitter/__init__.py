@@ -34,11 +34,11 @@ Architecture (v0.3.0):
   device runtimes (BESS dispatch, load shedding).
 - **Manifest physics** (``manifest_physics.py``): typed accessor over
   ``DeviceInstance.metadata`` for physics-relevant fields (voltage, breaker rating,
-  tabs/legs, placement, default priority, relay behaviour).
-- **Tick pipeline** (``relay_resolver.py`` + ``energy_integrator.py`` + ``panel_meter.py``
-  + ``conventions/tab_legs.py``): per-tick state machinery the emitter uses to
-  resolve circuit relay state, integrate energy, derive per-leg currents, and
-  aggregate panel-level fields.
+  tabs/legs, placement, default priority, relay behaviour, commissioning flags).
+- **Tick pipeline** (``relay_resolver.py`` + ``priority_resolver.py`` +
+  ``energy_integrator.py`` + ``panel_meter.py`` + ``conventions/tab_legs.py``): per-tick
+  state machinery the emitter uses to resolve circuit relay state and shed priority,
+  integrate energy, derive per-leg currents, and aggregate panel-level fields.
 
 Producer contract (v0.3.0): build a ``DeviceManifest`` once at startup, then call
 ``Emitter.publish_tick(TickInputs)`` each tick with signed circuit/EVSE powers,
@@ -73,6 +73,10 @@ from span_panel_simulator.flat_emitter.native_devices import (
     NativeDevice,
     NativeTickContext,
 )
+from span_panel_simulator.flat_emitter.priority_resolver import (
+    LOCKED_PRIORITY,
+    PriorityResolver,
+)
 from span_panel_simulator.flat_emitter.relay_resolver import (
     RelayRequester,
     RelayResolver,
@@ -96,6 +100,7 @@ from span_panel_simulator.flat_emitter.tick_inputs import PanelEnvelopeTick, Tic
 from span_panel_simulator.flat_emitter.wire.set_router import SetterHandler, SetterRegistry
 
 __all__ = [
+    "LOCKED_PRIORITY",
     "BESSConfig",
     "BESSDevice",
     "BessPhysics",
@@ -130,6 +135,7 @@ __all__ = [
     "NativeTickContext",
     "PanelEnvelopeTick",
     "PanelPhysics",
+    "PriorityResolver",
     "ProfileValidationError",
     "PvPhysics",
     "RelayRequester",

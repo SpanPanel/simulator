@@ -27,6 +27,7 @@ from span_panel_simulator.flat_emitter.native_devices import (
 )
 from span_panel_simulator.flat_emitter.panel_meter import circuit_current_a
 from span_panel_simulator.flat_emitter.panel_meter import resolve as resolve_panel
+from span_panel_simulator.flat_emitter.priority_resolver import PriorityResolver
 from span_panel_simulator.flat_emitter.relay_resolver import RelayResolver, RelayState
 from span_panel_simulator.flat_emitter.snapshot import (
     EbusBatterySnapshot,
@@ -110,12 +111,21 @@ class Emitter:
         self._physics = ManifestPhysicsView(manifest)
         self._relays = RelayResolver()
         self._energy = EnergyIntegrator()
-        self._priority_overrides: dict[str, str] = {}
+        self._priorities = PriorityResolver()
         self._name_overrides: dict[str, str] = {}
         self._dominant_power_source_override: str | None = None
 
         for cid, cphys in self._physics.all_circuits().items():
-            self._relays.register(cid, always_on=cphys.always_on)
+            self._relays.register(
+                cid,
+                always_on=cphys.always_on,
+                never_backup=cphys.never_backup,
+            )
+            self._priorities.register(
+                cid,
+                default_priority=cphys.default_priority,
+                never_backup=cphys.never_backup,
+            )
             self._energy.register(cid)
             if cphys.initial_consumed_wh or cphys.initial_produced_wh:
                 self._energy.seed(
@@ -304,6 +314,14 @@ class Emitter:
         return self._relays
 
     @property
+    def priorities(self) -> PriorityResolver:
+        """Read-write access to the per-circuit shed-priority resolver. Used by
+        /set handlers (registered by the emitter for ``circuit/shed-priority``)
+        to update operator overrides; it holds the never-backup commissioning
+        lock that refuses them."""
+        return self._priorities
+
+    @property
     def dominant_power_source_override(self) -> str | None:
         """Operator-set dominant power source override, or None if not set.
         Set via /set ``panel.pcs/dominant-power-source`` topic."""
@@ -345,7 +363,11 @@ class Emitter:
             value: object,
         ) -> None:
             del entity_class, prop_path
-            self._priority_overrides[instance_id] = str(value).upper()
+            # A never-backup circuit publishes its priority as not settable, so
+            # PriorityResolver drops the write — the same silent refusal an
+            # always-on circuit gives a relay /set.
+            if self._priorities.known(instance_id):
+                self._priorities.set_override(instance_id, str(value))
 
         async def on_circuit_name(
             entity_class: str,
@@ -431,14 +453,10 @@ class Emitter:
         # overrides take precedence over manifest defaults.
         self._relays.clear_all_shed()
         if self._load_shedding is not None:
-            effective_priorities = {
-                cid: self._priority_overrides.get(cid, cphys.default_priority)
-                for cid, cphys in circuits_phys.items()
-            }
             shed_ids = self._load_shedding.decide_shed(
                 grid_online=tick.grid_online,
                 bess_soc_pct=min_soc,
-                priorities=effective_priorities,
+                priorities=self._priorities.all_effective(),
             )
             for cid in shed_ids:
                 self._relays.set_shed(cid, open_relay=True)
@@ -476,7 +494,7 @@ class Emitter:
             relay_state, requester = self._relays.state(cid)
             gated_p = gated_powers[cid]
             estate = self._energy.state(cid)
-            effective_priority = self._priority_overrides.get(cid, cphys.default_priority)
+            effective_priority = self._priorities.effective(cid)
             effective_name = self._name_overrides.get(
                 cid,
                 self._manifest.get("circuit", cid).display_name,
@@ -491,8 +509,19 @@ class Emitter:
                 tabs=list(cphys.tabs),
                 priority=effective_priority,
                 is_user_controllable=cphys.relay_behavior == "controllable",
-                is_sheddable=effective_priority in ("OFF_GRID", "SOC_THRESHOLD"),
-                is_never_backup=effective_priority == "NEVER",
+                # The guide's consumer rule for the retired flag: "compute
+                # ``load-shed/priority != NEVER && switch/relay-controllable``".
+                # A relay that cannot open cannot shed, whatever its priority.
+                # The conjunct is deliberately ``not always_on`` rather than
+                # ``relay_behavior == "controllable"``: the flat model has a third
+                # relay behaviour, ``non-controllable``, which the guide's
+                # two-valued ``relay-controllable`` does not distinguish, and only
+                # the always-on lock actually refuses a shed here.
+                is_sheddable=(
+                    effective_priority in ("OFF_GRID", "SOC_THRESHOLD") and not cphys.always_on
+                ),
+                # The installer's commissioning lock, not a priority value.
+                is_never_backup=cphys.never_backup,
                 is_240v=cphys.dipole,
                 current_a=circuit_current_a(
                     gated_p,

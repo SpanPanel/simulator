@@ -514,6 +514,11 @@ def _translate_circuit(
     active_power = _float_prop(properties, prefix, node_uuid, "active-power")
     priority = _get_prop(properties, prefix, node_uuid, "shed-priority") or "NEVER"
     always_on = _bool_prop(properties, prefix, node_uuid, "always-on") or False
+    # The installer's commissioning lock is part of what a clone reproduces: a
+    # circuit the source panel published as never-backup must come back locked,
+    # and one it published settable must come back settable whatever priority
+    # it carries.
+    never_backup = _bool_prop(properties, prefix, node_uuid, "never-backup") or False
 
     # Tabs
     tabs = [space, space + 2] if is_dipole else [space]
@@ -589,6 +594,8 @@ def _translate_circuit(
         "template": template_name,
         "tabs": tabs,
     }
+    if never_backup:
+        circuit_def["never_backup"] = True
 
     return template_name, template, circuit_def, tabs
 

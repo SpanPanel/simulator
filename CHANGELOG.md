@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.0.17 — 2026-08-26 — never-backup is a commissioning flag, not a priority
+
+**`circuit/never-backup` is now published from a per-circuit configuration flag** and is no longer derived from the shed priority. It was emitted as
+`shed-priority == "NEVER"`, which inverts what the two mean. `NEVER` is an ordinary priority _value_ — "never shed this circuit", which Home Assistant shows as
+"Stays on in an outage" — while `never-backup` is an installer's commissioning lock: the circuit is commissioned permanently `OFF_GRID` and its priority is not
+settable. The eBus schema migration guide keeps them apart deliberately, calling `never-backup`, `always-on` and `sheddable` "independent commissioning inputs
+stored as separate fields in each circuit's commissioning state", and mapping this one onto the Homie `$settable` attribute on `load-shed/priority`
+(`$settable = !never-backup`). A retained-topic capture of a production enclosure on r202633 settles it from the other direction: of its 16 circuits, two carry
+priority `NEVER`, and `$settable` is present and true on all 16 — including both of those.
+
+The consequence was not cosmetic. A consumer reads `never-backup` to decide whether to offer a priority control at all, so against this simulator every "Stays
+on in an outage" circuit had its priority select withdrawn — 19 of 27 selects on one test panel — and the entities Home Assistant had already registered for
+them were stranded. `configs/default_MAIN_40.yaml` alone reported 20 of its circuits locked; it locks none.
+
+### Configuration
+
+A circuit definition takes a new optional `never_backup: bool` (default `false`):
+
+```yaml
+circuits:
+  - id: "pool_heater"
+    name: "Pool Heater"
+    template: "resistive"
+    tabs: [3]
+    never_backup: true
+```
+
+It sits on the **circuit**, not the template: one installation locks a circuit that another, on the same load template, leaves configurable. Nothing derives it
+— a circuit is locked only when an installer locked it — and no shipped configuration sets it, so every default config publishes `never-backup: false` as real
+firmware does. `clone` now carries the flag over from the source panel, so a cloned circuit comes back locked if and only if the real one was.
+
+### Wire behaviour of a locked circuit
+
+- `shed-priority` reads `OFF_GRID` whatever its template declares. The guide's rule is that "locked-priority circuits (commissioned permanently OFF_GRID) appear
+  as `priority = OFF_GRID, $settable = false`" — the lock _is_ the commissioning of that value, so the flag carries it rather than the configuration having to
+  state it twice and agree with itself.
+- `shed-priority/set` is silently dropped, the way an always-on circuit already drops a relay `/set`. A property published as not-settable does not act on
+  writes, and the client has no error channel to receive a refusal on.
+- `relay-requester` reads `NEVER_BACKUP` rather than `BACKUP` when the lock sheds the circuit. The actor is the commissioning configuration, which is why v1.0
+  maps this flat value onto `CONFIGURATION`.
+
+### Also fixed
+
+- **The dashboard shows a locked circuit's priority as the panel publishes it.** Its entity view read the shed priority
+  off the circuit's template, so a never-backup circuit would have displayed the template's value while the wire carried
+  `OFF_GRID`.
+- **`circuit/sheddable` no longer claims a relay that cannot open is sheddable.** The consumer rule the guide gives for the retired property is
+  `priority != NEVER && relay-controllable`; the second conjunct was missing, so an always-on circuit at `OFF_GRID` or `SOC_THRESHOLD` priority published
+  `sheddable: true` while the emitter correctly refused to shed it.
+
 ## 1.0.16 — 2026-08-11 — EVSE nodes carry the drive serial
 
 **An EVSE's Homie node id is now its drive serial**, where it used to be a positional

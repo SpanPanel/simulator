@@ -263,6 +263,26 @@ class TestTranslateScrapedPanel:
         assert isinstance(t15, dict)
         assert t15["priority"] == "OFF_GRID"
 
+    def test_never_backup_is_not_inferred_from_a_never_priority(self) -> None:
+        """The source panel publishes ``never-backup`` in its own right. Space 1
+        carries priority NEVER and no lock, so the clone must not commission it
+        as locked."""
+        config = translate_scraped_panel(_make_scraped())
+        circuits = config["circuits"]
+        assert isinstance(circuits, list)
+        by_id = {c["id"]: c for c in circuits}
+        assert by_id["circuit_1"].get("never_backup", False) is False
+
+    def test_never_backup_is_cloned_from_the_source_panel(self) -> None:
+        """A circuit an installer locked comes back locked."""
+        props = _base_properties()
+        props[f"{_PREFIX}/aaa111/never-backup"] = "true"
+        config = translate_scraped_panel(_make_scraped(props))
+        circuits = config["circuits"]
+        assert isinstance(circuits, list)
+        by_id = {c["id"]: c for c in circuits}
+        assert by_id["circuit_1"]["never_backup"] is True
+
     def test_panel_size_derivation(self) -> None:
         """Panel size rounds up to standard size from max space+companion."""
         config = translate_scraped_panel(_make_scraped())
