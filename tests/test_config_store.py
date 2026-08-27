@@ -141,3 +141,28 @@ class TestSaveToFile:
         store2.load_from_file(out)
         assert store2.get_panel_config()["serial_number"] == "SAVED"
         assert store2.dirty is False
+
+
+class TestEntityViewPriority:
+    """The dashboard's projection must agree with what the panel publishes."""
+
+    LOCKED_YAML = MINIMAL_YAML.replace(
+        "    tabs: [1]\n",
+        "    tabs: [1]\n    never_backup: true\n",
+    )
+
+    def test_unlocked_circuit_shows_its_template_priority(self) -> None:
+        store = ConfigStore()
+        store.load_from_yaml(MINIMAL_YAML)
+        view = store.list_entities()[0]
+        assert view.never_backup is False
+        assert view.priority == "NEVER"
+
+    def test_locked_circuit_shows_the_priority_the_wire_carries(self) -> None:
+        """A never-backup circuit is commissioned permanently OFF_GRID, so the
+        dashboard must not go on showing the NEVER its template declares."""
+        store = ConfigStore()
+        store.load_from_yaml(self.LOCKED_YAML)
+        view = store.list_entities()[0]
+        assert view.never_backup is True
+        assert view.priority == "OFF_GRID"

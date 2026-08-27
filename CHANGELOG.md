@@ -43,6 +43,9 @@ firmware does. `clone` now carries the flag over from the source panel, so a clo
 
 ### Also fixed
 
+- **The dashboard shows a locked circuit's priority as the panel publishes it.** Its entity view read the shed priority
+  off the circuit's template, so a never-backup circuit would have displayed the template's value while the wire carried
+  `OFF_GRID`.
 - **`circuit/sheddable` no longer claims a relay that cannot open is sheddable.** The consumer rule the guide gives for the retired property is
   `priority != NEVER && relay-controllable`; the second conjunct was missing, so an always-on circuit at `OFF_GRID` or `SOC_THRESHOLD` priority published
   `sheddable: true` while the emitter correctly refused to shed it.

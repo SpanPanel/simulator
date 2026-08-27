@@ -512,6 +512,11 @@ class Emitter:
                 # The guide's consumer rule for the retired flag: "compute
                 # ``load-shed/priority != NEVER && switch/relay-controllable``".
                 # A relay that cannot open cannot shed, whatever its priority.
+                # The conjunct is deliberately ``not always_on`` rather than
+                # ``relay_behavior == "controllable"``: the flat model has a third
+                # relay behaviour, ``non-controllable``, which the guide's
+                # two-valued ``relay-controllable`` does not distinguish, and only
+                # the always-on lock actually refuses a shed here.
                 is_sheddable=(
                     effective_priority in ("OFF_GRID", "SOC_THRESHOLD") and not cphys.always_on
                 ),

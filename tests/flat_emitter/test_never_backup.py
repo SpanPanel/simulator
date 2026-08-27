@@ -321,24 +321,38 @@ async def test_always_on_circuit_is_not_sheddable() -> None:
 
 # ---- the shipped configurations --------------------------------------------
 
+#: Every panel configuration this repository ships. The defect reached users
+#: through these, so each one is pinned rather than MAIN_40 standing in for the
+#: rest: all three carry NEVER-priority circuits, and all three lock none.
+SHIPPED_CONFIGS = sorted(Path("configs").glob("default_MAIN_*.yaml"))
+SHIPPED_CONFIG_IDS = [path.stem for path in SHIPPED_CONFIGS]
 
-def _first_never_priority_circuit(profile: dict[str, Any]) -> tuple[dict[str, Any], str]:
+
+def test_every_shipped_panel_config_is_covered() -> None:
+    """The parametrised pins below are only as good as this glob: an empty or
+    renamed ``configs/`` would silently collect zero cases."""
+    assert SHIPPED_CONFIG_IDS == ["default_MAIN_16", "default_MAIN_32", "default_MAIN_40"]
+
+
+def _first_never_priority_circuit(profile: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
     """The first circuit in a profile whose template is priority NEVER and
-    which no installer locked. Returns it with its emitted instance id."""
+    which no installer locked, with its emitted instance id. ``None`` when the
+    profile has no such circuit — it then has nothing to say about the defect."""
     templates = profile["circuit_templates"]
     for circuit in profile["circuits"]:
         template = templates.get(circuit.get("template", ""), {})
         if template.get("priority") == "NEVER" and "never_backup" not in circuit:
             return circuit, stable_circuit_uuid(circuit["id"])
-    raise AssertionError("fixture has no unlocked NEVER-priority circuit")
+    return None
 
 
 @pytest.mark.asyncio
-async def test_shipped_never_priority_circuit_is_unlocked_and_settable() -> None:
-    """The whole defect, reproduced from a shipped configuration.
+@pytest.mark.parametrize("config_path", SHIPPED_CONFIGS, ids=SHIPPED_CONFIG_IDS)
+async def test_shipped_never_priority_circuit_is_unlocked_and_settable(config_path: Path) -> None:
+    """The whole defect, reproduced from every shipped configuration.
 
-    ``configs/default_MAIN_40.yaml`` locks nothing — no circuit in it carries a
-    ``never_backup`` key — and several of its templates carry priority
+    None of them locks anything — no circuit in any of them carries a
+    ``never_backup`` key — and all of them carry templates at priority
     ``NEVER``. Such a circuit is an ordinary user-configurable one, exactly as
     the r202633 capture shows both of its NEVER circuits to be, so it must
     publish ``never-backup = false`` **and** take a ``shed-priority`` write.
@@ -348,8 +362,11 @@ async def test_shipped_never_priority_circuit_is_unlocked_and_settable() -> None
     circuit reported itself commissioned never-backup and a consumer withdrew
     its priority select — while the panel went on accepting writes to the
     priority it had just declared locked."""
-    profile = yaml.safe_load(Path("configs/default_MAIN_40.yaml").read_text())
-    circuit, cid = _first_never_priority_circuit(profile)
+    profile = yaml.safe_load(config_path.read_text())
+    found = _first_never_priority_circuit(profile)
+    if found is None:
+        pytest.skip(f"{config_path.name} has no unlocked NEVER-priority circuit")
+    circuit, cid = found
     serial = profile["panel_config"]["serial_number"]
     setters = SetterRegistry()
     mqtt = FakeMqttClient()
@@ -374,12 +391,15 @@ async def test_shipped_never_priority_circuit_is_unlocked_and_settable() -> None
 
 
 @pytest.mark.asyncio
-async def test_default_config_publishes_never_backup_false_on_every_circuit() -> None:
-    """``configs/default_MAIN_40.yaml`` commissions no locked circuit, and
-    several of its templates carry priority NEVER. Every circuit must therefore
-    publish ``never-backup = false`` -- the regression that hid the priority
-    select for two thirds of a panel."""
-    profile = yaml.safe_load(Path("configs/default_MAIN_40.yaml").read_text())
+@pytest.mark.parametrize("config_path", SHIPPED_CONFIGS, ids=SHIPPED_CONFIG_IDS)
+async def test_shipped_config_publishes_never_backup_false_on_every_circuit(
+    config_path: Path,
+) -> None:
+    """No shipped configuration commissions a locked circuit, and every one of
+    them carries templates at priority NEVER. Every circuit of every panel must
+    therefore publish ``never-backup = false`` -- the regression that hid the
+    priority select for two thirds of a panel."""
+    profile = yaml.safe_load(config_path.read_text())
     manifest = build_manifest(profile)
     mqtt = FakeMqttClient()
     em = Emitter(manifest, SetterRegistry(), mqtt)
@@ -387,7 +407,7 @@ async def test_default_config_publishes_never_backup_false_on_every_circuit() ->
     snap = await em.publish_tick(TickInputs(current_time=0.0, grid_online=True, circuits={}))
 
     assert any(c.priority == "NEVER" for c in snap.circuits.values()), (
-        "fixture no longer exercises NEVER-priority circuits"
+        f"{config_path.name} no longer exercises NEVER-priority circuits"
     )
     locked = sorted(cid for cid, c in snap.circuits.items() if c.is_never_backup)
     assert locked == []
