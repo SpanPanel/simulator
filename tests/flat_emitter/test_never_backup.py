@@ -28,10 +28,12 @@ These tests hold the two apart:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 
+from span_panel_simulator.emitter_adapter.instance_ids import stable_circuit_uuid
 from span_panel_simulator.emitter_adapter.spec_generator import build_manifest
 from span_panel_simulator.flat_emitter import (
     BESSConfig,
@@ -318,6 +320,57 @@ async def test_always_on_circuit_is_not_sheddable() -> None:
 
 
 # ---- the shipped configurations --------------------------------------------
+
+
+def _first_never_priority_circuit(profile: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """The first circuit in a profile whose template is priority NEVER and
+    which no installer locked. Returns it with its emitted instance id."""
+    templates = profile["circuit_templates"]
+    for circuit in profile["circuits"]:
+        template = templates.get(circuit.get("template", ""), {})
+        if template.get("priority") == "NEVER" and "never_backup" not in circuit:
+            return circuit, stable_circuit_uuid(circuit["id"])
+    raise AssertionError("fixture has no unlocked NEVER-priority circuit")
+
+
+@pytest.mark.asyncio
+async def test_shipped_never_priority_circuit_is_unlocked_and_settable() -> None:
+    """The whole defect, reproduced from a shipped configuration.
+
+    ``configs/default_MAIN_40.yaml`` locks nothing — no circuit in it carries a
+    ``never_backup`` key — and several of its templates carry priority
+    ``NEVER``. Such a circuit is an ordinary user-configurable one, exactly as
+    the r202633 capture shows both of its NEVER circuits to be, so it must
+    publish ``never-backup = false`` **and** take a ``shed-priority`` write.
+
+    Before the fix this failed on the first assertion: ``never-backup`` was
+    published as ``priority == "NEVER"``, so every "Stays on in an outage"
+    circuit reported itself commissioned never-backup and a consumer withdrew
+    its priority select — while the panel went on accepting writes to the
+    priority it had just declared locked."""
+    profile = yaml.safe_load(Path("configs/default_MAIN_40.yaml").read_text())
+    circuit, cid = _first_never_priority_circuit(profile)
+    serial = profile["panel_config"]["serial_number"]
+    setters = SetterRegistry()
+    mqtt = FakeMqttClient()
+    em = Emitter(build_manifest(profile), setters, mqtt)
+    await em.start()
+
+    snap = await em.publish_tick(TickInputs(current_time=0.0, grid_online=True, circuits={}))
+    assert snap.circuits[cid].priority == "NEVER", (
+        f"{circuit['id']} no longer exercises a NEVER priority"
+    )
+    assert snap.circuits[cid].is_never_backup is False
+    assert _retained(mqtt)[f"ebus/5/{serial}/{cid}/never-backup"] == "false"
+
+    # ... and its priority is settable, which is the other half of what
+    # `$settable = !never-backup` asserts about this circuit.
+    handler = setters.get("circuit", "circuit/shed-priority")
+    assert handler is not None
+    await handler("circuit", cid, "circuit/shed-priority", "OFF_GRID")
+    snap2 = await em.publish_tick(TickInputs(current_time=1.0, grid_online=True, circuits={}))
+    assert snap2.circuits[cid].priority == "OFF_GRID"
+    assert _retained(mqtt)[f"ebus/5/{serial}/{cid}/shed-priority"] == "OFF_GRID"
 
 
 @pytest.mark.asyncio
