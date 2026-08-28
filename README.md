@@ -2,6 +2,10 @@
 
 A standalone simulator that mimics real SPAN panel behavior.
 
+> **Retirement notice** — This simulator emulates SPAN firmware prior to **r202633**. It will be retired once
+> firmware r202633 is published. For panels on that firmware and later, use
+> [panelbench](https://github.com/SpanPanel/panelbench) with the SPAN integration 3.0.1 or newer.
+
 [![Open your Home Assistant instance and show the App Store.](https://my.home-assistant.io/badges/supervisor_store.svg)](https://my.home-assistant.io/redirect/supervisor_store/)
 
 - Provides mDNS discovery to panels not yet using the Home Assistant integration and direct connections to the SpanPanel SPAN integration for Home Assistant.
