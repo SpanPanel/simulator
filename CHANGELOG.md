@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.1.0 — 2026-08-28 — a fixed certificate authority, so a firmware upgrade looks like one
+
+**The certificate authority is now shipped with the package rather than generated at startup**, and is identical to the one panelbench ships. Stopping this
+simulator and starting panelbench rehearses a firmware upgrade on one panel — the config carries the serial across, and the panel keeps its address and ports —
+but every install minted its own authority, so the swap presented a new trust anchor and read as a panel substitution to anything pinned to the old one. A
+firmware upgrade does not rotate a panel's certificate authority, and now neither does the swap.
+
+Its SHA-256, the value Home Assistant pins and displays, is `3cf8c14a78900b8736870c95adcc931cdcb3a51bc3029c96efafd0a4cb790d97`.
+
+**Upgrading raises one "SPAN Panel certificate authority changed" repair, once, and it is expected.** The generated authority this install pinned is being
+replaced by the shipped one; open the repair, check the fingerprint against the value above, and accept it. Doing this now, at an ordinary add-on upgrade, is
+why the later swap to panelbench needs no repair at all — so upgrade this simulator before moving across, not after.
+
+The authority's private key is committed deliberately and is not a leaked secret. It signs nothing that chains to a real panel, which mints its own authority in
+firmware and is pinned per config entry, and a real panel ever reporting the fingerprint above would be conclusive evidence of tampering.
+
+### Fixed
+
+- **A changed advertised address or container hostname now re-signs only the server certificate**, where it used to regenerate the certificate authority along
+  with it and present a pinned consumer with a trust anchor that had rotated for no reason.
+- **A server certificate signed by a superseded authority is detected by signature rather than by issuer name**, which is the only way to tell two of these
+  authorities apart: every authority the simulator ever generated carries the same subject and none carries a key identifier.
+- **An expired or nearly expired server certificate is re-signed at startup** instead of being served until a handshake fails against an anchor that never
+  changed — a failure a pinned consumer correctly reports as retryable and then retries forever.
+- **A corrupt or unreadable server certificate is replaced rather than raised out of startup**, where it previously put the add-on into a restart loop.
+- **An advertised address that is not an IP address is ignored with a warning** instead of aborting certificate generation.
+- **Certificate files are written atomically**, so a container killed mid-write cannot leave a truncated certificate behind.
+- **The authority's private key is no longer written into the certificate directory**, and one left there by an earlier build is removed; nothing reads it, and
+  it was world-readable in a directory that survives upgrades.
+
 ## 1.0.18 — 2026-08-28 — an unreachable Home Assistant no longer aborts startup
 
 **`HAClient.async_validate` now degrades to `False` on a connection timeout** instead of letting the exception escape and take startup with it. The client sets

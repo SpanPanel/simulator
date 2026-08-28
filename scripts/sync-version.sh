@@ -23,7 +23,10 @@ DIRTY=0
 sync_file() {
     local file="$1" pattern="$2" replacement="$3"
     if ! grep -qF "$replacement" "$file"; then
-        sed -i '' "s|${pattern}|${replacement}|" "$file"
+        # No `-i`: BSD wants `-i ''` and GNU wants `-i` alone, and getting it
+        # wrong fails only on the platform you are not developing on. A temp
+        # file and a move behave the same everywhere.
+        sed "s|${pattern}|${replacement}|" "$file" > "$file.tmp" && mv "$file.tmp" "$file"
         git add "$file"
         echo "sync-version: updated $file -> $VERSION"
         DIRTY=1
