@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.18 — 2026-08-28 — an unreachable Home Assistant no longer aborts startup
+
+**`HAClient.async_validate` now degrades to `False` on a connection timeout** instead of letting the exception escape and take startup with it. The client sets
+`aiohttp.ClientTimeout(total=...)` on its requests, and an expired total timeout surfaces as the builtin `TimeoutError` — which is an `OSError`, not an
+`aiohttp.ClientError`, so the existing `except (aiohttp.ClientError, PermissionError)` never caught it. A slow or unreachable Home Assistant is exactly the case
+validation exists to report, and it was the one case that killed the simulator rather than continuing without HA. `OSError` joins the tuple, and the four
+failure shapes a caller can hit — timeout, refused connection, unauthorized, and a bare transport error — are pinned by tests.
+
+The README now carries a retirement notice: this simulator emulates SPAN firmware prior to r202633 and will be retired once that firmware is published. Panels
+on r202633 and later should use [panelbench](https://github.com/SpanPanel/panelbench) with SPAN integration 3.0.1 or newer.
+
 ## 1.0.17 — 2026-08-26 — never-backup is a commissioning flag, not a priority
 
 **`circuit/never-backup` is now published from a per-circuit configuration flag** and is no longer derived from the shed priority. It was emitted as

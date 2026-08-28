@@ -230,7 +230,11 @@ class HAClient:
             else:
                 _LOGGER.warning("HA API: unexpected response from /api/: %s", result)
             return ok
-        except (aiohttp.ClientError, PermissionError):
+        except (aiohttp.ClientError, OSError, PermissionError):
+            # OSError covers the transport-level failures aiohttp raises
+            # outside its own hierarchy — notably the builtin TimeoutError
+            # from ClientTimeout, which would otherwise abort startup
+            # instead of degrading to "continue without HA".
             _LOGGER.exception("HA API: validation failed")
             return False
 
