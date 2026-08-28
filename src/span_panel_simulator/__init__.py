@@ -1,3 +1,3 @@
 """Standalone eBus simulator for SPAN panels."""
 
-__version__ = "1.0.18"
+__version__ = "1.1.0"
