@@ -62,6 +62,10 @@ class CircuitPhysics:
     relay_behavior: str  # "controllable" | "always-on" | "non-controllable"
     placement: str  # "upstream-of-lugs" | "downstream-of-lugs"
     always_on: bool
+    # Installer commissioning lock: the circuit is permanently OFF_GRID and its
+    # priority is not settable. Independent of ``default_priority`` — a circuit
+    # whose priority is NEVER is an ordinary settable circuit, not a locked one.
+    never_backup: bool
     initial_consumed_wh: float
     initial_produced_wh: float
     pcs_priority: int = 0
@@ -351,6 +355,11 @@ def _parse_circuit(inst: DeviceInstance) -> CircuitPhysics:
         )
 
     always_on = _opt_bool(md, "always-on", default=relay_behavior == "always-on")
+    # ``never-backup`` is a commissioning input in its own right, so it has no
+    # default derived from anything else: a circuit is locked only when an
+    # installer locked it. Deriving it from ``default-priority == "NEVER"``
+    # inverted the meaning — NEVER is "never shed", not "not backed up".
+    never_backup = _opt_bool(md, "never-backup", default=False)
 
     return CircuitPhysics(
         tabs=tabs,
@@ -361,6 +370,7 @@ def _parse_circuit(inst: DeviceInstance) -> CircuitPhysics:
         relay_behavior=relay_behavior,
         placement=placement,
         always_on=always_on,
+        never_backup=never_backup,
         pcs_priority=_opt_int(md, "pcs-priority", 0),
         initial_consumed_wh=_opt_float(md, "initial-consumed-wh", 0.0),
         initial_produced_wh=_opt_float(md, "initial-produced-wh", 0.0),

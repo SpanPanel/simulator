@@ -125,9 +125,42 @@ def test_circuit_metadata_includes_physics_keys() -> None:
     assert kitchen.metadata["relay-behavior"] == "controllable"
     assert kitchen.metadata["placement"] == "downstream-of-lugs"
     assert kitchen.metadata["always-on"] == "false"
+    assert kitchen.metadata["never-backup"] == "false"
 
     hvac = by_name["HVAC"]
     assert hvac.metadata["tab-numbers"] == "3,4"
+
+
+def test_circuit_never_backup_is_per_circuit_not_per_template() -> None:
+    """The installer's lock belongs to one circuit; two circuits sharing a load
+    template can be commissioned differently, which is why the flag is read
+    from the circuit definition and not the template."""
+    profile = {
+        "panel_config": {"serial_number": "abc-123", "total_tabs": 40, "main_size": 200},
+        "circuit_templates": {
+            "resistive": {
+                "priority": "NEVER",
+                "relay_behavior": "controllable",
+                "breaker_rating_a": 30.0,
+            },
+        },
+        "circuits": [
+            {"id": "hot_tub", "name": "Hot Tub", "template": "resistive", "tabs": [1]},
+            {
+                "id": "pool_heater",
+                "name": "Pool Heater",
+                "template": "resistive",
+                "tabs": [3],
+                "never_backup": True,
+            },
+        ],
+    }
+    by_name = {c.display_name: c for c in build_manifest(profile).of_class("circuit")}
+    assert by_name["Hot Tub"].metadata["never-backup"] == "false"
+    assert by_name["Pool Heater"].metadata["never-backup"] == "true"
+    # Both keep the template's priority in the manifest; the lock's OFF_GRID is
+    # resolved at emit time, not baked into the circuit's commissioned value.
+    assert by_name["Pool Heater"].metadata["default-priority"] == "NEVER"
 
 
 def test_bess_metadata_includes_physics_keys() -> None:

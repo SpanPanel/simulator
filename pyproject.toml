@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "span-panel-simulator"
-version = "1.0.16"
+version = "1.0.17"
 description = "Standalone eBus simulator for SPAN panels"
 requires-python = ">=3.14"
 dependencies = [
@@ -36,7 +36,7 @@ dependencies = [
     # this file rather than the lockfile, so the declared bound is the operative control
     # in production. Raising it is a deliberate follow-up with its own testing, not a
     # side effect of moving code.
-    "ebus-sdk==0.19.0",
+    "ebus-sdk==0.23.1",
     "paho-mqtt>=2.0.0",
 ]
 

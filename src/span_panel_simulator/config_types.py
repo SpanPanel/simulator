@@ -206,6 +206,12 @@ class CircuitDefinitionExtended(CircuitDefinition, total=False):
 
     overrides: dict[str, Any]
     breaker_rating: int  # Per-circuit breaker rating in Amps (overrides template)
+    # Installer commissioning lock: this circuit is permanently OFF_GRID and
+    # its shed priority is not settable. Per-circuit, not per-template — one
+    # installation locks a circuit that another installation, on the same load
+    # template, leaves configurable. Independent of the template's `priority`:
+    # a NEVER priority means "never shed", which is not a lock. Default false.
+    never_backup: bool
     recorder_entity: str  # HA entity for recorder replay (also merged onto resolved template)
 
 

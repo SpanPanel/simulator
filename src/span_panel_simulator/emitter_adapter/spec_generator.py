@@ -150,6 +150,11 @@ def _circuit_instances(profile: SimulationConfig) -> list[DeviceInstance]:
                     "relay-behavior": relay_behavior,
                     "placement": str(c.get("placement", "downstream-of-lugs")),
                     "always-on": "true" if relay_behavior == "always-on" else "false",
+                    # Per-circuit installer lock, read from the circuit and not
+                    # the shared template, and never derived from `priority`:
+                    # NEVER is a shed value ("never shed"), never-backup is a
+                    # commissioning state ("permanently OFF_GRID, not settable").
+                    "never-backup": "true" if c.get("never_backup", False) else "false",
                     "pcs-priority": str(c.get("pcs_priority", idx)),
                 },
             ),

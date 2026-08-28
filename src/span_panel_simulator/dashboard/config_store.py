@@ -25,6 +25,7 @@ from span_panel_simulator.dashboard.presets import (
     get_evse_tuples,
     get_preset,
 )
+from span_panel_simulator.flat_emitter import LOCKED_PRIORITY
 from span_panel_simulator.solar import compute_solar_curve
 from span_panel_simulator.validation import validate_yaml_config
 from span_panel_simulator.weather import get_cached_weather
@@ -42,6 +43,9 @@ class EntityView:
     energy_profile: dict[str, Any]
     relay_behavior: str
     priority: str
+    # Installer commissioning lock; when set, ``priority`` is the locked
+    # OFF_GRID the panel publishes and is not settable.
+    never_backup: bool = False
     cycling_pattern: dict[str, Any] | None = None
     time_of_day_profile: dict[str, Any] | None = None
     smart_behavior: dict[str, Any] | None = None
@@ -336,7 +340,16 @@ class ConfigStore:
             tabs=list(circuit.get("tabs", [])),
             energy_profile=energy_profile,
             relay_behavior=template.get("relay_behavior", "controllable"),
-            priority=template.get("priority", "NEVER"),
+            # A never-backup circuit is commissioned permanently OFF_GRID, so
+            # that is the priority the panel publishes for it whatever its
+            # shared template declares. Read the template alone and the
+            # dashboard would show one priority while the wire carried another.
+            priority=(
+                LOCKED_PRIORITY
+                if circuit.get("never_backup")
+                else template.get("priority", "NEVER")
+            ),
+            never_backup=bool(circuit.get("never_backup")),
             cycling_pattern=template.get("cycling_pattern"),
             time_of_day_profile=template.get("time_of_day_profile"),
             smart_behavior=template.get("smart_behavior"),
