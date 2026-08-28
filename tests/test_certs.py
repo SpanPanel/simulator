@@ -9,6 +9,7 @@ served must always be the packaged one.
 
 from __future__ import annotations
 
+import base64
 import datetime
 import hashlib
 import ipaddress
@@ -349,6 +350,39 @@ class TestForeignKeyMaterialIsAnsweredNotRaised:
         second = generate_certificates(certs)
 
         assert _leaf_of(second).serial_number != first_leaf
+
+    def test_a_leaf_with_an_unknown_signature_oid_forces_a_resign(self, tmp_path: Path) -> None:
+        """`signature_hash_algorithm` raises for an OID cryptography cannot name.
+
+        Distinct from the Ed25519 case below, which returns None rather than
+        raising. This is the arm that would escape the predicate and take
+        startup with it, so it is driven directly rather than assumed.
+
+        Built by replacing the sha256WithRSAEncryption OID with an unassigned
+        arc of the same length, which keeps every DER length prefix valid; the
+        certificate still parses, and the algorithm is only rejected on access.
+        """
+        certs = tmp_path / "certs"
+        first = generate_certificates(certs)
+        first_leaf = _leaf_of(first).serial_number
+
+        der = _leaf_of(first).public_bytes(serialization.Encoding.DER)
+        mutated = der.replace(
+            bytes.fromhex("06092a864886f70d01010b"),  # sha256WithRSAEncryption
+            bytes.fromhex("06092a864886f70d01017f"),  # unassigned, same length
+        )
+        assert mutated != der, "the signature OID should have been present to patch"
+        (certs / "server.crt").write_bytes(
+            b"-----BEGIN CERTIFICATE-----\n"
+            + base64.encodebytes(mutated)
+            + b"-----END CERTIFICATE-----\n"
+        )
+
+        # The contract is "unfit, re-sign" -- never an exception out of startup.
+        second = generate_certificates(certs)
+
+        assert _leaf_of(second).serial_number != first_leaf
+        assert _fingerprint(second.ca_cert_pem) == STATIC_CA_FINGERPRINT
 
     def test_a_leaf_signed_with_ed25519_forces_a_resign(self, tmp_path: Path) -> None:
         """`signature_hash_algorithm` is None for Ed25519, not an error to raise."""
