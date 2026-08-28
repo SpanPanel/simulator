@@ -37,7 +37,7 @@ from importlib import resources
 from typing import TYPE_CHECKING
 
 from cryptography import x509
-from cryptography.exceptions import InvalidSignature
+from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
@@ -187,19 +187,24 @@ def _issued_by(leaf: x509.Certificate, ca_cert: x509.Certificate) -> bool:
     authority -- and the emulator would then serve a chain its own published
     authority rejects, which a pinned consumer cannot recover from.
     """
-    if leaf.signature_hash_algorithm is None:
-        return False
     public_key = ca_cert.public_key()
     if not isinstance(public_key, rsa.RSAPublicKey):
         return False
     try:
+        # Read inside the guard: this raises `UnsupportedAlgorithm` for a
+        # signature OID `cryptography` does not know, and returns None for the
+        # Ed25519/Ed448 family. Neither is a leaf this authority signed, and
+        # neither may escape into a startup that cannot survive an exception.
+        algorithm = leaf.signature_hash_algorithm
+        if algorithm is None:
+            return False
         public_key.verify(
             leaf.signature,
             leaf.tbs_certificate_bytes,
             padding.PKCS1v15(),
-            leaf.signature_hash_algorithm,
+            algorithm,
         )
-    except (InvalidSignature, ValueError, TypeError):
+    except (InvalidSignature, ValueError, TypeError, UnsupportedAlgorithm):
         return False
     return True
 
@@ -214,9 +219,19 @@ def _key_matches(cert: x509.Certificate, key_path: Path) -> bool:
     """
     try:
         key = serialization.load_pem_private_key(key_path.read_bytes(), password=None)
-    except (FileNotFoundError, OSError, ValueError, TypeError):
+    except (FileNotFoundError, OSError, ValueError, TypeError, UnsupportedAlgorithm):
         return False
-    return key.public_key().public_numbers() == cert.public_key().public_numbers()  # type: ignore[union-attr]
+    # Compared as DER public bytes rather than by key-type-specific numbers, so
+    # that a key of some other algorithm answers False like any other mismatch
+    # instead of raising out of a predicate that promises never to.
+    encoding = serialization.Encoding.DER
+    fmt = serialization.PublicFormat.SubjectPublicKeyInfo
+    try:
+        return key.public_key().public_bytes(encoding, fmt) == cert.public_key().public_bytes(
+            encoding, fmt
+        )
+    except (ValueError, UnsupportedAlgorithm):
+        return False
 
 
 def _leaf_is_fit(

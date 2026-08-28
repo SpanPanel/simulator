@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import ed25519, padding, rsa
 from cryptography.x509.oid import NameOID
 
 from span_panel_simulator.certs import (
@@ -325,6 +325,77 @@ class TestLeafIsResignedWithoutTouchingTheAuthority:
 
         assert (certs / "server.key").exists()
         assert _leaf_of(second).serial_number != first_leaf
+
+
+class TestForeignKeyMaterialIsAnsweredNotRaised:
+    """`_leaf_is_fit` promises never to raise; startup cannot survive one.
+
+    Both paths here run under `set -euo pipefail`, where an exception is not a
+    diagnostic but an add-on that will not boot.
+    """
+
+    def test_a_server_key_of_another_algorithm_forces_a_resign(self, tmp_path: Path) -> None:
+        certs = tmp_path / "certs"
+        first = generate_certificates(certs)
+        first_leaf = _leaf_of(first).serial_number
+        (certs / "server.key").write_bytes(
+            ed25519.Ed25519PrivateKey.generate().private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            )
+        )
+
+        second = generate_certificates(certs)
+
+        assert _leaf_of(second).serial_number != first_leaf
+
+    def test_a_leaf_signed_with_ed25519_forces_a_resign(self, tmp_path: Path) -> None:
+        """`signature_hash_algorithm` is None for Ed25519, not an error to raise."""
+        certs = tmp_path / "certs"
+        certs.mkdir()
+        ca_key = ed25519.Ed25519PrivateKey.generate()
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "SPAN Simulator CA")])
+        now = datetime.datetime.now(datetime.UTC)
+        ca = (
+            x509.CertificateBuilder()
+            .subject_name(name)
+            .issuer_name(name)
+            .public_key(ca_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(days=1))
+            .not_valid_after(now + datetime.timedelta(days=365))
+            .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+            .sign(ca_key, None)
+        )
+        leaf_key = ed25519.Ed25519PrivateKey.generate()
+        leaf = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "panelbench")]))
+            .issuer_name(name)
+            .public_key(leaf_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(days=1))
+            .not_valid_after(now + datetime.timedelta(days=365))
+            .add_extension(
+                x509.SubjectAlternativeName([x509.DNSName("localhost")]), critical=False
+            )
+            .sign(ca_key, None)
+        )
+        (certs / "server.crt").write_bytes(leaf.public_bytes(serialization.Encoding.PEM))
+        (certs / "server.key").write_bytes(
+            leaf_key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            )
+        )
+
+        bundle = generate_certificates(certs)
+
+        assert _fingerprint(bundle.ca_cert_pem) == STATIC_CA_FINGERPRINT
+        assert _leaf_of(bundle).signature_hash_algorithm is not None
+        assert ca.subject != _leaf_of(bundle).issuer
 
 
 class TestSanEdgeCases:
