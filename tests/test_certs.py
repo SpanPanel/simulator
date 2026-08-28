@@ -286,6 +286,34 @@ class TestLeafIsResignedWithoutTouchingTheAuthority:
 
         assert _leaf_of(bundle).subject is not None
 
+    def test_a_key_that_does_not_match_the_leaf_forces_a_resign(self, tmp_path: Path) -> None:
+        """A torn write can leave a certificate and a key from two generations.
+
+        Both parse, so nothing here objects; the mismatch surfaces only when
+        mosquitto refuses to start with a message about its keyfile, naming
+        nothing that would lead anyone to the real problem.
+        """
+        certs = tmp_path / "certs"
+        first = generate_certificates(certs)
+        first_leaf = _leaf_of(first).serial_number
+        stray = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        (certs / "server.key").write_bytes(
+            stray.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.TraditionalOpenSSL,
+                serialization.NoEncryption(),
+            )
+        )
+
+        second = generate_certificates(certs)
+
+        assert _leaf_of(second).serial_number != first_leaf
+        # The pair that ends up on disk actually is a pair.
+        key = serialization.load_pem_private_key(
+            (certs / "server.key").read_bytes(), password=None
+        )
+        assert key.public_key().public_numbers() == _leaf_of(second).public_key().public_numbers()
+
     def test_a_missing_leaf_key_forces_a_resign(self, tmp_path: Path) -> None:
         """A certificate without its key cannot be served."""
         certs = tmp_path / "certs"

@@ -204,8 +204,24 @@ def _issued_by(leaf: x509.Certificate, ca_cert: x509.Certificate) -> bool:
     return True
 
 
+def _key_matches(cert: x509.Certificate, key_path: Path) -> bool:
+    """Whether `key_path` holds the private key for `cert`.
+
+    A certificate and a key from two different generations both parse, and the
+    mismatch surfaces only when mosquitto refuses to start with a message about
+    its keyfile rather than anything naming the real problem. Compared by public
+    key, which is the only thing that actually has to agree.
+    """
+    try:
+        key = serialization.load_pem_private_key(key_path.read_bytes(), password=None)
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        return False
+    return key.public_key().public_numbers() == cert.public_key().public_numbers()  # type: ignore[union-attr]
+
+
 def _leaf_is_fit(
     cert_path: Path,
+    key_path: Path,
     ca_cert: x509.Certificate,
     address: str | None,
     dns_name: str | None,
@@ -214,9 +230,10 @@ def _leaf_is_fit(
 
     One predicate rather than a chain of special cases, because every way a
     leaf can be unfit has the same remedy: sign a new one. It is unfit if it
-    cannot be parsed, if this authority did not sign it, if it has expired or
-    is about to, or if it does not name the address and hostname this install
-    answers on.
+    cannot be parsed, if this authority did not sign it, if its private key is
+    missing or is not the one it was issued for, if it has expired or is about
+    to, or if it does not name the address and hostname this install answers
+    on.
 
     Every failure is answered False rather than raised. This runs at startup
     under ``set -euo pipefail``; an exception here is not a diagnostic, it is a
@@ -229,6 +246,10 @@ def _leaf_is_fit(
 
     if not _issued_by(cert, ca_cert):
         _LOGGER.info("The server certificate in %s was signed by another authority", cert_path)
+        return False
+
+    if not _key_matches(cert, key_path):
+        _LOGGER.info("The server certificate in %s has no matching private key", cert_path)
         return False
 
     if cert.not_valid_after_utc - _LEAF_RENEWAL_MARGIN <= datetime.datetime.now(datetime.UTC):
@@ -345,8 +366,8 @@ def generate_certificates(
     server_cert_path = output_dir / "server.crt"
     server_key_path = output_dir / "server.key"
 
-    if _leaf_is_fit(server_cert_path, ca_cert, advertise_address, socket.gethostname()) and (
-        server_key_path.exists()
+    if _leaf_is_fit(
+        server_cert_path, server_key_path, ca_cert, advertise_address, socket.gethostname()
     ):
         _LOGGER.info("Reusing the server certificate in %s", output_dir)
     else:
