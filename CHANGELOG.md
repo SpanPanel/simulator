@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.1 — 2026-08-28 — the same panel on both sides of a firmware upgrade
+
+**1.2.0 let Home Assistant add a simulated panel; this release lets it keep one across the swap to panelbench.** Stopping this simulator and starting panelbench
+is meant to rehearse a firmware upgrade on a single panel, and a panel does not change address or move its TLS port when its firmware changes. Two things here
+did, and each was enough on its own to lose the panel at the swap.
+
+**If you noted this add-on's TLS port from 1.2.0, it has moved.** A panel on HTTP 8081 now serves TLS on 9081 rather than 8443. Nothing needs changing by hand —
+the port is published in discovery and Home Assistant picks it up — but a firewall rule or a note written against the old number is now out of date.
+
+### Fixed
+
+- **A panel registered through the Supervisor now reports the advertised address rather than the container hostname**, which Home Assistant wrote over the
+  address a user had configured, leaving the entry pointing at a name the panel's certificate does not carry.
+- **A panel now serves TLS on its HTTP port plus 1000, the rule panelbench already follows**, where it used a separate base of 8443 and so appeared to move its
+  TLS port across an upgrade that should not have changed it.
+
 ## 1.2.0 — 2026-08-28 — the panel serves TLS, so Home Assistant can finish adding it
 
 **Each panel now serves its bootstrap API over HTTPS as well as HTTP**, on a second port allocated alongside the HTTP one. The certificate it presents is signed
@@ -10,10 +26,9 @@ because nothing ever served the certificate this add-on has always minted.
 and only then sends the passphrase — so registration never crosses the wire in the clear. With no TLS listener that check could not pass at any port, and the
 config flow stopped at "The certificate this panel serves is not signed by the authority it published" no matter what was entered.
 
-**The TLS port is published in discovery, so Home Assistant does not ask for it.** It is the panel's HTTP port plus 1000 — a panel on 8081 serves TLS on 9081 —
-which is the rule panelbench already follows, so a panel keeps the same TLS port across the simulator-to-panelbench swap the way it would across a firmware
-upgrade. Panels found over mDNS carry it as `httpsPort`, and panels registered through the Supervisor carry it as `https_port`, so nobody has to read it out of
-a log.
+**The TLS port is published in discovery, so Home Assistant does not ask for it.** It is allocated per panel and reallocated across restarts, so this add-on is
+the only party that knows it; a user left to answer would have to guess, and 443 — the sensible guess — is never right here. Panels found over mDNS carry it as
+`httpsPort`, and panels registered through the Supervisor carry it as `https_port`.
 
 The plain HTTP port keeps serving the whole API. Deciding a panel is a SPAN panel at all, and fetching the authority, both necessarily happen before a consumer
 holds an anchor, so neither can be placed behind one.
@@ -27,8 +42,6 @@ holds an anchor, so neither can be placed behind one.
 - **Stale discovery entries left by an earlier run are cleaned up at startup**, which silently did nothing for the same reason.
 - **The address advertised to the network, and named in the certificate, is now this machine's own**, where it was the default route's gateway — a neighbouring
   router — which left no address a consumer could verify the panel by.
-- **A panel registered through the Supervisor now reports the advertised address rather than the container hostname**, which Home Assistant wrote over the
-  address a user had configured, leaving the entry pointing at a name the panel's certificate does not carry.
 
 ## 1.1.0 — 2026-08-28 — a fixed certificate authority, so a firmware upgrade looks like one
 
