@@ -319,7 +319,7 @@ ebus/5/{serial}/{node}/{property}
 | `core`            | Panel state: door, relay, voltages, grid status, dominant power source |
 | `upstream-lugs`   | Grid-facing: power, currents, energy                                   |
 | `downstream-lugs` | Load-facing: feedthrough power, currents                               |
-| `{circuit-uuid}`  | Per-circuit: relay, power, energy, shed-priority                       |
+| `{circuit-uuid}`  | Per-circuit: relay, power, energy, shed-priority. UUIDv5 of `{serial}/{circuit-id}` |
 | `bess-0`          | Battery: SOC, grid-state, capacity                                     |
 | `pv-0`            | Solar inverter: nameplate capacity                                     |
 | `evse-0`          | EV charger: status, lock state, advertised current                     |

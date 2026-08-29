@@ -85,7 +85,9 @@ def test_load_shedding_config_custom_threshold() -> None:
 
 
 def test_evse_tick_inputs_include_each_evse_feed() -> None:
+    panel_id = "sim-40t-001"
     config = {
+        "panel_config": {"serial_number": panel_id},
         "circuit_templates": {
             "span_drive": {"device_type": "evse"},
             "lighting": {},
@@ -97,10 +99,23 @@ def test_evse_tick_inputs_include_each_evse_feed() -> None:
         ],
     }
     circuit_powers = {
-        stable_circuit_uuid("span_drive_garage"): 7200.0,
-        stable_circuit_uuid("span_drive_driveway"): 3600.0,
+        stable_circuit_uuid(panel_id, "span_drive_garage"): 7200.0,
+        stable_circuit_uuid(panel_id, "span_drive_driveway"): 3600.0,
     }
-    assert _evse_tick_inputs(config, circuit_powers) == {
+    assert _evse_tick_inputs(config, panel_id, circuit_powers) == {
         "evse": 7200.0,
         "evse-2": 3600.0,
     }
+
+
+def test_evse_tick_inputs_miss_the_feed_when_scoped_to_another_panel() -> None:
+    """The feed lookup and the tick keys must be scoped with the same serial.
+    Scoping them differently does not raise -- it silently reports every drive
+    at zero -- so the mismatch is pinned rather than left to be noticed."""
+    config = {
+        "panel_config": {"serial_number": "sim-40t-001"},
+        "circuit_templates": {"span_drive": {"device_type": "evse"}},
+        "circuits": [{"id": "span_drive_garage", "template": "span_drive"}],
+    }
+    circuit_powers = {stable_circuit_uuid("sim-40t-001", "span_drive_garage"): 7200.0}
+    assert _evse_tick_inputs(config, "sim-40t-002", circuit_powers) == {"evse": 0.0}

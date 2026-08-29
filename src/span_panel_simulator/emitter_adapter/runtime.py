@@ -249,7 +249,14 @@ async def start_clone(
         3. Default 127.0.0.1:1883 anonymous (no TLS)."""
     manifest = build_manifest(engine.config)
 
-    uuid_to_circuit_id = {stable_circuit_uuid(c["id"]): c["id"] for c in engine.config["circuits"]}
+    # ``engine.serial_number`` is the loaded config's ``panel_config.serial_number``
+    # — the same key ``build_manifest`` scopes circuit uuids with, read after the
+    # ``sim-`` prefix has been applied. Reading it any other way here would map the
+    # published uuids back to nothing.
+    panel_id = engine.serial_number
+    uuid_to_circuit_id = {
+        stable_circuit_uuid(panel_id, c["id"]): c["id"] for c in engine.config["circuits"]
+    }
 
     # The emitter registers internal default /set handlers from the empty
     # SetterRegistry — no producer-side wiring required.
@@ -311,7 +318,11 @@ async def publish_tick(runtime: CloneRuntime) -> EbusPanelSnapshot:
         current_time=raw["current_time"],
         grid_online=raw["grid_online"],
         circuits=raw["circuits"],
-        evse=_evse_tick_inputs(runtime.engine.config, raw["circuits"]),
+        evse=_evse_tick_inputs(
+            runtime.engine.config,
+            runtime.engine.serial_number,
+            raw["circuits"],
+        ),
         envelope=PanelEnvelopeTick(),
     )
     return await runtime.emitter.publish_tick(tick)
@@ -326,6 +337,7 @@ async def stop_clone(runtime: CloneRuntime, *, graceful: bool = True) -> None:
 
 def _evse_tick_inputs(
     config: SimulationConfig,
+    panel_id: str,
     circuit_powers: dict[str, float],
 ) -> dict[str, float]:
     """Mirror EVSE feed-circuit power into TickInputs.evse.
@@ -344,7 +356,7 @@ def _evse_tick_inputs(
         raw_feed = evse_cfg.get("feed")
         explicit_feed = str(raw_feed) if raw_feed else None
 
-    feeds = [explicit_feed] if explicit_feed else _feeds_for_device_type(config, "evse")
+    feeds = [explicit_feed] if explicit_feed else _feeds_for_device_type(config, panel_id, "evse")
     return {
         (base_evse_id if idx == 1 else f"{base_evse_id}-{idx}"): circuit_powers.get(feed, 0.0)
         for idx, feed in enumerate(feeds, start=1)
@@ -352,12 +364,20 @@ def _evse_tick_inputs(
     }
 
 
-def _first_feed_for_device_type(config: SimulationConfig, device_type: str) -> str | None:
-    feeds = _feeds_for_device_type(config, device_type)
+def _first_feed_for_device_type(
+    config: SimulationConfig,
+    panel_id: str,
+    device_type: str,
+) -> str | None:
+    feeds = _feeds_for_device_type(config, panel_id, device_type)
     return feeds[0] if feeds else None
 
 
-def _feeds_for_device_type(config: SimulationConfig, device_type: str) -> list[str]:
+def _feeds_for_device_type(
+    config: SimulationConfig,
+    panel_id: str,
+    device_type: str,
+) -> list[str]:
     templates = config.get("circuit_templates")
     circuits = config.get("circuits")
     if not isinstance(templates, dict) or not isinstance(circuits, list):
@@ -373,5 +393,5 @@ def _feeds_for_device_type(config: SimulationConfig, device_type: str) -> list[s
         if isinstance(template, dict) and template.get("device_type") == device_type:
             circuit_id = item.get("id")
             if circuit_id is not None:
-                feeds.append(stable_circuit_uuid(str(circuit_id)))
+                feeds.append(stable_circuit_uuid(panel_id, str(circuit_id)))
     return feeds

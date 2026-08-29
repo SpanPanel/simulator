@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.2 — 2026-08-28 — a circuit keeps its identity across the swap to panelbench
+
+**Circuit ids are now derived from the panel serial as well as the circuit id, matching panelbench byte for byte.** Stopping this add-on and starting
+panelbench is how a firmware upgrade is rehearsed on one panel, and Home Assistant keys a circuit's entities on the id the panel publishes — so while the two
+derived that id differently, every circuit changed identity at the swap and its entities were stranded.
+
+**A simulated panel already added to Home Assistant has to be removed and re-added.** Its circuits get new ids, so their entities do not carry over; nothing
+else about the panel changes, and a panel added after this release needs nothing.
+
+### Fixed
+
+- **A circuit now keeps its identity when a simulated panel is swapped for the panelbench build of the same panel**, where the two derived circuit ids
+  differently and every circuit arrived as a new device with its history and automations left behind on the old one.
+
 ## 1.2.1 — 2026-08-28 — the same panel on both sides of a firmware upgrade
 
 **1.2.0 let Home Assistant add a simulated panel; this release lets it keep one across the swap to panelbench.** Stopping this simulator and starting panelbench

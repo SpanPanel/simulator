@@ -29,11 +29,16 @@ def test_build_manifest_includes_bess_when_enabled() -> None:
 
 
 def test_build_manifest_derives_pv_and_evse_from_device_type_templates() -> None:
-    manifest = build_manifest(_profile())
+    profile = _profile()
+    # Read from the fixture rather than hardcoded: a feed uuid is scoped to the
+    # owning panel, so a test that scoped with some other serial would assert a
+    # value the manifest never emits.
+    panel_id = profile["panel_config"]["serial_number"]
+    manifest = build_manifest(profile)
 
     pv = manifest.of_class("pv")[0]
     assert pv.instance_id == "pv"
-    assert pv.metadata["feed"] == stable_circuit_uuid("solar_inverter")
+    assert pv.metadata["feed"] == stable_circuit_uuid(panel_id, "solar_inverter")
     assert pv.metadata["relative-position"] == "IN_PANEL"
 
     # The node id is the drive serial, not a positional slot. `evse` / `evse-2` were
@@ -43,12 +48,12 @@ def test_build_manifest_derives_pv_and_evse_from_device_type_templates() -> None
     # still pass if one of them were derived some other way that happened to match.
     evse = manifest.of_class("evse")[0]
     assert evse.instance_id == evse.metadata["serial-number"]
-    assert evse.metadata["feed"] == stable_circuit_uuid("span_drive_garage")
+    assert evse.metadata["feed"] == stable_circuit_uuid(panel_id, "span_drive_garage")
     assert len(manifest.of_class("evse")) == 2
     second = manifest.of_class("evse")[1]
     assert second.instance_id == second.metadata["serial-number"]
     assert second.instance_id != evse.instance_id, "two drives must not share a node id"
-    assert second.metadata["feed"] == stable_circuit_uuid("span_drive_driveway")
+    assert second.metadata["feed"] == stable_circuit_uuid(panel_id, "span_drive_driveway")
 
 
 def test_build_manifest_omits_native_devices_when_disabled() -> None:
@@ -220,3 +225,40 @@ def test_circuit_relay_behavior_translates_underscore_to_hyphen() -> None:
     c = build_manifest(profile).of_class("circuit")[0]
     assert c.metadata["relay-behavior"] == "always-on"
     assert c.metadata["always-on"] == "true"
+
+
+def test_two_panels_sharing_circuit_ids_emit_distinct_circuit_devices() -> None:
+    """The same YAML circuit ids appear in every panel config, so an unscoped
+    uuid gave two panels one circuit identity. PanelBench publishes circuits
+    flat and collided on the wire for this reason; here the ids must simply
+    match PanelBench's, so that swapping one for the other does not re-key
+    every circuit."""
+
+    def _profile_for(serial: str) -> dict:
+        return {
+            "panel_config": {"serial_number": serial, "total_tabs": 40, "main_size": 200},
+            "circuit_templates": {"lighting": {"priority": "NICE_TO_HAVE"}},
+            "circuits": [
+                {"id": "kitchen", "name": "Kitchen", "template": "lighting", "tabs": [1]},
+                {"id": "oven", "name": "Oven", "template": "lighting", "tabs": [3]},
+            ],
+        }
+
+    first = {c.instance_id for c in build_manifest(_profile_for("sim-a")).of_class("circuit")}
+    second = {c.instance_id for c in build_manifest(_profile_for("sim-b")).of_class("circuit")}
+    assert len(first) == 2
+    assert not first & second
+
+
+def test_evse_feed_points_at_the_circuit_device_this_panel_publishes() -> None:
+    """The feed is a cross-reference to a circuit's device id, so it has to be
+    scoped with the same serial the circuit instance was — not left unscoped
+    while the circuit moved, which would point every drive at nothing."""
+    profile = {
+        "panel_config": {"serial_number": "sim-a", "total_tabs": 40, "main_size": 200},
+        "circuit_templates": {"span_drive": {"device_type": "evse"}},
+        "circuits": [{"id": "garage", "name": "Garage", "template": "span_drive", "tabs": [1]}],
+    }
+    manifest = build_manifest(profile)
+    circuit_ids = {c.instance_id for c in manifest.of_class("circuit")}
+    assert manifest.of_class("evse")[0].metadata["feed"] in circuit_ids

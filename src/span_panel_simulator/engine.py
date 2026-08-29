@@ -913,6 +913,10 @@ class DynamicSimulationEngine:
 
         from span_panel_simulator.emitter_adapter.instance_ids import stable_circuit_uuid
 
+        # Circuit uuids are scoped to the owning panel, so the keys handed to the
+        # emitter must be scoped with the serial the manifest was built from —
+        # ``self.serial_number`` reads the same ``panel_config`` key.
+        panel_id = self.serial_number
         current_time = self._clock.current_time
         for _cid, circuit in self._circuits.items():
             # Tab-sync grouping currently has no override path — the
@@ -928,7 +932,7 @@ class DynamicSimulationEngine:
         for cid, circuit in self._circuits.items():
             mag = circuit.instant_power_w
             signed = -mag if circuit.energy_mode == "producer" else mag
-            circuit_powers[stable_circuit_uuid(cid)] = signed
+            circuit_powers[stable_circuit_uuid(panel_id, cid)] = signed
 
         return {
             "current_time": current_time,

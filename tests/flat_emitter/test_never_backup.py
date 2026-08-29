@@ -338,11 +338,12 @@ def _first_never_priority_circuit(profile: dict[str, Any]) -> tuple[dict[str, An
     """The first circuit in a profile whose template is priority NEVER and
     which no installer locked, with its emitted instance id. ``None`` when the
     profile has no such circuit — it then has nothing to say about the defect."""
+    panel_id = profile["panel_config"]["serial_number"]
     templates = profile["circuit_templates"]
     for circuit in profile["circuits"]:
         template = templates.get(circuit.get("template", ""), {})
         if template.get("priority") == "NEVER" and "never_backup" not in circuit:
-            return circuit, stable_circuit_uuid(circuit["id"])
+            return circuit, stable_circuit_uuid(panel_id, circuit["id"])
     return None
 
 
