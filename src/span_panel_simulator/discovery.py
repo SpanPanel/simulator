@@ -83,7 +83,13 @@ class PanelAdvertiser:
         _LOGGER.info("mDNS advertiser stopped")
 
     async def register_panel(
-        self, serial: str, firmware: str, *, model: str = "MAIN_32", port: int = 80
+        self,
+        serial: str,
+        firmware: str,
+        *,
+        model: str = "MAIN_32",
+        port: int = 80,
+        https_port: int = 443,
     ) -> None:
         """Advertise a panel on the local network.
 
@@ -113,6 +119,14 @@ class PanelAdvertiser:
         # the HA integration discovers the correct HTTP bootstrap address
         if port != 80:
             ebus_properties["httpPort"] = str(port)
+
+        # And httpsPort likewise. A consumer that pins the published authority
+        # has to know where the leaf it validates is served, and only this
+        # process knows: the port is allocated per panel and reallocated across
+        # restarts, so a consumer left to guess would guess 443 and find
+        # nothing. Publishing it is what keeps that question off the user.
+        if https_port != 443:
+            ebus_properties["httpsPort"] = str(https_port)
 
         # _span._tcp properties
         span_properties: dict[str, str] = {
@@ -151,10 +165,11 @@ class PanelAdvertiser:
 
         self._services[serial] = services
         _LOGGER.info(
-            "Advertised panel %s on %s (ebus SRV port 0, HTTP port %d)",
+            "Advertised panel %s on %s (ebus SRV port 0, HTTP port %d, HTTPS port %d)",
             serial,
             ", ".join(addresses),
             port,
+            https_port,
         )
 
     async def unregister_panel(self, serial: str) -> None:

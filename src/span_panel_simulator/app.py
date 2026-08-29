@@ -25,6 +25,7 @@ from span_panel_simulator.certs import generate_certificates
 from span_panel_simulator.const import (
     DASHBOARD_PORT,
     DEFAULT_BASE_HTTP_PORT,
+    DEFAULT_BASE_HTTPS_PORT,
     DEFAULT_BROKER_PASSWORD,
     DEFAULT_BROKER_USERNAME,
     DEFAULT_FIRMWARE_VERSION,
@@ -111,6 +112,7 @@ class SimulatorApp:
         broker_host: str = "localhost",
         broker_port: int = MQTTS_PORT,
         base_http_port: int = DEFAULT_BASE_HTTP_PORT,
+        base_https_port: int = DEFAULT_BASE_HTTPS_PORT,
         cert_dir: Path | None = None,
         homie_schema_path: Path | None = None,
         dashboard_port: int = DASHBOARD_PORT,
@@ -126,6 +128,7 @@ class SimulatorApp:
         self._broker_host = broker_host
         self._broker_port = broker_port
         self._base_http_port = base_http_port
+        self._base_https_port = base_https_port
         self._cert_dir = cert_dir or Path("/tmp/span-sim-certs")
         self._homie_schema_path = homie_schema_path
         self._dashboard_port = dashboard_port
@@ -139,6 +142,9 @@ class SimulatorApp:
         self._panel_start_errors: dict[str, str] = {}  # filename -> last error message
         self._panel_servers: dict[str, BootstrapHttpServer] = {}
         self._panel_ports: dict[str, int] = {}
+        self._panel_https_ports: dict[str, int] = {}
+        # One pool across both bases so an HTTP port can never be handed out
+        # as an HTTPS one, however the two ranges are configured to overlap.
         self._used_ports: set[int] = set()
         self._dashboard_runner: web.AppRunner | None = None
         self._advertiser: PanelAdvertiser | None = None
@@ -155,9 +161,9 @@ class SimulatorApp:
     # Port allocation
     # ------------------------------------------------------------------
 
-    def _allocate_port(self) -> int:
-        """Return the lowest available port from the base."""
-        port = self._base_http_port
+    def _allocate_port(self, base: int | None = None) -> int:
+        """Return the lowest available port at or above ``base``."""
+        port = self._base_http_port if base is None else base
         while port in self._used_ports:
             port += 1
         self._used_ports.add(port)
@@ -178,6 +184,10 @@ class SimulatorApp:
     def _get_panel_ports(self) -> dict[str, int]:
         """Return a mapping of serial number to HTTP port for running panels."""
         return dict(self._panel_ports)
+
+    def _get_panel_https_ports(self) -> dict[str, int]:
+        """Return a mapping of serial number to HTTPS port for running panels."""
+        return dict(self._panel_https_ports)
 
     def _get_panel_start_errors(self) -> dict[str, str]:
         """Return the most recent per-filename start/reload errors."""
@@ -343,59 +353,78 @@ class SimulatorApp:
         self._panels[config_path] = panel
         self._serial_to_panel[serial] = panel
 
-        # Create per-panel bootstrap HTTP server with port allocation
-        port = self._allocate_port()
-        server = BootstrapHttpServer(
-            serial,
-            self._firmware,
-            self._certs,
-            panel_schema,
-            broker_username=self._broker_username,
-            broker_password=self._broker_password,
-            broker_host=self._broker_host,
-            port=port,
-        )
+        # Create the per-panel bootstrap server on a freshly allocated port
+        # pair. Both are retried together: the server binds HTTP and HTTPS as
+        # one unit, so a collision on either means this pair is unusable and
+        # the panel needs another.
+        # Bound outside the closure: `self._certs` is optional and mutable, so
+        # the narrowing asserted at the top of this method does not reach into
+        # a nested function.
+        certs = self._certs
+
+        def _build(http_port: int, https_port: int) -> BootstrapHttpServer:
+            return BootstrapHttpServer(
+                serial,
+                self._firmware,
+                certs,
+                panel_schema,
+                broker_username=self._broker_username,
+                broker_password=self._broker_password,
+                broker_host=self._broker_host,
+                port=http_port,
+                https_port=https_port,
+            )
+
         max_port_retries = 20
+        port = self._allocate_port()
+        https_port = self._allocate_port(self._base_https_port)
         for _attempt in range(max_port_retries):
+            server = _build(port, https_port)
             try:
                 await server.start()
                 break
             except OSError as exc:
                 if exc.errno != errno.EADDRINUSE:
                     raise
-                _LOGGER.warning("Port %d in use for panel %s, trying next port", port, serial)
-                self._release_port(port)
-                port = self._allocate_port()
-                server = BootstrapHttpServer(
+                _LOGGER.warning(
+                    "Ports %d/%d in use for panel %s, trying the next pair",
+                    port,
+                    https_port,
                     serial,
-                    self._firmware,
-                    self._certs,
-                    panel_schema,
-                    broker_username=self._broker_username,
-                    broker_password=self._broker_password,
-                    broker_host=self._broker_host,
-                    port=port,
                 )
+                self._release_port(port)
+                self._release_port(https_port)
+                port = self._allocate_port()
+                https_port = self._allocate_port(self._base_https_port)
         else:
+            self._release_port(port)
+            self._release_port(https_port)
             raise OSError(
-                f"Could not find an available port for panel {serial} "
+                f"Could not find an available port pair for panel {serial} "
                 f"after {max_port_retries} attempts"
             )
 
         self._panel_servers[serial] = server
         self._panel_ports[serial] = port
+        self._panel_https_ports[serial] = https_port
 
         # Register with mDNS advertiser
         if self._advertiser is not None:
             await self._advertiser.register_panel(
-                serial, self._firmware, model=panel_model, port=port
+                serial, self._firmware, model=panel_model, port=port, https_port=https_port
             )
 
         # Register with Supervisor Discovery
         if self._supervisor_discovery is not None and self._supervisor_discovery.is_available:
-            await self._supervisor_discovery.register_panel(serial, port)
+            await self._supervisor_discovery.register_panel(serial, port, https_port)
 
-        _LOGGER.info("Registered panel %s from %s on port %d", serial, config_path.name, port)
+        _LOGGER.info(
+            "Registered panel %s from %s on ports %d/%d (http/https)",
+            serial,
+            config_path.name,
+            port,
+            https_port,
+        )
         return panel
 
     async def _load_recorder_data(self, config_path: Path) -> RecorderDataSource | None:
@@ -543,10 +572,13 @@ class SimulatorApp:
         if server is not None:
             await server.stop()
 
-        # Release allocated port
+        # Release the allocated port pair
         port = self._panel_ports.pop(serial, None)
         if port is not None:
             self._release_port(port)
+        https_port = self._panel_https_ports.pop(serial, None)
+        if https_port is not None:
+            self._release_port(https_port)
 
         # Unregister from mDNS
         if self._advertiser is not None:
