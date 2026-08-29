@@ -9,6 +9,10 @@ MQTTS_PORT = 18883
 WS_PORT = 19001
 WSS_PORT = 19002
 DEFAULT_BASE_HTTP_PORT = 8081
+# Real panels serve the bootstrap API over plain HTTP on 80 and over TLS on 443.
+# The simulator keeps that split -- consumers pin the published authority and then
+# talk to the panel over it -- but on offset ports, one pair per panel.
+DEFAULT_BASE_HTTPS_PORT = 8443
 DASHBOARD_PORT = 18080
 
 # Default simulation parameters

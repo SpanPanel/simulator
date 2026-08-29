@@ -1,8 +1,24 @@
 """Bootstrap HTTP server — single-panel per instance.
 
 Each simulated panel gets its own ``BootstrapHttpServer`` bound to a
-unique port, matching real SPAN hardware where each panel is a separate
-device on a different IP.
+unique port pair, matching real SPAN hardware where each panel is a
+separate device on a different IP.
+
+Two listeners serve the same routes, mirroring a real panel's 80/443:
+
+  * HTTP  -- how a consumer that holds no anchor yet reaches the panel. It
+    probes ``/api/v2/status`` to decide whether this is a SPAN panel at all
+    and fetches ``/api/v2/certificate/ca`` to obtain one. Both necessarily
+    predate the anchor, so neither can be behind it.
+  * HTTPS -- the same routes under the leaf this panel's published authority
+    signed. A consumer pins that authority and then does everything else
+    here, so registration -- the exchange carrying the passphrase and
+    returning the broker password -- never crosses the wire in the clear.
+
+The route table is deliberately not split between them. Which endpoints a
+consumer chooses to reach over which listener is the consumer's decision,
+and hard-coding one client's current split into the panel would make the
+simulator lie about hardware the moment that client changed its mind.
 
 Endpoints:
   GET  /api/v2/status           -> panel identity (serialNumber, firmwareVersion)
@@ -16,6 +32,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import secrets
+import ssl
 import time
 from typing import TYPE_CHECKING
 
@@ -54,7 +71,8 @@ class BootstrapHttpServer:
         broker_password: str = DEFAULT_BROKER_PASSWORD,
         broker_host: str = "localhost",
         host: str = "0.0.0.0",
-        port: int = 443,
+        port: int = 80,
+        https_port: int = 443,
     ) -> None:
         self._serial = serial
         self._firmware = firmware
@@ -64,6 +82,7 @@ class BootstrapHttpServer:
         self._broker_host = broker_host
         self._host = host
         self._port = port
+        self._https_port = https_port
 
         self._homie_schema = schema.raw_json
         self._app = web.Application()
@@ -148,21 +167,52 @@ class BootstrapHttpServer:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    def _ssl_context(self) -> ssl.SSLContext:
+        """Build the TLS context from this panel's leaf.
+
+        The leaf is signed by the same authority ``/api/v2/certificate/ca``
+        publishes, which is the whole point: a consumer that pins what the
+        panel hands out must find the pin validates what the panel serves.
+        """
+        context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        context.load_cert_chain(
+            certfile=str(self._certs.server_cert_path),
+            keyfile=str(self._certs.server_key_path),
+        )
+        return context
+
     async def start(self) -> None:
-        """Start the HTTP server."""
+        """Start the HTTP and HTTPS listeners.
+
+        Both are bound before either is reported started, so a caller that
+        retries on ``EADDRINUSE`` never inherits a half-bound server: the
+        runner cleanup in the failure path takes down whichever site did come
+        up. Started HTTPS-first so the noisier failure surfaces first.
+        """
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
-        site = web.TCPSite(self._runner, self._host, self._port)
-        await site.start()
+        try:
+            https_site = web.TCPSite(
+                self._runner, self._host, self._https_port, ssl_context=self._ssl_context()
+            )
+            await https_site.start()
+            http_site = web.TCPSite(self._runner, self._host, self._port)
+            await http_site.start()
+        except BaseException:
+            await self._runner.cleanup()
+            self._runner = None
+            raise
         _LOGGER.info(
-            "Bootstrap HTTP server for %s listening on %s:%d",
+            "Bootstrap server for %s listening on http://%s:%d and https://%s:%d",
             self._serial,
             self._host,
             self._port,
+            self._host,
+            self._https_port,
         )
 
     async def stop(self) -> None:
-        """Stop the HTTP server."""
+        """Stop both listeners."""
         if self._runner is not None:
             await self._runner.cleanup()
             self._runner = None

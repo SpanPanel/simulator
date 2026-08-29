@@ -59,6 +59,29 @@ async def test_register_panel_posts_to_supervisor(discovery: SupervisorDiscovery
     mock_session.post.assert_called_once()
 
 
+async def test_register_panel_publishes_both_ports(discovery: SupervisorDiscovery):
+    """The registration carries the TLS port as well as the HTTP one.
+
+    A consumer that pins the authority this panel publishes then has to reach
+    the leaf that authority signed, and only the simulator knows where: the
+    port is allocated per panel and reallocated across restarts. Publishing it
+    is what stops the consumer assuming 443 and finding nothing there.
+    """
+    mock_session = _mock_session(200, {"result": "ok", "data": {"uuid": "disc-uuid-123"}})
+    with (
+        patch("aiohttp.ClientSession", return_value=mock_session),
+        patch(
+            "span_panel_simulator.supervisor_discovery._container_hostname",
+            return_value="f8c38f2b-span-panel-simulator",
+        ),
+    ):
+        await discovery.register_panel("sim-001", 8081, 8443)
+
+    config = mock_session.post.call_args.kwargs["json"]["config"]
+    assert config["port"] == 8081
+    assert config["https_port"] == 8443
+
+
 async def test_unregister_panel_deletes_from_supervisor(discovery: SupervisorDiscovery):
     """unregister_panel DELETEs /discovery/{uuid}."""
     discovery._entries["sim-001"] = "disc-uuid-123"

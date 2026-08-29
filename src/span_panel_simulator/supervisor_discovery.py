@@ -99,11 +99,17 @@ class SupervisorDiscovery:
         finally:
             await session.close()
 
-    async def register_panel(self, serial: str, port: int) -> None:
+    async def register_panel(self, serial: str, port: int, https_port: int = 443) -> None:
         """Register a panel with the Supervisor Discovery API.
 
         The host is always the container hostname — HA Core resolves it
         via Docker DNS.  No-ops if not in add-on mode.
+
+        ``https_port`` is published alongside the HTTP one because a consumer
+        that pins the authority this panel serves then has to reach the leaf
+        that authority signed, and this process is the only party that knows
+        where: the port is allocated per panel and reallocated across restarts.
+        Omitting it leaves the consumer to assume 443 and find nothing there.
         """
         if not self._token:
             return
@@ -114,6 +120,7 @@ class SupervisorDiscovery:
             "config": {
                 "host": host,
                 "port": port,
+                "https_port": https_port,
                 "serial": serial,
             },
         }
