@@ -9,10 +9,32 @@ MQTTS_PORT = 18883
 WS_PORT = 19001
 WSS_PORT = 19002
 DEFAULT_BASE_HTTP_PORT = 8081
-# Real panels serve the bootstrap API over plain HTTP on 80 and over TLS on 443.
-# The simulator keeps that split -- consumers pin the published authority and then
-# talk to the panel over it -- but on offset ports, one pair per panel.
-DEFAULT_BASE_HTTPS_PORT = 8443
+
+# Real panels serve the bootstrap API over plain HTTP on 80 and over TLS on 443,
+# and keep both across a firmware upgrade. Simulated panels sit on non-standard
+# HTTP ports so they can share a host, and their TLS port is derived from it by a
+# fixed offset rather than allocated separately: a client that has been told one
+# port can then be told the other by the same discovery record, with no second
+# pool to keep in step.
+#
+# The offset matches panelbench. Stopping this simulator and starting panelbench
+# rehearses a firmware upgrade on one panel, so the two have to agree on where a
+# given panel serves TLS -- a panel that moved its TLS port across an upgrade is
+# not a panel that was upgraded.
+DEFAULT_HTTPS_PORT = 443
+HTTPS_PORT_OFFSET = 1000
+
+
+def https_port_for(http_port: int) -> int:
+    """Return the TLS port a panel serves on given its bootstrap HTTP port.
+
+    One definition, because three parties need the same answer: the panel that
+    binds the listener, the discovery records that publish it, and anyone
+    reading a port out of the log to add a panel by hand.
+    """
+    return http_port + HTTPS_PORT_OFFSET
+
+
 DASHBOARD_PORT = 18080
 
 # Default simulation parameters

@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.1 — 2026-08-28 — the same panel on both sides of a firmware upgrade
+
+**1.2.0 let Home Assistant add a simulated panel; this release lets it keep one across the swap to panelbench.** Stopping this simulator and starting panelbench
+is meant to rehearse a firmware upgrade on a single panel, and a panel does not change address or move its TLS port when its firmware changes. Two things here
+did, and each was enough on its own to lose the panel at the swap.
+
+**If you noted this add-on's TLS port from 1.2.0, it has moved.** A panel on HTTP 8081 now serves TLS on 9081 rather than 8443. Nothing needs changing by hand —
+the port is published in discovery and Home Assistant picks it up — but a firewall rule or a note written against the old number is now out of date.
+
+### Fixed
+
+- **A panel registered through the Supervisor now reports the advertised address rather than the container hostname**, which Home Assistant wrote over the
+  address a user had configured, leaving the entry pointing at a name the panel's certificate does not carry.
+- **A panel now serves TLS on its HTTP port plus 1000, the rule panelbench already follows**, where it used a separate base of 8443 and so appeared to move its
+  TLS port across an upgrade that should not have changed it.
+
 ## 1.2.0 — 2026-08-28 — the panel serves TLS, so Home Assistant can finish adding it
 
 **Each panel now serves its bootstrap API over HTTPS as well as HTTP**, on a second port allocated alongside the HTTP one. The certificate it presents is signed

@@ -12,7 +12,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from span_panel_simulator.const import DEFAULT_FIRMWARE_VERSION
+from span_panel_simulator.const import (
+    DEFAULT_FIRMWARE_VERSION,
+    HTTPS_PORT_OFFSET,
+    https_port_for,
+)
 from span_panel_simulator.discovery import SERVICE_TYPE_EBUS, PanelAdvertiser
 
 
@@ -40,10 +44,10 @@ async def _ebus_properties(advertiser: PanelAdvertiser, **kwargs: int) -> dict[b
 
 async def test_non_standard_ports_are_both_published(advertiser: PanelAdvertiser) -> None:
     """A panel on offset ports advertises both of them."""
-    props = await _ebus_properties(advertiser, port=8081, https_port=8443)
+    props = await _ebus_properties(advertiser, port=8081, https_port=https_port_for(8081))
 
     assert props[b"httpPort"] == b"8081"
-    assert props[b"httpsPort"] == b"8443"
+    assert props[b"httpsPort"] == b"9081"
 
 
 async def test_standard_ports_are_left_unsaid(advertiser: PanelAdvertiser) -> None:
@@ -57,3 +61,17 @@ async def test_standard_ports_are_left_unsaid(advertiser: PanelAdvertiser) -> No
 
     assert b"httpPort" not in props
     assert b"httpsPort" not in props
+
+
+def test_the_tls_port_offset_matches_panelbench() -> None:
+    """The offset is a contract with panelbench, not a local preference.
+
+    Stopping this simulator and starting panelbench rehearses a firmware upgrade
+    on one panel, and a panel that moved its TLS port across an upgrade is not a
+    panel that was upgraded. Both derive it as http + 1000; changing this number
+    on one side alone silently breaks that rehearsal, so it is pinned here
+    rather than left to whatever the constant happens to say.
+    """
+    assert HTTPS_PORT_OFFSET == 1000
+    assert https_port_for(8081) == 9081
+    assert https_port_for(80) == 1080
