@@ -19,11 +19,39 @@ LOG_LEVEL=$(jq -r '.log_level' "${OPTIONS_FILE}")
 DASHBOARD_ENABLED=$(jq -r '.dashboard_enabled' "${OPTIONS_FILE}")
 BASE_HTTP_PORT=$(jq -r '.base_http_port // 8081' "${OPTIONS_FILE}")
 
-# Auto-detect host IP for TLS cert SAN.
-# Inside a bridge-networked container the default gateway is the host.
-# Strip control characters — some container ip implementations emit trailing
-# non-printables that would break Python string literals or cert generation.
-ADVERTISE_ADDRESS=$(ip route | awk '/default/ { print $3 }' | tr -d '[:cntrl:]' || true)
+# Auto-detect the address a client on the LAN reaches this add-on at. It goes
+# into the leaf certificate's SAN and into the mDNS advertisement, so getting it
+# wrong leaves no address a client can verify us by.
+#
+# This ran `ip route | awk '/default/ { print $3 }'` and took the *gateway*. The
+# reasoning held for a bridge-networked container, where the default gateway is
+# the host -- but this add-on sets `host_network: true` (config.yaml), so the
+# container shares the host's network namespace and reads the host's routing
+# table. `$3` of `default via 192.168.65.1 dev eth0` is then the upstream
+# router: a neighbouring device, named in our certificate, that is not us.
+#
+# `ip route get` is a routing-table lookup rather than a probe -- it sends no
+# packets and needs nothing at the far address to be reachable. It answers the
+# question that actually matters, which source address the kernel would put on a
+# reply, and stays right on an interface holding several addresses where taking
+# the first one listed would not.
+#
+#   $ ip -4 route get 1.1.1.1
+#   1.1.1.1 via 192.168.65.1 dev eth0 src 192.168.65.19 uid 0
+#                                         ^^^^^^^^^^^^^ what we want
+#
+# Control characters are stripped because some container `ip` implementations
+# emit trailing non-printables, which would break cert generation downstream.
+detect_advertise_address() {
+    ip -4 route get 1.1.1.1 2>/dev/null \
+        | awk '{ for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit } }' \
+        | tr -d '[:cntrl:]' || true
+}
+
+# An address supplied by the environment wins over detection: scripts/run-local.sh
+# sets one, and an operator on a multi-homed host may need to pick which of its
+# addresses the panel is known by.
+ADVERTISE_ADDRESS="${ADVERTISE_ADDRESS:-$(detect_advertise_address)}"
 export ADVERTISE_ADDRESS
 export CERT_DIR="/data/certs"
 export BROKER_USERNAME="span"
