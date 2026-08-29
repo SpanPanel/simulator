@@ -30,6 +30,18 @@ _SUPERVISOR_DISCOVERY_URL = "http://supervisor/discovery"
 _SERVICE_NAME = "span_panel"
 
 
+def _payload(body: object) -> dict[str, object]:
+    """Unwrap a Supervisor API response envelope.
+
+    Every Supervisor endpoint answers ``{"result": ..., "data": {...}}``;
+    the fields we want live under ``data``, never at the top level.
+    """
+    if not isinstance(body, dict):
+        return {}
+    data = body.get("data")
+    return data if isinstance(data, dict) else {}
+
+
 class SupervisorDiscovery:
     """Manages Supervisor Discovery entries for simulated panels."""
 
@@ -59,9 +71,11 @@ class SupervisorDiscovery:
             async with session.get(_SUPERVISOR_DISCOVERY_URL, headers=self._headers()) as resp:
                 if resp.status != 200:
                     return
-                data = await resp.json()
+                body = await resp.json()
 
-            entries = data.get("discovery", [])
+            entries = _payload(body).get("discovery", [])
+            if not isinstance(entries, list):
+                return
             for entry in entries:
                 if entry.get("service") != _SERVICE_NAME:
                     continue
@@ -112,8 +126,8 @@ class SupervisorDiscovery:
                 headers=self._headers(),
             ) as resp:
                 if resp.status == 200:
-                    data = await resp.json()
-                    uuid = data.get("uuid")
+                    body = await resp.json()
+                    uuid = _payload(body).get("uuid")
                     if isinstance(uuid, str) and uuid:
                         self._entries[serial] = uuid
                         _LOGGER.info(
@@ -125,7 +139,7 @@ class SupervisorDiscovery:
                         _LOGGER.warning(
                             "Supervisor discovery: register %s returned invalid uuid: %s",
                             serial,
-                            data,
+                            body,
                         )
                 else:
                     text = await resp.text()

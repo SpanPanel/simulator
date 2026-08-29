@@ -45,7 +45,7 @@ def _mock_session(response_status: int, response_json: dict | None = None) -> Ma
 
 async def test_register_panel_posts_to_supervisor(discovery: SupervisorDiscovery):
     """register_panel POSTs to /discovery and tracks the UUID."""
-    mock_session = _mock_session(200, {"uuid": "disc-uuid-123"})
+    mock_session = _mock_session(200, {"result": "ok", "data": {"uuid": "disc-uuid-123"}})
     with (
         patch("aiohttp.ClientSession", return_value=mock_session),
         patch(
@@ -100,7 +100,9 @@ async def test_cleanup_stale_on_startup(discovery: SupervisorDiscovery):
     ]
     get_resp = AsyncMock()
     get_resp.status = 200
-    get_resp.json = AsyncMock(return_value={"discovery": existing_entries})
+    get_resp.json = AsyncMock(
+        return_value={"result": "ok", "data": {"discovery": existing_entries}}
+    )
 
     del_resp = AsyncMock()
     del_resp.status = 200
