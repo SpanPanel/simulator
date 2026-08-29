@@ -45,8 +45,9 @@ def _payload(body: object) -> dict[str, object]:
 class SupervisorDiscovery:
     """Manages Supervisor Discovery entries for simulated panels."""
 
-    def __init__(self) -> None:
+    def __init__(self, advertise_address: str | None = None) -> None:
         self._token = os.environ.get("SUPERVISOR_TOKEN")
+        self._advertise_address = advertise_address
         self._entries: dict[str, str] = {}  # serial -> discovery UUID
 
     @property
@@ -102,8 +103,22 @@ class SupervisorDiscovery:
     async def register_panel(self, serial: str, port: int, https_port: int = 443) -> None:
         """Register a panel with the Supervisor Discovery API.
 
-        The host is always the container hostname — HA Core resolves it
-        via Docker DNS.  No-ops if not in add-on mode.
+        The host registered is the advertised address when one is known. That is
+        the address the panel's certificate names, and the integration's
+        Supervisor path rewrites an existing entry's host to whatever is
+        registered here -- deliberately and without the guard its other
+        discovery routes apply, because an add-on legitimately reallocates its
+        own ports. So registering anything the leaf does not name silently moves
+        a working entry to an address that cannot pass verification.
+
+        The container hostname is the fallback rather than the rule. Under
+        ``host_network: true`` it is only a per-add-on alias for the host, so it
+        is absent from the other emulator's certificate and differs between the
+        two -- which breaks the simulator-to-panelbench upgrade rehearsal, where
+        the panel is supposed to keep its identity across the swap. The
+        advertised address is what both emulators share.
+
+        No-ops if not in add-on mode.
 
         ``https_port`` is published alongside the HTTP one because a consumer
         that pins the authority this panel serves then has to reach the leaf
@@ -114,7 +129,7 @@ class SupervisorDiscovery:
         if not self._token:
             return
 
-        host = _container_hostname()
+        host = self._advertise_address or _container_hostname()
         payload = {
             "service": _SERVICE_NAME,
             "config": {

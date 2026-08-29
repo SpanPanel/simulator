@@ -7,13 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from aiohttp import ClientSession
 
+from span_panel_simulator.const import https_port_for
 from span_panel_simulator.supervisor_discovery import SupervisorDiscovery
 
 
 @pytest.fixture
 def discovery() -> SupervisorDiscovery:
     """Discovery client with a fake token (simulates add-on mode)."""
-    d = SupervisorDiscovery()
+    d = SupervisorDiscovery(advertise_address="192.168.1.50")
     d._token = "test-token"
     return d
 
@@ -75,11 +76,56 @@ async def test_register_panel_publishes_both_ports(discovery: SupervisorDiscover
             return_value="f8c38f2b-span-panel-simulator",
         ),
     ):
-        await discovery.register_panel("sim-001", 8081, 8443)
+        await discovery.register_panel("sim-001", 8081, https_port_for(8081))
 
     config = mock_session.post.call_args.kwargs["json"]["config"]
     assert config["port"] == 8081
-    assert config["https_port"] == 8443
+    assert config["https_port"] == 9081
+
+
+async def test_register_panel_uses_the_advertised_address_as_host(
+    discovery: SupervisorDiscovery,
+):
+    """The host registered is the address the panel's certificate names.
+
+    The integration rewrites an existing entry's host to whatever is registered
+    here, so registering anything the leaf does not name moves a working entry
+    to an address that cannot pass verification.
+    """
+    mock_session = _mock_session(200, {"result": "ok", "data": {"uuid": "disc-uuid-123"}})
+    with (
+        patch("aiohttp.ClientSession", return_value=mock_session),
+        patch(
+            "span_panel_simulator.supervisor_discovery._container_hostname",
+            return_value="f8c38f2b-span-panel-simulator",
+        ),
+    ):
+        await discovery.register_panel("sim-001", 8081)
+
+    assert mock_session.post.call_args.kwargs["json"]["config"]["host"] == "192.168.1.50"
+
+
+async def test_the_container_hostname_is_only_a_fallback():
+    """With no advertised address there is nothing better than the hostname.
+
+    Worse than an address the certificate names, but it is what the add-on can
+    still be reached by, and refusing to register at all would be worse again.
+    """
+    discovery = SupervisorDiscovery()
+    discovery._token = "test-token"
+
+    mock_session = _mock_session(200, {"result": "ok", "data": {"uuid": "disc-uuid-123"}})
+    with (
+        patch("aiohttp.ClientSession", return_value=mock_session),
+        patch(
+            "span_panel_simulator.supervisor_discovery._container_hostname",
+            return_value="f8c38f2b-span-panel-simulator",
+        ),
+    ):
+        await discovery.register_panel("sim-001", 8081)
+
+    host = mock_session.post.call_args.kwargs["json"]["config"]["host"]
+    assert host == "f8c38f2b-span-panel-simulator"
 
 
 async def test_unregister_panel_deletes_from_supervisor(discovery: SupervisorDiscovery):
