@@ -210,6 +210,9 @@ run_simulator() {
     echo "==> Starting simulator..."
     echo "    Config:     ${config_dir}"
     echo "    HTTP:       ${advertise_addr}:${HTTP_PORT}"
+    # Derived, not configured -- see https_port_for() in const.py. Shown because
+    # adding a panel by hand needs the TLS port and it is not the one typed in.
+    echo "    HTTPS:      ${advertise_addr}:$((HTTP_PORT + 1000))"
     echo "    Dashboard:  http://${advertise_addr:-localhost}:${DASHBOARD_PORT}"
     echo "    MQTTS:      ${advertise_addr}:${BROKER_PORT}"
     if [[ -n "${advertise_addr}" ]]; then
